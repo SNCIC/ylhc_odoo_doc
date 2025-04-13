@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 会计凭证模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 会计凭证模块(account_move)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>account_move.py是Odoo 18中处理会计凭证的核心模块。它定义了会计凭证的结构、状态流转和业务逻辑,是整个会计系统的核心组件。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>会计凭证的创建和管理</li>
+            <li>发票和账单处理</li>
+            <li>凭证状态管理</li>
+            <li>自动编号和序列</li>
+            <li>多币种支持</li>
+            <li>税务处理</li>
+            <li>付款管理</li>
+            <li>对账和核销</li>
+        </ul>
+    </div>
+
+    <div class="main-fields">
+        <h2>主要字段</h2>
+
+        <section class="field-group">
+            <h3>基本信息字段</h3>
+            <pre><code>
+name = fields.Char(string='Number', compute='_compute_name', store=True)
+ref = fields.Char(string='Reference', copy=False)
+date = fields.Date(string='Date', required=True)
+state = fields.Selection([
+    ('draft', 'Draft'),
+    ('posted', 'Posted'),
+    ('cancel', 'Cancelled')
+], string='Status')
+move_type = fields.Selection([
+    ('entry', 'Journal Entry'),
+    ('out_invoice', 'Customer Invoice'),
+    ('out_refund', 'Customer Credit Note'),
+    ('in_invoice', 'Vendor Bill'),
+    ('in_refund', 'Vendor Credit Note'),
+    ('out_receipt', 'Sales Receipt'),
+    ('in_receipt', 'Purchase Receipt'),
+])
+            </code></pre>
+        </section>
+
+        <section class="field-group">
+            <h3>关联字段</h3>
+            <pre><code>
+journal_id = fields.Many2one('account.journal', required=True)
+company_id = fields.Many2one('res.company', required=True)
+partner_id = fields.Many2one('res.partner')
+currency_id = fields.Many2one('res.currency')
+line_ids = fields.One2many('account.move.line', 'move_id')
+            </code></pre>
+        </section>
+
+        <section class="field-group">
+            <h3>金额字段</h3>
+            <pre><code>
+amount_untaxed = fields.Monetary(compute='_compute_amount')
+amount_tax = fields.Monetary(compute='_compute_amount')
+amount_total = fields.Monetary(compute='_compute_amount')
+amount_residual = fields.Monetary(compute='_compute_amount')
+            </code></pre>
+        </section>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_compute_amount</h3>
+            <pre><code>@api.depends('line_ids.balance', 'line_ids.amount_currency', 'line_ids.amount_residual', 'line_ids.amount_residual_currency')</code></pre>
+            <p>计算凭证的各项金额。这是一个复杂的计算过程,需要考虑:</p>
+            <ul>
+                <li>明细行的余额</li>
+                <li>外币金额</li>
+                <li>税额</li>
+                <li>未核销金额</li>
+            </ul>
+            <div class="example">
+                <pre><code>
+# 金额计算示例
+move = self.env['account.move'].browse(move_id)
+print(f"未税金额: {move.amount_untaxed}")
+print(f"税额: {move.amount_tax}")
+print(f"总金额: {move.amount_total}")
+print(f"未核销金额: {move.amount_residual}")
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>action_post</h3>
+            <pre><code>def action_post(self)</code></pre>
+            <p>将凭证过账。这个过程包括:</p>
+            <ul>
+                <li>验证凭证数据</li>
+                <li>生成凭证编号</li>
+                <li>更新科目余额</li>
+                <li>创建税务分录</li>
+                <li>触发工作流</li>
+            </ul>
+            <div class="example">
+                <pre><code>
+# 过账凭证
+move = self.env['account.move'].browse(move_id)
+move.action_post()
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_reverse_moves</h3>
+            <pre><code>def _reverse_moves(self, default_values_list=None, cancel=False)</code></pre>
+            <p>创建反向凭证。用于:</p>
+            <ul>
+                <li>红字发票</li>
+                <li>冲销分录</li>
+                <li>取消操作</li>
+            </ul>
+            <div class="example">
+                <pre><code>
+# 创建红字发票
+invoice = self.env['account.move'].browse(invoice_id)
+reversed_moves = invoice._reverse_moves(
+    default_values_list=[{
+        'ref': f'红字发票 {invoice.name}',
+        'date': fields.Date.today(),
+    }]
+)
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>状态流转</h3>
+        <pre><code>
+@api.depends('posted_before', 'state', 'journal_id', 'date')
+def _compute_name(self):
+    """根据状态计算凭证编号"""
+    for move in self:
+        if move.state == 'draft':
+            move.name = '/'
+        elif not move.name:
+            move.name = move._get_sequence().next_by_id()
+        </code></pre>
+
+        <h3>金额计算流程</h3>
+        <pre><code>
+@api.depends('line_ids.balance', 'line_ids.amount_currency', 'line_ids.amount_residual', 'line_ids.amount_residual_currency', 'line_ids.payment_id.state')
+def _compute_amount(self):
+    """计算凭证金额"""
+    for move in self:
+        total_untaxed = 0.0
+        total_tax = 0.0
+        total_residual = 0.0
+        total = 0.0
+        
+        for line in move.line_ids:
+            if line.tax_line_id:
+                total_tax += line.balance
+            else:
+                total_untaxed += line.balance
+            total += line.balance
+            total_residual += line.amount_residual
+            
+        move.amount_untaxed = total_untaxed
+        move.amount_tax = total_tax
+        move.amount_total = total
+        move.amount_residual = total_residual
+        </code></pre>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 创建客户发票</h3>
+        <pre><code>
+# 创建客户发票
+invoice = self.env['account.move'].create({
+    'move_type': 'out_invoice',
+    'partner_id': customer.id,
+    'invoice_date': fields.Date.today(),
+    'journal_id': sales_journal.id,
+    'invoice_line_ids': [
+        (0, 0, {
+            'product_id': product.id,
+            'quantity': 1.0,
+            'price_unit': 100.0,
+            'tax_ids': [(6, 0, [tax.id])],
+        })
+    ],
+})
+        </code></pre>
+
+        <h3>2. 创建付款凭证</h3>
+        <pre><code>
+# 创建付款凭证
+payment = self.env['account.move'].create({
+    'move_type': 'entry',
+    'journal_id': bank_journal.id,
+    'date': fields.Date.today(),
+    'line_ids': [
+        (0, 0, {
+            'account_id': payable_account.id,
+            'partner_id': vendor.id,
+            'debit': amount,
+            'credit': 0.0,
+        }),
+        (0, 0, {
+            'account_id': bank_account.id,
+            'partner_id': vendor.id,
+            'debit': 0.0,
+            'credit': amount,
+        }),
+    ],
+})
+        </code></pre>
+
+        <h3>3. 发票核销</h3>
+        <pre><code>
+# 核销发票和付款
+invoice = self.env['account.move'].browse(invoice_id)
+payment = self.env['account.move'].browse(payment_id)
+
+(invoice.line_ids + payment.line_ids).filtered(
+    lambda line: line.account_id.reconcile
+).reconcile()
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>使用正确的凭证类型</li>
+            <li>保持借贷平衡</li>
+            <li>及时过账和核销</li>
+            <li>正确设置税务信息</li>
+            <li>定期检查未过账凭证</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 凭证无法过账</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>借贷不平衡</li>
+                    <li>必填字段缺失</li>
+                    <li>期间已锁定</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查借贷平衡</li>
+                    <li>补充必填信息</li>
+                    <li>检查会计期间设置</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 金额计算错误</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>税率设置问题</li>
+                    <li>汇率问题</li>
+                    <li>舍入问题</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查税率配置</li>
+                    <li>验证汇率设置</li>
+                    <li>调整舍入方式</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>过账前仔细检查</li>
+            <li>注意期间锁定设置</li>
+            <li>关注汇率变动影响</li>
+            <li>定期对账和核销</li>
+        </ul>
+    </div>
+
+    <div class="performance">
+        <h2>性能优化</h2>
+        <ul>
+            <li>批量创建凭证
+                <pre><code>
+# 批量创建凭证
+moves_vals = []
+for data in batch_data:
+    moves_vals.append({
+        'move_type': 'entry',
+        'journal_id': journal.id,
+        'date': data['date'],
+        'line_ids': data['lines'],
+    })
+moves = self.env['account.move'].create(moves_vals)
+                </code></pre>
+            </li>
+            <li>优化查询
+                <pre><code>
+# 使用预加载提高性能
+moves = self.env['account.move'].search([
+    ('state', '=', 'draft')
+]).with_context(prefetch_fields=['line_ids', 'partner_id'])
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加自定义状态
+                <pre><code>
+class AccountMoveExtended(models.Model):
+    _inherit = 'account.move'
+    
+    state = fields.Selection(selection_add=[
+        ('pending_approval', 'Pending Approval')
+    ])
+                </code></pre>
+            </li>
+            <li>添加审批流程
+                <pre><code>
+def action_submit_for_approval(self):
+    for move in self:
+        if move.state == 'draft':
+            move.write({'state': 'pending_approval'})
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="workflow">
+        <h2>工作流程</h2>
+        <h3>标准凭证流程</h3>
+        <ol>
+            <li>创建草稿</li>
+            <li>填写明细</li>
+            <li>验证数据</li>
+            <li>过账确认</li>
+            <li>对账核销</li>
+        </ol>
+
+        <h3>发票特殊流程</h3>
+        <ol>
+            <li>创建发票</li>
+            <li>添加产品行</li>
+            <li>计算税额</li>
+            <li>确认发票</li>
+            <li>收付款处理</li>
+            <li>核销处理</li>
+        </ol>
+    </div>
+
+    <div class="security">
+        <h2>安全控制</h2>
+        <ul>
+            <li>记录规则
+                <pre><code>
+# 只能查看自己公司的凭证
+[('company_id', 'in', company_ids)]
+                </code></pre>
+            </li>
+            <li>字段访问权限
+                <pre><code>
+# 限制字段访问
+def check_field_access_rights(self, operation, field_names):
+    field_names = [fn for fn in field_names if fn not in PROTECTED_FIELDS]
+    return super().check_field_access_rights(operation, field_names)
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+</body>
+</html> 

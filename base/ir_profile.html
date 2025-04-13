@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo性能分析模块(ir.profile)详解</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo性能分析模块(ir.profile)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p><code>ir.profile</code>是Odoo的性能分析模块,用于收集和分析系统运行时的性能数据。它提供了以下主要功能:</p>
+        <ul>
+            <li>收集SQL查询性能数据</li>
+            <li>跟踪函数调用时间</li>
+            <li>分析系统瓶颈</li>
+            <li>生成性能报告</li>
+            <li>支持性能数据可视化</li>
+        </ul>
+    </div>
+
+    <div class="key-classes">
+        <h2>核心类解析</h2>
+        
+        <h3>1. IrProfile类</h3>
+        <p>这是性能分析的主要类:</p>
+        <pre><code>class IrProfile(models.Model):
+    _name = 'ir.profile'
+    _description = 'Profiling results'
+    _log_access = False
+    _order = 'session desc, id desc'</code></pre>
+
+        <h4>主要字段</h4>
+        <ul>
+            <li>session: 分析会话标识</li>
+            <li>name: 分析描述</li>
+            <li>duration: 执行时长</li>
+            <li>sql: SQL查询记录</li>
+            <li>traces_async: 异步调用追踪</li>
+            <li>traces_sync: 同步调用追踪</li>
+        </ul>
+    </div>
+
+    <div class="key-methods">
+        <h2>核心方法解析</h2>
+
+        <h3>1. 性能分析控制</h3>
+        <div class="method-detail">
+            <h4>set_profiling方法</h4>
+            <p>启用或禁用性能分析:</p>
+            <pre><code>@api.model
+def set_profiling(self, profile=None, collectors=None, params=None):
+    """
+    Enable or disable profiling for the current user.
+    :param profile: True to enable profiling, False to disable it
+    :param collectors: optional list of collectors to use
+    :param params: optional parameters for the profiler
+    """</code></pre>
+        </div>
+
+        <h3>2. 数据清理</h3>
+        <div class="method-detail">
+            <h4>_gc_profile方法</h4>
+            <p>清理过期的性能数据:</p>
+            <pre><code>@api.autovacuum
+def _gc_profile(self):
+    # remove profiles older than 30 days
+    domain = [('create_date', '<', fields.Datetime.now() - datetime.timedelta(days=30))]
+    return self.sudo().search(domain).unlink()</code></pre>
+        </div>
+    </div>
+
+    <div class="usage-examples">
+        <h2>使用示例</h2>
+
+        <h3>1. 启用性能分析</h3>
+        <pre><code># 启用性能分析
+env['ir.profile'].set_profiling(
+    profile=True,
+    collectors=['sql', 'traces'],
+    params={'sql_min_duration': 0.1}
+)</code></pre>
+
+        <h3>2. 查看性能数据</h3>
+        <pre><code># 获取最近的性能分析结果
+profiles = env['ir.profile'].search([
+    ('create_date', '>=', fields.Datetime.now() - datetime.timedelta(hours=1))
+])
+for profile in profiles:
+    print(f"Session: {profile.session}")
+    print(f"Duration: {profile.duration}s")
+    print(f"SQL queries: {profile.sql_count}")</code></pre>
+
+        <h3>3. 导出性能报告</h3>
+        <pre><code># 导出性能分析数据
+profile = env['ir.profile'].browse(profile_id)
+speedscope_data = profile.speedscope
+# 可以将speedscope_data保存为文件或发送到前端显示</code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>只在需要时启用性能分析</li>
+            <li>设置合适的采样参数</li>
+            <li>定期清理性能数据</li>
+            <li>关注关键性能指标</li>
+            <li>分析性能瓶颈原因</li>
+            <li>及时优化问题代码</li>
+        </ul>
+    </div>
+
+    <div class="troubleshooting">
+        <h2>常见问题解决</h2>
+        <dl>
+            <dt>问题1: 性能数据量过大</dt>
+            <dd>
+                <ul>
+                    <li>调整采样频率</li>
+                    <li>设置更高的阈值</li>
+                    <li>缩短分析时间</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 系统性能下降</dt>
+            <dd>
+                <ul>
+                    <li>减少收集器数量</li>
+                    <li>提高采样间隔</li>
+                    <li>限制分析范围</li>
+                </ul>
+            </dd>
+
+            <dt>问题3: 数据不完整</dt>
+            <dd>
+                <ul>
+                    <li>检查收集器配置</li>
+                    <li>验证权限设置</li>
+                    <li>确认存储空间</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="advanced-topics">
+        <h2>高级主题</h2>
+        
+        <h3>1. 自定义收集器</h3>
+        <p>开发自定义性能数据收集器:</p>
+        <pre><code>class CustomCollector:
+    def __init__(self):
+        self.data = []
+
+    def start(self):
+        # 初始化收集器
+        pass
+
+    def stop(self):
+        # 停止收集
+        pass
+
+    def collect(self):
+        # 收集性能数据
+        pass</code></pre>
+
+        <h3>2. 数据分析</h3>
+        <p>性能数据分析方法:</p>
+        <ul>
+            <li>热点分析: 找出最耗时的操作</li>
+            <li>调用栈分析: 追踪问题根源</li>
+            <li>SQL分析: 优化数据库查询</li>
+        </ul>
+
+        <h3>3. 可视化</h3>
+        <p>性能数据可视化选项:</p>
+        <ul>
+            <li>火焰图: 展示调用栈</li>
+            <li>时间线图: 显示执行顺序</li>
+            <li>统计图表: 汇总性能指标</li>
+        </ul>
+    </div>
+
+    <div class="optimization-tips">
+        <h2>优化建议</h2>
+        <ul>
+            <li>根据性能分析结果优化SQL查询</li>
+            <li>减少不必要的函数调用</li>
+            <li>优化循环和递归逻辑</li>
+            <li>合理使用缓存机制</li>
+            <li>控制数据库事务大小</li>
+            <li>优化ORM查询方式</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

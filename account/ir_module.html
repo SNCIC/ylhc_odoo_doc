@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模块管理模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模块管理模型(IrModule)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>IrModule模型是Odoo中管理模块的核心模型。在会计模块中，它被扩展以支持会计科目表模板的自动安装和多语言支持。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>模块管理不仅负责模块的安装和卸载，还负责会计科目表的自动配置和本地化处理。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>account_templates</td>
+            <td>Binary</td>
+            <td>会计科目表模板配置</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 会计科目表模板管理</h3>
+    <div class="code-block">
+        <pre><code>
+@api.depends('state')
+def _compute_account_templates(self):
+    chart_category = self.env.ref('base.module_category_accounting_localizations_account_charts')
+    ChartTemplate = self.env['account.chart.template']
+    for module in self:
+        templates = {}
+        if module.category_id == chart_category or module.name == 'account':
+            try:
+                python_module = import_module(f"odoo.addons.{module.name}.models")
+            except ModuleNotFoundError:
+                templates = {}
+        </code></pre>
+    </div>
+
+    <h3>2. 模块安装处理</h3>
+    <div class="code-block">
+        <pre><code>
+def write(self, vals):
+    # 在安装模块时自动安装第一个模板
+    was_installed = len(self) == 1 and self.state in ('installed', 'to upgrade', 'to remove')
+    res = super().write(vals)
+    is_installed = len(self) == 1 and self.state == 'installed'
+    if not was_installed and is_installed:
+        # 自动安装会计科目表
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>安装会计科目表</h3>
+    <div class="code-example">
+        <pre><code>
+# 安装特定国家的会计科目表
+module = self.env['ir.module.module'].search([
+    ('name', '=', 'l10n_cn_standard'),
+    ('state', '=', 'uninstalled')
+])
+if module:
+    module.button_install()
+        </code></pre>
+    </div>
+
+    <h3>加载翻译</h3>
+    <div class="code-example">
+        <pre><code>
+# 加载会计科目表翻译
+def load_translations(self):
+    self.env['account.chart.template']._load_translations(langs=['zh_CN'])
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 新公司设置</h3>
+    <div class="business-case">
+        <p>新公司初始化流程：</p>
+        <ol>
+            <li>选择会计科目表</li>
+            <li>自动安装模板</li>
+            <li>加载本地化设置</li>
+            <li>配置会计期间</li>
+        </ol>
+    </div>
+
+    <h3>2. 多语言支持</h3>
+    <div class="business-case">
+        <p>多语言环境配置：</p>
+        <ol>
+            <li>安装语言包</li>
+            <li>加载科目表翻译</li>
+            <li>更新税收标签</li>
+            <li>同步会计科目</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_compute_account_templates</td>
+            <td>计算可用的会计科目表模板</td>
+        </tr>
+        <tr>
+            <td>_load_module_terms</td>
+            <td>加载模块翻译</td>
+        </tr>
+        <tr>
+            <td>module_uninstall</td>
+            <td>处理模块卸载</td>
+        </tr>
+    </table>
+
+    <h3>模板处理流程</h3>
+    <div class="process">
+        <pre>
+模块安装 -> 检测可用模板 -> 自动安装模板 -> 加载翻译 -> 完成配置
+        </pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>安装模块前检查依赖关系</li>
+            <li>确保正确的安装顺序</li>
+            <li>及时加载必要的翻译</li>
+            <li>保持模板数据的一致性</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何选择正确的会计科目表？</dt>
+            <dd>答：根据公司所在国家和行业特点选择合适的本地化会计科目表。</dd>
+            
+            <dt>问：如何处理模板冲突？</dt>
+            <dd>答：系统会自动选择最适合的模板，也可以手动指定要使用的模板。</dd>
+            
+            <dt>问：如何更新现有科目表？</dt>
+            <dd>答：通过模块升级功能可以更新科目表，但要注意保护已有数据。</dd>
+        </dl>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加自定义模板处理</h3>
+        <pre><code>
+# 继承模块管理添加自定义处理
+class CustomModule(models.Model):
+    _inherit = 'ir.module.module'
+    
+    def _handle_custom_template(self):
+        # 自定义模板处理逻辑
+        pass
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>数据安全</h3>
+        <ul>
+            <li>模板安装权限控制</li>
+            <li>数据完整性检查</li>
+            <li>升级过程保护</li>
+            <li>操作日志记录</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

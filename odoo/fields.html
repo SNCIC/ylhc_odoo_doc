@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Fields 系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Fields 系统深度解析</h1>
+    
+    <h2>概述</h2>
+    <p>Odoo的字段系统是其ORM的核心组件之一,提供了丰富的字段类型和功能。本文档详细解析fields.py中的各个组件。</p>
+
+    <div class="note">
+        <strong>重要说明：</strong>
+        <p>Odoo 18对字段系统进行了多项优化和改进:</p>
+        <ul>
+            <li>增强了类型提示支持</li>
+            <li>改进了缓存机制</li>
+            <li>新增了Properties字段类型</li>
+            <li>优化了关系字段的性能</li>
+        </ul>
+    </div>
+
+    <h2>核心字段类型</h2>
+    
+    <h3>基础字段</h3>
+    <div class="code-block">
+        <h4>Boolean 字段</h4>
+        <pre><code>class Boolean(Field):
+    type = 'boolean'
+    column_type = ('bool', 'bool')</code></pre>
+        <p>用于存储真/假值的字段。在数据库中使用PostgreSQL的bool类型。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>active = fields.Boolean(string='Active', default=True)
+is_company = fields.Boolean(string='Is a Company')</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>Integer 字段</h4>
+        <pre><code>class Integer(Field):
+    type = 'integer'
+    column_type = ('int4', 'int4')</code></pre>
+        <p>用于存储整数值的字段。在数据库中使用PostgreSQL的int4类型。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>sequence = fields.Integer(string='Sequence', default=10)
+priority = fields.Integer(string='Priority')</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>Float 字段</h4>
+        <pre><code>class Float(Field):
+    type = 'float'
+    digits = None</code></pre>
+        <p>用于存储浮点数值的字段,可以指定精度。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>price = fields.Float(string='Price', digits=(16, 2))
+weight = fields.Float(string='Weight')</code></pre>
+        </div>
+    </div>
+
+    <h3>字符串相关字段</h3>
+    
+    <div class="code-block">
+        <h4>Char 字段</h4>
+        <pre><code>class Char(Field):
+    type = 'char'
+    size = None</code></pre>
+        <p>用于存储单行文本的字段。可以指定最大长度。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>name = fields.Char(string='Name', size=64)
+code = fields.Char(string='Code', required=True)</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>Text 字段</h4>
+        <pre><code>class Text(Field):
+    type = 'text'</code></pre>
+        <p>用于存储多行文本的字段。没有长度限制。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>description = fields.Text(string='Description')
+note = fields.Text(string='Internal Notes')</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>Html 字段</h4>
+        <pre><code>class Html(Field):
+    type = 'html'
+    sanitize = True</code></pre>
+        <p>用于存储HTML内容的字段,支持富文本编辑。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>body_html = fields.Html(string='Message', sanitize=True)
+website_description = fields.Html('Website Description')</code></pre>
+        </div>
+    </div>
+
+    <h3>关系字段</h3>
+    
+    <div class="code-block">
+        <h4>Many2one 字段</h4>
+        <pre><code>class Many2one(Field):
+    type = 'many2one'
+    ondelete = None</code></pre>
+        <p>多对一关系字段,用于链接到其他模型的单条记录。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>partner_id = fields.Many2one('res.partner', string='Customer')
+company_id = fields.Many2one('res.company', string='Company')</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>One2many 字段</h4>
+        <pre><code>class One2many(Field):
+    type = 'one2many'
+    inverse_name = None</code></pre>
+        <p>一对多关系字段,用于访问引用当前记录的其他模型记录。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>order_line = fields.One2many('sale.order.line', 'order_id', string='Order Lines')
+child_ids = fields.One2many('res.partner', 'parent_id', string='Contacts')</code></pre>
+        </div>
+    </div>
+
+    <div class="code-block">
+        <h4>Many2many 字段</h4>
+        <pre><code>class Many2many(Field):
+    type = 'many2many'
+    relation = None
+    column1 = None
+    column2 = None</code></pre>
+        <p>多对多关系字段,用于在两个模型之间建立多对多关系。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>category_ids = fields.Many2many('product.category', string='Categories')
+tag_ids = fields.Many2many('res.partner.category', string='Tags')</code></pre>
+        </div>
+    </div>
+
+    <h3>特殊字段</h3>
+    
+    <div class="code-block">
+        <h4>Properties 字段 (Odoo 18新增)</h4>
+        <pre><code>class Properties(Field):
+    type = 'properties'
+    definition_record = None</code></pre>
+        <p>新的属性字段类型,允许动态定义和存储自定义属性。</p>
+        <div class="example">
+            <h5>使用示例:</h5>
+            <pre><code>custom_properties = fields.Properties(
+    definition_record='project_id.custom_field_def',
+    string="Custom Properties"
+)</code></pre>
+        </div>
+    </div>
+
+    <h2>字段特性</h2>
+    
+    <h3>通用属性</h3>
+    <ul>
+        <li><code>string</code>: 字段标签</li>
+        <li><code>required</code>: 是否必填</li>
+        <li><code>readonly</code>: 是否只读</li>
+        <li><code>default</code>: 默认值</li>
+        <li><code>help</code>: 帮助提示</li>
+        <li><code>groups</code>: 访问权限组</li>
+        <li><code>store</code>: 是否存储在数据库</li>
+        <li><code>copy</code>: 复制记录时是否复制此字段</li>
+        <li><code>index</code>: 是否创建索引</li>
+    </ul>
+
+    <h3>计算字段特性</h3>
+    <ul>
+        <li><code>compute</code>: 计算方法</li>
+        <li><code>inverse</code>: 反向计算方法</li>
+        <li><code>search</code>: 搜索方法</li>
+        <li><code>related</code>: 关联字段路径</li>
+    </ul>
+
+    <h2>高级功能</h2>
+    
+    <h3>字段命令系统</h3>
+    <p>Odoo使用Command类来处理关系字段的更新操作:</p>
+    <ul>
+        <li><code>Command.create(values)</code>: 创建并链接新记录</li>
+        <li><code>Command.update(id, values)</code>: 更新已有记录</li>
+        <li><code>Command.delete(id)</code>: 删除记录</li>
+        <li><code>Command.unlink(id)</code>: 解除链接</li>
+        <li><code>Command.link(id)</code>: 建立链接</li>
+        <li><code>Command.clear()</code>: 清除所有记录</li>
+        <li><code>Command.set(ids)</code>: 设置记录列表</li>
+    </ul>
+
+    <div class="example">
+        <h4>命令使用示例:</h4>
+        <pre><code># 创建并链接新行
+order.write({
+    'order_line': [
+        Command.create({'product_id': 1, 'quantity': 3}),
+        Command.update(5, {'quantity': 2}),
+        Command.delete(6)
+    ]
+})</code></pre>
+    </div>
+
+    <h3>计算字段机制</h3>
+    <p>计算字段的工作流程:</p>
+    <ol>
+        <li>定义compute方法</li>
+        <li>指定依赖字段</li>
+        <li>处理缓存机制</li>
+        <li>触发重新计算</li>
+    </ol>
+
+    <div class="example">
+        <h4>计算字段示例:</h4>
+        <pre><code>amount_total = fields.Float(
+    compute='_compute_amount',
+    store=True,
+    depends=['order_line.price_total']
+)
+
+@api.depends('order_line.price_total')
+def _compute_amount(self):
+    for order in self:
+        order.amount_total = sum(line.price_total for line in order.order_line)</code></pre>
+    </div>
+
+    <h3>Properties字段系统</h3>
+    <p>Properties字段是Odoo 18的重要新特性,提供了以下功能:</p>
+    <ul>
+        <li>动态定义字段属性</li>
+        <li>继承和扩展属性定义</li>
+        <li>属性值验证</li>
+        <li>多公司支持</li>
+    </ul>
+
+    <div class="example">
+        <h4>Properties使用示例:</h4>
+        <pre><code># 在项目模型中定义属性
+class Project(models.Model):
+    _name = 'project.project'
+    
+    custom_field_def = fields.PropertiesDefinition('Custom Fields')
+
+# 在任务模型中使用属性
+class Task(models.Model):
+    _name = 'project.task'
+    
+    custom_properties = fields.Properties(
+        'Custom Properties',
+        definition_record='project_id.custom_field_def'
+    )</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    
+    <h3>预取机制</h3>
+    <p>Odoo 18改进了字段预取机制:</p>
+    <ul>
+        <li>PrefetchMany2one: 优化many2one字段预取</li>
+        <li>PrefetchX2many: 优化one2many和many2many字段预取</li>
+        <li>智能批量加载</li>
+        <li>缓存优化</li>
+    </ul>
+
+    <h3>数据库优化</h3>
+    <p>字段系统包含多项数据库层面的优化:</p>
+    <ul>
+        <li>智能索引创建</li>
+        <li>外键约束管理</li>
+        <li>延迟约束检查</li>
+        <li>事务处理优化</li>
+    </ul>
+
+    <h2>最佳实践</h2>
+    
+    <h3>字段定义</h3>
+    <ul>
+        <li>使用恰当的字段类型</li>
+        <li>合理设置store参数</li>
+        <li>正确处理计算依赖</li>
+        <li>谨慎使用ondelete策略</li>
+    </ul>
+
+    <h3>性能考虑</h3>
+    <ul>
+        <li>避免过多的计算字段</li>
+        <li>合理使用索引</li>
+        <li>优化关系字段查询</li>
+        <li>正确处理大数据集</li>
+    </ul>
+
+    <div class="note">
+        <strong>注意：</strong>
+        <p>在使用字段系统时,应当注意:</p>
+        <ul>
+            <li>遵循命名规范</li>
+            <li>正确处理安全性</li>
+            <li>注意向后兼容性</li>
+            <li>合理使用新特性</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo通用会计科目表模板解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo通用会计科目表模板(Generic Chart of Accounts)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>template_generic_coa.py</code>是Odoo中定义通用会计科目表模板的核心模块。它提供了美国通用会计科目表的基础结构和配置。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>通用会计科目表是一个标准化的会计框架，为企业提供了基础的会计科目结构，可以根据需要进行本地化和定制。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>科目表模板定义</strong>：提供美国通用会计科目表的基本结构</li>
+        <li><strong>默认科目映射</strong>：定义基础会计科目的映射关系</li>
+        <li><strong>公司级配置</strong>：提供公司级别的会计配置参数</li>
+    </ol>
+    
+    <h2>类定义</h2>
+    <div class="code-block">
+        <pre><code>class AccountChartTemplate(models.AbstractModel):
+    _inherit = "account.chart.template"</code></pre>
+    </div>
+    
+    <h3>模板数据方法</h3>
+    <div class="method-block">
+        <h4>_get_generic_coa_template_data</h4>
+        <p>定义通用会计科目表的基本配置数据：</p>
+        <pre><code>@template('generic_coa')
+def _get_generic_coa_template_data(self):
+    return {
+        'name': _("United States of America (Generic)"),
+        'country': None,
+        'property_account_receivable_id': 'receivable',
+        'property_account_payable_id': 'payable',
+        'property_account_expense_categ_id': 'expense',
+        'property_account_income_categ_id': 'income',
+        'property_stock_account_input_categ_id': 'stock_in',
+        'property_stock_account_output_categ_id': 'stock_out',
+        'property_stock_valuation_account_id': 'stock_valuation',
+        'property_stock_account_production_cost_id': 'cost_of_production',
+    }</code></pre>
+    </div>
+    
+    <h3>属性说明</h3>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>说明</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>property_account_receivable_id</td>
+            <td>应收账款科目</td>
+            <td>记录客户欠款</td>
+        </tr>
+        <tr>
+            <td>property_account_payable_id</td>
+            <td>应付账款科目</td>
+            <td>记录应付供应商款项</td>
+        </tr>
+        <tr>
+            <td>property_account_expense_categ_id</td>
+            <td>默认费用科目</td>
+            <td>产品类别的默认费用科目</td>
+        </tr>
+        <tr>
+            <td>property_account_income_categ_id</td>
+            <td>默认收入科目</td>
+            <td>产品类别的默认收入科目</td>
+        </tr>
+        <tr>
+            <td>property_stock_account_input_categ_id</td>
+            <td>库存输入科目</td>
+            <td>记录库存收货</td>
+        </tr>
+        <tr>
+            <td>property_stock_account_output_categ_id</td>
+            <td>库存输出科目</td>
+            <td>记录库存发货</td>
+        </tr>
+    </table>
+    
+    <h2>公司配置</h2>
+    <div class="method-block">
+        <h4>_get_generic_coa_res_company</h4>
+        <p>定义公司级别的会计配置：</p>
+        <pre><code>@template('generic_coa', 'res.company')
+def _get_generic_coa_res_company(self):
+    return {
+        self.env.company.id: {
+            'anglo_saxon_accounting': True,
+            'account_fiscal_country_id': 'base.us',
+            'bank_account_code_prefix': '1014',
+            'cash_account_code_prefix': '1015',
+            'transfer_account_code_prefix': '1017',
+            # ... 其他配置
+        }
+    }</code></pre>
+    </div>
+    
+    <h3>公司配置参数说明</h3>
+    <table>
+        <tr>
+            <th>参数</th>
+            <th>说明</th>
+            <th>默认值</th>
+        </tr>
+        <tr>
+            <td>anglo_saxon_accounting</td>
+            <td>启用英美会计制度</td>
+            <td>True</td>
+        </tr>
+        <tr>
+            <td>account_fiscal_country_id</td>
+            <td>财务国家</td>
+            <td>base.us (美国)</td>
+        </tr>
+        <tr>
+            <td>bank_account_code_prefix</td>
+            <td>银行科目代码前缀</td>
+            <td>1014</td>
+        </tr>
+        <tr>
+            <td>cash_account_code_prefix</td>
+            <td>现金科目代码前缀</td>
+            <td>1015</td>
+        </tr>
+        <tr>
+            <td>transfer_account_code_prefix</td>
+            <td>转账科目代码前缀</td>
+            <td>1017</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    
+    <h3>安装科目表</h3>
+    <div class="example-block">
+        <pre><code># 在新公司创建时安装通用科目表
+def action_install_generic_coa(self):
+    chart_template = self.env.ref('account.generic_coa_template')
+    wizard = self.env['account.chart.template.wizard'].create({
+        'company_id': self.id,
+        'chart_template_id': chart_template.id,
+        'code_digits': 6,
+        'transfer_account_id': chart_template.transfer_account_id.id,
+    })
+    wizard.action_install()</code></pre>
+    </div>
+    
+    <h3>自定义科目表</h3>
+    <div class="example-block">
+        <pre><code># 继承通用科目表并进行本地化
+class CustomChartTemplate(models.AbstractModel):
+    _inherit = 'account.chart.template'
+    
+    @template('custom_coa')
+    def _get_custom_coa_template_data(self):
+        # 获取通用科目表数据
+        generic_data = super()._get_generic_coa_template_data()
+        # 添加自定义配置
+        generic_data.update({
+            'name': '自定义会计科目表',
+            'country': 'base.cn',  # 设置为中国
+            # 自定义其他配置...
+        })
+        return generic_data</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在安装科目表前确保公司基础信息配置正确</li>
+            <li>根据实际业务需求选择合适的科目编码位数</li>
+            <li>保持科目代码结构的一致性</li>
+            <li>定期检查和更新科目映射关系</li>
+            <li>在本地化时保留原有科目结构的完整性</li>
+        </ul>
+    </div>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>科目表安装后某些配置将无法更改</li>
+            <li>确保所有必要的科目映射都已正确设置</li>
+            <li>注意不同会计制度之间的差异</li>
+            <li>谨慎处理多币种相关的科目设置</li>
+        </ul>
+    </div>
+</body>
+</html> 

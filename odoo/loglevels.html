@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo日志级别模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo日志级别系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>loglevels.py</code>是Odoo框架中的一个基础模块，它提供了日志处理和字符串编码转换的功能。这个模块主要包含两个主要部分：日志级别常量定义和字符串编码处理工具。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>日志级别系统提供了一种统一的方式来处理系统日志，同时还包含了一些用于处理字符串编码的实用工具函数。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>日志级别定义</strong>：定义了标准的日志级别常量</li>
+        <li><strong>字符串编码转换</strong>：提供了处理字符串编码的工具函数</li>
+        <li><strong>异常信息转换</strong>：将异常对象转换为Unicode字符串</li>
+    </ol>
+    
+    <h2>日志级别常量</h2>
+    <div class="code-block">
+        <pre><code>LOG_NOTSET = 'notset'      # 未设置级别
+LOG_DEBUG = 'debug'       # 调试信息
+LOG_INFO = 'info'        # 一般信息
+LOG_WARNING = 'warn'     # 警告信息
+LOG_ERROR = 'error'      # 错误信息
+LOG_CRITICAL = 'critical'# 严重错误</code></pre>
+    </div>
+    
+    <h3>日志级别说明</h3>
+    <table>
+        <tr>
+            <th>常量名</th>
+            <th>值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>LOG_NOTSET</td>
+            <td>'notset'</td>
+            <td>表示未设置日志级别的状态</td>
+        </tr>
+        <tr>
+            <td>LOG_DEBUG</td>
+            <td>'debug'</td>
+            <td>用于记录详细的调试信息</td>
+        </tr>
+        <tr>
+            <td>LOG_INFO</td>
+            <td>'info'</td>
+            <td>用于记录一般性的信息</td>
+        </tr>
+        <tr>
+            <td>LOG_WARNING</td>
+            <td>'warn'</td>
+            <td>用于记录警告信息</td>
+        </tr>
+        <tr>
+            <td>LOG_ERROR</td>
+            <td>'error'</td>
+            <td>用于记录错误信息</td>
+        </tr>
+        <tr>
+            <td>LOG_CRITICAL</td>
+            <td>'critical'</td>
+            <td>用于记录严重错误信息</td>
+        </tr>
+    </table>
+    
+    <h2>编码处理函数</h2>
+    
+    <h3>get_encodings函数</h3>
+    <div class="code-block">
+        <pre><code>def get_encodings(hint_encoding='utf-8'):
+    """获取可能的字符编码列表"""</code></pre>
+    </div>
+    
+    <p>此函数在Odoo 18中已被标记为废弃，主要功能是：</p>
+    <ul>
+        <li>根据提示的编码返回可能的编码列表</li>
+        <li>提供编码回退机制</li>
+        <li>包含常用编码的映射关系</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>注意：</strong>此函数已在Odoo 18中标记为废弃，因为它的第二/第三个编码总是返回latin-1，这在大多数情况下并不合理。
+    </div>
+    
+    <h3>ustr函数</h3>
+    <div class="code-block">
+        <pre><code>def ustr(value, hint_encoding='utf-8', errors='strict'):
+    """将值转换为Unicode字符串"""</code></pre>
+    </div>
+    
+    <p>此函数也在Odoo 18中被标记为废弃，其主要功能是：</p>
+    <ul>
+        <li>尝试将输入值转换为Unicode字符串</li>
+        <li>支持多种编码尝试机制</li>
+        <li>处理异常情况</li>
+    </ul>
+    
+    <h4>参数说明</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>value</td>
+            <td>Any</td>
+            <td>需要转换的值</td>
+        </tr>
+        <tr>
+            <td>hint_encoding</td>
+            <td>str</td>
+            <td>建议使用的编码（默认utf-8）</td>
+        </tr>
+        <tr>
+            <td>errors</td>
+            <td>str</td>
+            <td>错误处理方式（strict/ignore/replace）</td>
+        </tr>
+    </table>
+    
+    <h3>exception_to_unicode函数</h3>
+    <div class="code-block">
+        <pre><code>def exception_to_unicode(e):
+    """将异常对象转换为Unicode字符串"""</code></pre>
+    </div>
+    
+    <p>此函数的主要功能是：</p>
+    <ul>
+        <li>将异常对象转换为可读的字符串形式</li>
+        <li>处理异常的args属性</li>
+        <li>提供异常信息的友好展示</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>日志级别使用示例</h3>
+    <div class="code-block">
+        <pre><code>from odoo.loglevels import LOG_ERROR, LOG_INFO
+
+# 在代码中使用日志级别
+_logger.log(LOG_INFO, "这是一条信息日志")
+_logger.log(LOG_ERROR, "这是一条错误日志")</code></pre>
+    </div>
+    
+    <h3>异常转换示例</h3>
+    <div class="code-block">
+        <pre><code>from odoo.loglevels import exception_to_unicode
+
+try:
+    # 某些可能抛出异常的操作
+    raise ValueError("这是一个错误")
+except Exception as e:
+    # 将异常转换为Unicode字符串
+    error_message = exception_to_unicode(e)
+    # 使用转换后的错误信息
+    _logger.error(error_message)</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>日志使用建议</h3>
+        <ul>
+            <li>根据信息的重要程度选择合适的日志级别</li>
+            <li>在开发环境中可以使用DEBUG级别，生产环境建议使用INFO及以上级别</li>
+            <li>错误处理时应该使用ERROR级别，而不是WARNING</li>
+        </ul>
+        
+        <h3>编码处理建议</h3>
+        <ul>
+            <li>优先使用Python原生的字符串处理方法</li>
+            <li>对于需要处理的字节串，优先使用UTF-8编码</li>
+            <li>在处理外部数据时要注意编码问题</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的变化</h2>
+    <div class="version-changes">
+        <h3>废弃的功能</h3>
+        <ul>
+            <li>get_encodings函数已标记为废弃</li>
+            <li>ustr函数已标记为废弃</li>
+            <li>建议使用Python原生的字符串处理方法</li>
+        </ul>
+        
+        <h3>新的建议</h3>
+        <ul>
+            <li>直接使用Python的str类型</li>
+            <li>使用encode/decode方法处理编码转换</li>
+            <li>使用标准库的logging模块记录日志</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>注意：</strong>虽然某些函数已经被标记为废弃，但为了保持向后兼容性，它们仍然可以使用。建议在新代码中使用推荐的替代方案。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo API模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo API模块深度解析</h1>
+    
+    <h2>模块概述</h2>
+    <p>Odoo API模块是Odoo框架的核心组件之一，它定义了Odoo环境(Environment)和方法装饰器。这个模块为Odoo的ORM系统提供了基础设施，使开发者能够以面向对象的方式操作数据库记录。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>环境管理 - 处理数据库游标、用户上下文和缓存</li>
+            <li>记录集操作 - 提供记录集的CRUD操作接口</li>
+            <li>方法装饰器 - 提供各种ORM操作的装饰器</li>
+            <li>缓存系统 - 实现高效的数据缓存机制</li>
+            <li>事务管理 - 处理数据库事务和并发</li>
+            <li>类型系统 - 提供类型注解和类型检查</li>
+        </ul>
+    </div>
+
+    <h2>核心类和组件</h2>
+    
+    <h3>1. NewId类</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>用于处理新记录的伪ID，支持临时ID和引用ID的管理。</p>
+        <pre><code>
+class NewId:
+    __slots__ = ['origin', 'ref']
+    
+    def __init__(self, origin=None, ref=None):
+        self.origin = origin  # 原始ID
+        self.ref = ref       # 引用ID
+        </code></pre>
+        <h4>使用场景</h4>
+        <ul>
+            <li>创建新记录时的临时ID管理</li>
+            <li>处理onchange触发的临时记录</li>
+            <li>处理one2many字段的新记录</li>
+        </ul>
+    </div>
+
+    <h3>2. Meta类</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>元类实现，用于自动装饰传统风格的方法并处理继承关系。</p>
+        <pre><code>
+class Meta(type):
+    def __new__(meta, name, bases, attrs):
+        parent = type.__new__(meta, name, bases, {})
+        for key, value in list(attrs.items()):
+            if callable(value):
+                attrs[key] = propagate(getattr(parent, key, None), value)
+        return type.__new__(meta, name, bases, attrs)
+        </code></pre>
+        <h4>主要特性</h4>
+        <ul>
+            <li>自动继承装饰器属性</li>
+            <li>处理方法重写</li>
+            <li>维护API一致性</li>
+        </ul>
+    </div>
+
+    <h3>3. Environment类详解</h3>
+    <div class="code-block">
+        <h4>核心属性</h4>
+        <ul>
+            <li><code>cr</code>: 数据库游标</li>
+            <li><code>uid</code>: 当前用户ID</li>
+            <li><code>context</code>: 上下文字典</li>
+            <li><code>su</code>: 超级用户模式标志</li>
+            <li><code>registry</code>: 模型注册表</li>
+            <li><code>cache</code>: 记录缓存</li>
+            <li><code>transaction</code>: 事务管理器</li>
+            <li><code>_cache_key</code>: 缓存键管理</li>
+            <li><code>_protected</code>: 受保护记录管理</li>
+        </ul>
+
+        <h4>主要方法</h4>
+        <pre><code>
+# 环境重置
+def reset(self):
+    self.transaction.reset()
+
+# 引用查找
+def ref(self, xml_id, raise_if_not_found=True):
+    return self['ir.model.data']._xmlid_to_res_model_res_id(xml_id, raise_if_not_found)
+
+# 权限检查
+def is_superuser(self):
+    return self.su
+
+def is_admin(self):
+    return self.su or self.user._is_admin()
+
+def is_system(self):
+    return self.su or self.user._is_system()
+
+# 缓存操作
+def clear(self):
+    self._cache_key.clear()
+    self.transaction.clear()
+
+def invalidate_all(self, flush=True):
+    if flush:
+        self.flush_all()
+    self.cache.invalidate()
+        </code></pre>
+    </div>
+
+    <h3>4. Cache类详解</h3>
+    <div class="code-block">
+        <h4>数据结构</h4>
+        <ul>
+            <li><code>_data</code>: 字段值缓存</li>
+            <li><code>_dirty</code>: 脏数据标记</li>
+            <li><code>_patches</code>: 补丁数据</li>
+        </ul>
+
+        <h4>核心方法</h4>
+        <pre><code>
+# 缓存操作
+def contains(self, record, field):
+    # 检查记录是否有字段缓存
+    
+def get(self, record, field, default=NOTHING):
+    # 获取缓存值
+    
+def set(self, record, field, value, dirty=False):
+    # 设置缓存值
+    
+def update(self, records, field, values):
+    # 批量更新缓存
+    
+def invalidate(self, spec=None):
+    # 使缓存失效
+        </code></pre>
+    </div>
+
+    <h3>5. 装饰器系统</h3>
+    <div class="code-block">
+        <h4>@api.constrains</h4>
+        <p>用于定义模型约束，在字段值变化时验证。</p>
+        <pre><code>
+@api.constrains('field1', 'field2')
+def _check_fields(self):
+    for record in self:
+        if record.field1 > record.field2:
+            raise ValidationError('Field1 不能大于 Field2')
+        </code></pre>
+
+        <h4>@api.depends</h4>
+        <p>定义计算字段的依赖关系。</p>
+        <pre><code>
+@api.depends('line_ids.amount', 'currency_id')
+def _compute_total(self):
+    for record in self:
+        record.total = sum(line.amount for line in record.line_ids)
+        </code></pre>
+
+        <h4>@api.depends_context</h4>
+        <p>定义上下文依赖的计算字段。</p>
+        <pre><code>
+@api.depends_context('lang', 'company')
+def _compute_display_name(self):
+    # 根据语言和公司计算显示名称
+        </code></pre>
+
+        <h4>@api.model</h4>
+        <p>标记模型级别的方法。</p>
+        <pre><code>
+@api.model
+def default_get(self, fields_list):
+    # 返回默认值
+        </code></pre>
+
+        <h4>@api.ondelete</h4>
+        <p>定义记录删除时的验证规则。</p>
+        <pre><code>
+@api.ondelete(at_uninstall=False)
+def _unlink_if_not_referenced(self):
+    if self.referenced_ids:
+        raise UserError('不能删除被引用的记录')
+        </code></pre>
+    </div>
+
+    <h3>6. 事务管理</h3>
+    <div class="code-block">
+        <h4>Transaction类</h4>
+        <pre><code>
+class Transaction:
+    def __init__(self, registry):
+        self.registry = registry
+        self.envs = WeakSet()
+        self.cache = Cache()
+        self.protected = StackMap()
+        self.tocompute = defaultdict(OrderedSet)
+        </code></pre>
+
+        <h4>主要功能</h4>
+        <ul>
+            <li>环境管理</li>
+            <li>缓存控制</li>
+            <li>待计算字段管理</li>
+            <li>保护记录管理</li>
+        </ul>
+    </div>
+
+    <h2>高级特性</h2>
+    
+    <h3>1. 上下文管理</h3>
+    <div class="code-block">
+        <h4>语言切换</h4>
+        <pre><code>
+with env(context=dict(env.context, lang='zh_CN')):
+    record.name = '中文名称'
+        </code></pre>
+
+        <h4>公司切换</h4>
+        <pre><code>
+with env(context=dict(env.context, allowed_company_ids=[1, 2])):
+    records = self.search([])
+        </code></pre>
+
+        <h4>时区处理</h4>
+        <pre><code>
+with env(context=dict(env.context, tz='Asia/Shanghai')):
+    date = fields.Datetime.now()
+        </code></pre>
+    </div>
+
+    <h3>2. 缓存保护机制</h3>
+    <div class="code-block">
+        <pre><code>
+with env.protecting(fields, records):
+    # 在此块中，指定的字段在指定的记录上受保护
+    # 不会被自动失效或重新计算
+        </code></pre>
+    </div>
+
+    <h3>3. 记录集操作</h3>
+    <div class="code-block">
+        <h4>基本操作</h4>
+        <pre><code>
+# 创建
+record = env['model.name'].create({'field': 'value'})
+
+# 搜索
+records = env['model.name'].search([('field', '=', 'value')])
+
+# 更新
+records.write({'field': 'new_value'})
+
+# 删除
+records.unlink()
+        </code></pre>
+
+        <h4>高级操作</h4>
+        <pre><code>
+# 批量创建
+records = env['model.name'].create([
+    {'field': 'value1'},
+    {'field': 'value2'},
+])
+
+# 条件更新
+records.filtered(lambda r: r.state == 'draft').write({
+    'state': 'done'
+})
+        </code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance-tips">
+        <h3>1. 缓存优化</h3>
+        <ul>
+            <li>使用prefetch机制批量获取记录</li>
+            <li>避免频繁清除缓存</li>
+            <li>合理使用缓存保护机制</li>
+            <li>正确处理上下文相关的缓存</li>
+        </ul>
+
+        <h3>2. 查询优化</h3>
+        <ul>
+            <li>使用search()时添加合适的domain</li>
+            <li>利用read_group()进行分组统计</li>
+            <li>合理使用prefetch_fields</li>
+            <li>避免N+1查询问题</li>
+        </ul>
+
+        <h3>3. 事务管理</h3>
+        <ul>
+            <li>使用savepoint()管理复杂事务</li>
+            <li>避免长事务</li>
+            <li>正确处理并发访问</li>
+            <li>合理使用事务隔离级别</li>
+        </ul>
+    </div>
+
+    <h2>调试技巧</h2>
+    <div class="debugging-tips">
+        <h3>1. 环境检查</h3>
+        <pre><code>
+# 检查当前环境
+env.cr           # 数据库游标
+env.uid          # 当前用户ID
+env.context      # 当前上下文
+env.su           # 是否超级用户模式
+
+# 检查缓存状态
+env.cache.check(env)  # 验证缓存一致性
+        </code></pre>
+
+        <h3>2. 记录集调试</h3>
+        <pre><code>
+# 查看记录集信息
+records.exists()        # 检查记录是否存在
+records._ids           # 获取ID列表
+records._table        # 获取表名
+records._name         # 获取模型名称
+        </code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 装饰器使用</h3>
+        <ul>
+            <li>正确使用@api.model和@api.multi</li>
+            <li>合理设置@api.depends依赖</li>
+            <li>谨慎使用@api.constrains</li>
+            <li>注意@api.onchange的性能影响</li>
+        </ul>
+
+        <h3>2. 环境管理</h3>
+        <ul>
+            <li>使用with语句管理临时环境</li>
+            <li>正确处理多公司环境</li>
+            <li>注意上下文传播</li>
+            <li>合理使用sudo()</li>
+        </ul>
+
+        <h3>3. 错误处理</h3>
+        <ul>
+            <li>使用适当的异常类型</li>
+            <li>提供清晰的错误消息</li>
+            <li>正确处理事务回滚</li>
+            <li>注意异常的传播</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="qa-section">
+        <h3>Q: 如何处理多公司环境？</h3>
+        <p>A: 使用allowed_company_ids在上下文中设置可访问的公司：</p>
+        <pre><code>
+env = self.env(context=dict(
+    allowed_company_ids=[company_id1, company_id2]
+))
+        </code></pre>
+
+        <h3>Q: 如何正确使用缓存系统？</h3>
+        <p>A: 遵循以下原则：</p>
+        <ul>
+            <li>避免直接操作缓存</li>
+            <li>使用装饰器声明依赖</li>
+            <li>合理使用缓存保护</li>
+            <li>注意上下文对缓存的影响</li>
+        </ul>
+
+        <h3>Q: 如何优化大量记录的处理？</h3>
+        <p>A: 采用以下策略：</p>
+        <ul>
+            <li>使用批处理</li>
+            <li>利用prefetch机制</li>
+            <li>合理分页</li>
+            <li>使用SQL视图</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo LRU缓存工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo LRU缓存工具模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>lru.py</code>是Odoo框架中的LRU（Least Recently Used，最近最少使用）缓存实现模块。这个模块提供了一个线程安全的、固定大小的LRU缓存实现，用于优化系统性能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>线程安全的LRU缓存实现</li>
+            <li>固定大小的缓存管理</li>
+            <li>自动淘汰最少使用的项</li>
+            <li>支持泛型类型</li>
+        </ul>
+    </div>
+
+    <h2>核心组件解析</h2>
+    
+    <h3>1. LRU类定义</h3>
+    <div class="code-block">
+        <pre><code>class LRU(MutableMapping[K, V], typing.Generic[K, V]):
+    """
+    实现了固定长度的O(1)时间复杂度LRU映射
+    K: 键的类型
+    V: 值的类型
+    """</code></pre>
+    </div>
+    <p>LRU类继承自：</p>
+    <ul>
+        <li>MutableMapping：提供字典类接口</li>
+        <li>typing.Generic：支持泛型类型</li>
+    </ul>
+
+    <h3>2. 核心属性</h3>
+    <div class="code-block">
+        <pre><code>def __init__(self, count: int, pairs: Iterable[tuple[K, V]] = ()):
+    self._lock = threading.RLock()      # 线程锁
+    self.count = max(count, 1)          # 最大容量
+    self.d = collections.OrderedDict()   # 有序字典存储</code></pre>
+    </div>
+
+    <h3>3. 主要方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>功能描述</th>
+            <th>时间复杂度</th>
+        </tr>
+        <tr>
+            <td>__getitem__</td>
+            <td>获取缓存项并更新使用顺序</td>
+            <td>O(1)</td>
+        </tr>
+        <tr>
+            <td>__setitem__</td>
+            <td>设置缓存项并维护大小限制</td>
+            <td>O(1)</td>
+        </tr>
+        <tr>
+            <td>__delitem__</td>
+            <td>删除缓存项</td>
+            <td>O(1)</td>
+        </tr>
+        <tr>
+            <td>pop</td>
+            <td>弹出指定的缓存项</td>
+            <td>O(1)</td>
+        </tr>
+    </table>
+
+    <h2>实现细节</h2>
+    
+    <h3>1. 线程安全实现</h3>
+    <div class="code-block">
+        <pre><code>@locked
+def __getitem__(self, obj: K) -> V:
+    a = self.d[obj]
+    self.d.move_to_end(obj, last=False)
+    return a</code></pre>
+    </div>
+    <p>所有方法都使用@locked装饰器确保线程安全：</p>
+    <ul>
+        <li>使用RLock实现可重入锁</li>
+        <li>保证并发访问的安全性</li>
+        <li>避免死锁问题</li>
+    </ul>
+
+    <h3>2. LRU淘汰策略</h3>
+    <div class="code-block">
+        <pre><code>def __setitem__(self, obj: K, val: V):
+    self.d[obj] = val
+    self.d.move_to_end(obj, last=False)
+    while len(self.d) > self.count:
+        self.d.popitem(last=True)</code></pre>
+    </div>
+    <p>缓存淘汰策略的实现：</p>
+    <ul>
+        <li>新项添加到字典开头</li>
+        <li>访问项移动到开头</li>
+        <li>超出大小限制时从末尾删除</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>基本用法</h3>
+    <div class="code-block">
+        <pre><code># 创建LRU缓存
+from odoo.tools.lru import LRU
+
+# 创建容量为100的缓存
+cache = LRU(100)
+
+# 添加缓存项
+cache['key1'] = 'value1'
+cache['key2'] = 'value2'
+
+# 获取缓存项
+value = cache['key1']  # 自动移动到最近使用
+
+# 检查缓存项
+if 'key2' in cache:
+    print("Cache hit!")
+
+# 删除缓存项
+del cache['key1']</code></pre>
+    </div>
+
+    <h3>高级用法</h3>
+    <div class="code-block">
+        <pre><code># 使用泛型类型
+cache: LRU[str, int] = LRU(100)
+cache['count'] = 42
+
+# 批量初始化
+initial_data = [('a', 1), ('b', 2), ('c', 3)]
+cache = LRU(100, initial_data)
+
+# 安全的弹出操作
+value = cache.pop('key', None)  # 不存在时返回None</code></pre>
+    </div>
+
+    <h2>性能特征</h2>
+    <div class="performance">
+        <h3>时间复杂度</h3>
+        <ul>
+            <li>查找操作：O(1)</li>
+            <li>插入操作：O(1)</li>
+            <li>删除操作：O(1)</li>
+            <li>空间复杂度：O(n)，n为缓存容量</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>缓存容量必须大于0</li>
+            <li>所有操作都是线程安全的，但可能影响性能</li>
+            <li>缓存满时会自动删除最少使用的项</li>
+            <li>不支持None作为键值</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议</h3>
+        <ul>
+            <li>合理设置缓存容量，避免过大或过小</li>
+            <li>注意键的选择，避免过于复杂的键</li>
+            <li>考虑使用try-except处理键不存在的情况</li>
+            <li>在高并发场景下注意性能影响</li>
+        </ul>
+    </div>
+
+    <h2>应用场景</h2>
+    <div class="use-cases">
+        <h3>适用场景</h3>
+        <ul>
+            <li>频繁访问的数据缓存</li>
+            <li>数据库查询结果缓存</li>
+            <li>会话数据管理</li>
+            <li>API响应缓存</li>
+        </ul>
+    </div>
+</body>
+</html> 

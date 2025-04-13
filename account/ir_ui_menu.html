@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo菜单管理模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo菜单管理模型(IrUiMenu)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>IrUiMenu模型是Odoo中管理用户界面菜单的核心模型。在会计模块中，它被扩展以支持审计追踪功能的动态显示控制。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>菜单管理不仅控制菜单的显示和隐藏，还负责根据用户权限和系统配置动态调整菜单的可见性。</p>
+    </div>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 审计追踪菜单控制</h3>
+    <div class="code-block">
+        <pre><code>
+def _load_menus_blacklist(self):
+    res = super()._load_menus_blacklist()
+    if not any(company.check_account_audit_trail for company in self.env.user.company_ids):
+        res.append(self.env.ref('account.account_audit_trail_menu').id)
+    return res
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>隐藏审计追踪菜单</h3>
+    <div class="code-example">
+        <pre><code>
+# 根据公司设置控制审计追踪菜单的显示
+def update_audit_menu_visibility(self):
+    menu = self.env.ref('account.account_audit_trail_menu')
+    if not self.company_id.check_account_audit_trail:
+        menu.write({'active': False})
+    else:
+        menu.write({'active': True})
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 审计功能控制</h3>
+    <div class="business-case">
+        <p>审计功能的启用流程：</p>
+        <ol>
+            <li>检查公司设置</li>
+            <li>更新菜单可见性</li>
+            <li>记录操作日志</li>
+            <li>通知相关用户</li>
+        </ol>
+    </div>
+
+    <h3>2. 权限管理</h3>
+    <div class="business-case">
+        <p>菜单权限控制流程：</p>
+        <ol>
+            <li>检查用户权限</li>
+            <li>验证功能启用状态</li>
+            <li>控制菜单显示</li>
+            <li>记录访问日志</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_load_menus_blacklist</td>
+            <td>加载菜单黑名单</td>
+        </tr>
+    </table>
+
+    <h3>菜单控制流程</h3>
+    <div class="process">
+        <pre>
+检查公司设置 -> 验证功能状态 -> 更新黑名单 -> 刷新菜单显示
+        </pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>及时更新菜单状态</li>
+            <li>正确处理多公司场景</li>
+            <li>保持菜单结构清晰</li>
+            <li>记录重要操作日志</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：为什么某些菜单不显示？</dt>
+            <dd>答：可能是因为相关功能未启用或用户没有相应权限。</dd>
+            
+            <dt>问：如何恢复隐藏的菜单？</dt>
+            <dd>答：启用相关功能或授予必要权限后，菜单会自动显示。</dd>
+            
+            <dt>问：多公司环境如何处理？</dt>
+            <dd>答：系统会根据当前用户可访问的公司设置自动处理菜单显示。</dd>
+        </dl>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加自定义菜单控制</h3>
+        <pre><code>
+# 继承菜单管理添加自定义控制
+class CustomMenu(models.Model):
+    _inherit = 'ir.ui.menu'
+    
+    def _custom_menu_control(self):
+        # 自定义菜单控制逻辑
+        pass
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>访问控制</h3>
+        <ul>
+            <li>菜单访问权限</li>
+            <li>功能启用检查</li>
+            <li>多公司隔离</li>
+            <li>操作日志记录</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

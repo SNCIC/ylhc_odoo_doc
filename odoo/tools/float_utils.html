@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo浮点数工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo浮点数工具模块(float_utils.py)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>float_utils.py</code>是Odoo框架中的浮点数处理工具模块，提供了一系列用于处理浮点数计算和比较的实用函数。该模块主要解决浮点数精度问题，确保在金融计算等场景中的数值准确性。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>由于计算机中浮点数的表示方式存在固有的精度限制，这个模块提供了一套完整的解决方案来处理浮点数计算中的精度问题。
+    </div>
+    
+    <h2>核心功能</h2>
+    
+    <h3>1. 浮点数舍入</h3>
+    <div class="code-block">
+        <pre><code>def float_round(value, precision_digits=None, precision_rounding=None, rounding_method='HALF-UP'):
+    """
+    将浮点数舍入到指定精度
+    
+    参数:
+        value: 要舍入的浮点数
+        precision_digits: 小数位数
+        precision_rounding: 最小舍入单位
+        rounding_method: 舍入方法('HALF-UP', 'HALF-DOWN', 'HALF-EVEN', 'UP', 'DOWN')
+    """</code></pre>
+        <p>这是模块中最核心的函数，用于处理浮点数的舍入操作。</p>
+    </div>
+
+    <h3>2. 浮点数比较</h3>
+    <div class="code-block">
+        <pre><code>def float_compare(value1, value2, precision_digits=None, precision_rounding=None):
+    """
+    比较两个浮点数是否相等（考虑精度）
+    
+    返回值:
+        -1: value1 < value2
+         0: value1 = value2
+         1: value1 > value2
+    """</code></pre>
+    </div>
+
+    <h3>3. 零值判断</h3>
+    <div class="code-block">
+        <pre><code>def float_is_zero(value, precision_digits=None, precision_rounding=None):
+    """
+    判断一个浮点数是否可以被视为零（考虑精度）
+    """</code></pre>
+    </div>
+
+    <h3>4. 浮点数格式化</h3>
+    <div class="code-block">
+        <pre><code>def float_repr(value, precision_digits):
+    """
+    将浮点数转换为字符串表示，保持指定的精度
+    """</code></pre>
+    </div>
+
+    <h3>5. 浮点数分割</h3>
+    <div class="code-block">
+        <pre><code>def float_split(value, precision_digits):
+    """
+    将浮点数分割为整数部分和小数部分
+    """</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 基本舍入操作</h3>
+        <pre><code>from odoo.tools.float_utils import float_round
+
+# 舍入到2位小数
+result = float_round(1.2345, precision_digits=2)
+print(result)  # 1.23
+
+# 使用不同的舍入方法
+result = float_round(1.5, precision_digits=0, rounding_method='UP')
+print(result)  # 2.0
+
+result = float_round(1.5, precision_digits=0, rounding_method='DOWN')
+print(result)  # 1.0</code></pre>
+
+        <h3>2. 浮点数比较</h3>
+        <pre><code>from odoo.tools.float_utils import float_compare
+
+# 比较两个接近的数值
+result = float_compare(0.1 + 0.2, 0.3, precision_digits=10)
+print(result)  # 0 (相等)
+
+# 使用不同精度进行比较
+result = float_compare(1.234, 1.235, precision_digits=2)
+print(result)  # 0 (在2位小数精度下相等)</code></pre>
+
+        <h3>3. 零值检查</h3>
+        <pre><code>from odoo.tools.float_utils import float_is_zero
+
+# 检查一个很小的数是否可以视为零
+result = float_is_zero(0.0000001, precision_digits=5)
+print(result)  # True
+
+result = float_is_zero(0.1, precision_digits=1)
+print(result)  # False</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在处理货币金额时，始终使用float_round进行舍入操作</li>
+            <li>比较浮点数时，使用float_compare而不是直接使用==运算符</li>
+            <li>检查浮点数是否为零时，使用float_is_zero而不是直接与0比较</li>
+            <li>在需要固定精度显示时，使用float_repr而不是str()</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>precision_digits和precision_rounding不能同时指定</li>
+            <li>处理货币计算时，建议使用precision_rounding参数</li>
+            <li>float_is_zero(value1-value2)与float_compare(value1,value2)==0不等价</li>
+            <li>在处理大量数据时，注意选择合适的精度以平衡性能和准确性</li>
+        </ul>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance">
+        <h3>内置优化</h3>
+        <ul>
+            <li>使用_INVERTDICT缓存常用的倒数值，提高计算效率</li>
+            <li>针对IEEE-754浮点数表示进行了特殊优化</li>
+            <li>提供了float_split_str和float_split两个版本的分割函数，可根据需要选择</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解决</h2>
+    <div class="troubleshooting">
+        <h3>1. 精度丢失问题</h3>
+        <pre><code># 错误的方式
+if 0.1 + 0.2 == 0.3:
+    print("相等")  # 可能不会执行
+
+# 正确的方式
+if float_compare(0.1 + 0.2, 0.3, precision_digits=10) == 0:
+    print("相等")  # 会正确执行</code></pre>
+
+        <h3>2. 舍入问题</h3>
+        <pre><code># 错误的方式
+rounded = round(1.235, 2)  # 可能得到意外结果
+
+# 正确的方式
+rounded = float_round(1.235, precision_digits=2)  # 可靠的结果</code></pre>
+    </div>
+</body>
+</html> 

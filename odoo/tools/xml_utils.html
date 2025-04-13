@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo XML工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo XML工具模块(xml_utils.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>xml_utils.py</code>是Odoo框架中的XML处理工具模块，它提供了一套完整的XML文件生成、解析和验证功能。该模块基于lxml.etree构建，提供了更高级的XML处理能力。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>XML节点清理</li>
+            <li>XSD文件加载和验证</li>
+            <li>XML文件验证</li>
+            <li>XML节点处理</li>
+        </ul>
+    </div>
+
+    <h2>主要组件解析</h2>
+
+    <h3>1. XML清理工具</h3>
+    <div class="code-block">
+        <h4>cleanup_xml_node函数</h4>
+        <pre><code>def cleanup_xml_node(xml_node_or_string, remove_blank_text=True, 
+                      remove_blank_nodes=True, indent_level=0, 
+                      indent_space="  "):
+    """清理XML节点或字符串
+    - 移除空白文本
+    - 移除空节点
+    - 处理缩进
+    """</code></pre>
+        <p>主要功能：</p>
+        <ul>
+            <li>清理空白文本</li>
+            <li>移除空节点</li>
+            <li>格式化XML</li>
+            <li>控制缩进</li>
+        </ul>
+    </div>
+
+    <h3>2. XSD文件处理</h3>
+    <div class="code-block">
+        <h4>load_xsd_files_from_url函数</h4>
+        <pre><code>def load_xsd_files_from_url(env, url, file_name=None, force_reload=False,
+                            request_max_timeout=10, xsd_name_prefix='', 
+                            xsd_names_filter=None, modify_xsd_content=None):
+    """从URL加载XSD文件或ZIP压缩包"""</code></pre>
+        <p>功能特点：</p>
+        <ul>
+            <li>支持URL下载</li>
+            <li>ZIP文件处理</li>
+            <li>文件过滤</li>
+            <li>内容修改</li>
+        </ul>
+    </div>
+
+    <h3>3. XML验证工具</h3>
+    <div class="code-block">
+        <h4>validate_xml_from_attachment函数</h4>
+        <pre><code>def validate_xml_from_attachment(env, xml_content, xsd_name, 
+                                reload_files_function=None, prefix=None):
+    """使用XSD附件验证XML内容"""</code></pre>
+        <p>验证功能：</p>
+        <ul>
+            <li>XSD验证</li>
+            <li>错误处理</li>
+            <li>附件管理</li>
+            <li>前缀支持</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. XML节点清理</h3>
+    <div class="code-example">
+        <pre><code># 清理XML节点
+from odoo.tools.xml_utils import cleanup_xml_node
+
+xml_content = """
+&lt;root&gt;
+    &lt;item&gt;
+        &lt;empty&gt;&lt;/empty&gt;
+        &lt;data&gt;  some text  &lt;/data&gt;
+    &lt;/item&gt;
+&lt;/root&gt;
+"""
+
+clean_xml = cleanup_xml_node(xml_content)
+print(etree.tostring(clean_xml, pretty_print=True).decode())</code></pre>
+    </div>
+
+    <h3>2. XSD验证</h3>
+    <div class="code-example">
+        <pre><code># 验证XML文件
+from odoo.tools.xml_utils import validate_xml_from_attachment
+
+xml_content = """
+&lt;invoice&gt;
+    &lt;number&gt;INV/2024/001&lt;/number&gt;
+    &lt;date&gt;2024-01-01&lt;/date&gt;
+&lt;/invoice&gt;
+"""
+
+validate_xml_from_attachment(env, xml_content, 'invoice.xsd')</code></pre>
+    </div>
+
+    <h3>3. XSD文件加载</h3>
+    <div class="code-example">
+        <pre><code># 从URL加载XSD文件
+xsd_attachments = load_xsd_files_from_url(
+    env,
+    'https://example.com/schema.xsd',
+    xsd_name_prefix='my_module'
+)</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance-tips">
+        <h3>XML处理优化要点：</h3>
+        <ul>
+            <li>使用节点清理减少内存</li>
+            <li>缓存XSD验证器</li>
+            <li>批量处理XML文件</li>
+            <li>控制递归深度</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>XML处理建议：</h3>
+        <ul>
+            <li>定期清理XML节点</li>
+            <li>使用XSD验证</li>
+            <li>处理编码问题</li>
+            <li>错误处理机制</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 如何处理大型XML文件？</h3>
+        <p>处理方法：</p>
+        <ul>
+            <li>使用迭代解析</li>
+            <li>分块处理数据</li>
+            <li>清理不必要节点</li>
+            <li>优化内存使用</li>
+        </ul>
+
+        <h3>Q2: XSD验证失败如何处理？</h3>
+        <p>解决方案：</p>
+        <ul>
+            <li>检查XML格式</li>
+            <li>验证XSD文件</li>
+            <li>查看错误日志</li>
+            <li>修复验证问题</li>
+        </ul>
+    </div>
+
+    <h2>安全性考虑</h2>
+    <div class="security">
+        <h3>XML处理安全要点：</h3>
+        <ul>
+            <li>防止XXE攻击</li>
+            <li>控制实体展开</li>
+            <li>验证外部资源</li>
+            <li>清理危险内容</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>在Odoo 18中，xml_utils模块提供了更安全和高效的XML处理机制，建议在处理XML文件时使用此模块提供的功能。
+    </div>
+</body>
+</html> 

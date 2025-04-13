@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件模板模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件模板模块(mail_template.py)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>mail_template.py是Odoo中处理邮件模板的核心模块，主要用于管理和处理与发票相关的邮件模板。该模块继承了mail.template模型，并添加了特定于账务模块的功能。</p>
+
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>管理发票相关的邮件模板</li>
+            <li>防止关键邮件模板被删除</li>
+            <li>确保发票发送流程的完整性</li>
+        </ul>
+    </div>
+
+    <h2>代码详解</h2>
+
+    <h3>1. 类定义和继承</h3>
+    <div class="code-block">
+        <pre><code>class MailTemplate(models.Model):
+    _inherit = 'mail.template'</code></pre>
+    </div>
+    <p>这个类继承了基础的mail.template模型，用于扩展其功能以适应账务模块的需求。</p>
+
+    <h3>2. 删除保护机制</h3>
+    <div class="code-block">
+        <pre><code>@api.ondelete(at_uninstall=False)
+def _unlink_except_master_mail_template(self):
+    master_xmlids = {
+        "account.email_template_edi_invoice",
+        "account.email_template_edi_credit_note",
+    }
+    removed_xml_ids = set(self.get_external_id().values())
+    if removed_xml_ids.intersection(master_xmlids):
+        raise UserError(_("You cannot delete this mail template, it is used in the invoice sending flow."))</code></pre>
+    </div>
+
+    <div class="explanation">
+        <h4>功能说明：</h4>
+        <ul>
+            <li>使用@api.ondelete装饰器定义删除时的行为</li>
+            <li>定义了两个受保护的模板：
+                <ul>
+                    <li>email_template_edi_invoice：发票邮件模板</li>
+                    <li>email_template_edi_credit_note：贷记单邮件模板</li>
+                </ul>
+            </li>
+            <li>如果尝试删除这些关键模板，会抛出UserError异常</li>
+        </ul>
+    </div>
+
+    <h3>使用示例</h3>
+    <div class="example">
+        <h4>1. 尝试删除保护模板</h4>
+        <pre><code># 以下代码会触发保护机制
+template = env.ref('account.email_template_edi_invoice')
+try:
+    template.unlink()
+except UserError as e:
+    print("无法删除模板：", e)</code></pre>
+
+        <h4>2. 安全获取模板</h4>
+        <pre><code># 安全地获取发票邮件模板
+invoice_template = env.ref('account.email_template_edi_invoice', raise_if_not_found=False)
+if invoice_template:
+    # 使用模板发送邮件
+    invoice_template.send_mail(invoice.id)</code></pre>
+    </div>
+
+    <h2>技术要点</h2>
+    <div class="technical-notes">
+        <h3>1. 装饰器使用</h3>
+        <ul>
+            <li>@api.ondelete(at_uninstall=False)：在记录被删除前触发</li>
+            <li>at_uninstall=False表示在模块卸载时也会执行此保护</li>
+        </ul>
+
+        <h3>2. 异常处理</h3>
+        <ul>
+            <li>使用UserError提供友好的错误信息</li>
+            <li>错误信息支持翻译（使用_函数）</li>
+        </ul>
+
+        <h3>3. 集合操作</h3>
+        <ul>
+            <li>使用set进行高效的集合操作</li>
+            <li>intersection()方法检查集合交集</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>不要直接删除系统关键邮件模板</li>
+            <li>如需修改模板，应该复制后修改</li>
+            <li>使用XML ID引用模板，而不是直接ID</li>
+            <li>在自定义模块中扩展模板时要考虑兼容性</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>此模块的主要目的是保护关键的邮件模板，确保发票处理流程的完整性。在开发中需要特别注意这些保护机制。
+    </div>
+</body>
+</html> 

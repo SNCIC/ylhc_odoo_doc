@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo付款条件模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo付款条件模型(AccountPaymentTerm)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>AccountPaymentTerm模型是Odoo中管理付款条件的核心模型。它定义了客户或供应商的付款期限和条件，支持分期付款、提前付款折扣等复杂的付款方案。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>付款条件定义了何时以及如何支付发票金额，可以包含多个付款期限和不同的计算方式。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>付款条件名称，必填且可翻译</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否启用该付款条件</td>
+        </tr>
+        <tr>
+            <td>note</td>
+            <td>Html</td>
+            <td>显示在发票上的付款说明</td>
+        </tr>
+        <tr>
+            <td>line_ids</td>
+            <td>One2many</td>
+            <td>付款条件明细行</td>
+        </tr>
+        <tr>
+            <td>early_discount</td>
+            <td>Boolean</td>
+            <td>是否启用提前付款折扣</td>
+        </tr>
+        <tr>
+            <td>discount_percentage</td>
+            <td>Float</td>
+            <td>提前付款折扣百分比</td>
+        </tr>
+        <tr>
+            <td>discount_days</td>
+            <td>Integer</td>
+            <td>提前付款折扣有效天数</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 付款条件管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountPaymentTerm(models.Model):
+    _name = "account.payment.term"
+    _description = "Payment Terms"
+    _order = "sequence, id"
+
+    def _default_line_ids(self):
+        return [Command.create({
+            'value': 'percent',
+            'value_amount': 100.0,
+            'nb_days': 0
+        })]
+        </code></pre>
+    </div>
+
+    <h3>2. 付款期限计算</h3>
+    <div class="code-block">
+        <pre><code>
+def _compute_terms(self, date_ref, currency, company, tax_amount,
+                  tax_amount_currency, sign, untaxed_amount,
+                  untaxed_amount_currency):
+    # 计算各期付款金额和日期
+    self.ensure_one()
+    company_currency = company.currency_id
+    total_amount = tax_amount + untaxed_amount
+    total_amount_currency = tax_amount_currency + untaxed_amount_currency
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建新付款条件</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建30天内付款的条件
+payment_term = self.env['account.payment.term'].create({
+    'name': '30天内付款',
+    'note': '请在30天内完成付款',
+    'line_ids': [
+        (0, 0, {
+            'value': 'percent',
+            'value_amount': 100.0,
+            'nb_days': 30,
+        })
+    ]
+})
+        </code></pre>
+    </div>
+
+    <h3>创建分期付款条件</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建三期付款条件
+payment_term = self.env['account.payment.term'].create({
+    'name': '三期付款',
+    'line_ids': [
+        (0, 0, {'value': 'percent', 'value_amount': 40.0, 'nb_days': 0}),
+        (0, 0, {'value': 'percent', 'value_amount': 30.0, 'nb_days': 30}),
+        (0, 0, {'value': 'percent', 'value_amount': 30.0, 'nb_days': 60}),
+    ]
+})
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 标准付款条件</h3>
+    <div class="business-case">
+        <p>常见的付款条件设置：</p>
+        <ol>
+            <li>立即付款（0天）</li>
+            <li>30天付款期</li>
+            <li>预付30%，余款30天内付清</li>
+            <li>分三期等额付款</li>
+        </ol>
+    </div>
+
+    <h3>2. 提前付款折扣</h3>
+    <div class="business-case">
+        <p>激励客户提前付款：</p>
+        <ol>
+            <li>设置折扣百分比</li>
+            <li>设置折扣有效期</li>
+            <li>自动计算折扣金额</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_compute_terms</td>
+            <td>计算付款期限和金额</td>
+        </tr>
+        <tr>
+            <td>_get_amount_by_date</td>
+            <td>获取每个日期的应付金额</td>
+        </tr>
+        <tr>
+            <td>_get_amount_due_after_discount</td>
+            <td>计算折扣后应付金额</td>
+        </tr>
+    </table>
+
+    <h3>付款条件行类型</h3>
+    <div class="term-types">
+        <ul>
+            <li>固定金额（fixed）</li>
+            <li>百分比（percent）</li>
+            <li>余额（balance）</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>为每个付款条件设置清晰的名称和说明</li>
+            <li>确保付款条件行的百分比总和为100%</li>
+            <li>合理设置提前付款折扣以鼓励及时付款</li>
+            <li>定期检查付款条件的使用情况</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何设置分期付款？</dt>
+            <dd>答：通过创建多个付款条件行，每行设置不同的付款百分比和天数。</dd>
+            
+            <dt>问：如何计算提前付款折扣？</dt>
+            <dd>答：系统会根据设置的折扣百分比和有效期自动计算折扣金额。</dd>
+            
+            <dt>问：付款天数如何计算？</dt>
+            <dd>答：可以选择从发票日期、月末或下月开始计算天数。</dd>
+        </dl>
+    </div>
+
+    <h2>付款条件行详解</h2>
+    <div class="payment-term-line">
+        <h3>AccountPaymentTermLine模型</h3>
+        <pre><code>
+class AccountPaymentTermLine(models.Model):
+    _name = "account.payment.term.line"
+    _description = "Payment Terms Line"
+    
+    value = fields.Selection([
+        ('percent', 'Percent'),
+        ('fixed', 'Fixed')
+    ], required=True)
+    value_amount = fields.Float(string='Due')
+    delay_type = fields.Selection([
+        ('days_after', '发票日期后的天数'),
+        ('days_after_end_of_month', '月末后的天数'),
+        ('days_after_end_of_next_month', '下月月末后的天数'),
+        ('days_end_of_month_on_the', '月末指定日期')
+    ], required=True)
+        </code></pre>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加新的付款条件计算方式</h3>
+        <pre><code>
+# 继承付款条件行模型添加新的计算方式
+class CustomPaymentTermLine(models.Model):
+    _inherit = 'account.payment.term.line'
+    
+    value = fields.Selection(selection_add=[
+        ('custom', 'Custom Calculation')
+    ])
+    
+    def _get_due_date(self, date_ref):
+        if self.value == 'custom':
+            # 自定义计算逻辑
+            return date_ref + relativedelta(days=self.nb_days)
+        return super()._get_due_date(date_ref)
+        </code></pre>
+    </div>
+
+</body>
+</html> 

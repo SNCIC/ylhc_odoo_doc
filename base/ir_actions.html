@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo动作管理系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo动作管理系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_actions.py</code>是Odoo框架中的核心模块之一,负责管理系统中的所有动作(Actions)。动作是Odoo中非常重要的概念,它定义了用户界面上的各种操作行为,如打开表单、运行向导、打印报表等。</p>
+
+    <div class="note">
+        <strong>什么是动作(Action)?</strong>动作是Odoo中用于定义用户界面交互行为的基础组件。每个菜单项、按钮、工具栏选项背后都对应着一个动作定义。
+    </div>
+
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>动作基类定义</strong>：提供所有动作类型的基础实现</li>
+        <li><strong>动作类型管理</strong>：支持窗口动作、URL动作、服务器动作等多种类型</li>
+        <li><strong>动作权限控制</strong>：管理不同用户对动作的访问权限</li>
+        <li><strong>动作执行环境</strong>：提供动作执行所需的上下文环境</li>
+    </ol>
+
+    <h2>核心类结构</h2>
+    
+    <h3>IrActions (基类)</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>主要字段</h4>
+            <ul>
+                <li>name: 动作名称</li>
+                <li>type: 动作类型</li>
+                <li>binding_model_id: 关联模型</li>
+                <li>binding_type: 绑定类型</li>
+                <li>binding_view_types: 视图类型</li>
+            </ul>
+        </div>
+    </div>
+
+    <h3>IrActionsActWindow (窗口动作)</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>主要字段</h4>
+            <ul>
+                <li>view_id: 默认视图</li>
+                <li>domain: 过滤域</li>
+                <li>context: 上下文</li>
+                <li>res_model: 目标模型</li>
+                <li>view_mode: 视图模式</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 创建窗口动作</h3>
+    <div class="code-block">
+        <pre><code>
+# 创建一个打开产品列表的动作
+action = {
+    'name': '产品列表',
+    'type': 'ir.actions.act_window',
+    'res_model': 'product.product',
+    'view_mode': 'list,form',
+    'domain': [('type', '=', 'product')],
+    'context': {'default_type': 'product'}
+}
+        </code></pre>
+    </div>
+
+    <h3>2. 创建URL动作</h3>
+    <div class="code-block">
+        <pre><code>
+# 创建一个打开外部链接的动作
+action = {
+    'name': '访问官网',
+    'type': 'ir.actions.act_url',
+    'url': 'https://www.odoo.com',
+    'target': 'new'
+}
+        </code></pre>
+    </div>
+
+    <h2>动作类型详解</h2>
+    
+    <table>
+        <tr>
+            <th>动作类型</th>
+            <th>用途</th>
+            <th>主要属性</th>
+        </tr>
+        <tr>
+            <td>ir.actions.act_window</td>
+            <td>打开窗口/视图</td>
+            <td>view_mode, res_model, domain</td>
+        </tr>
+        <tr>
+            <td>ir.actions.act_url</td>
+            <td>打开URL链接</td>
+            <td>url, target</td>
+        </tr>
+        <tr>
+            <td>ir.actions.server</td>
+            <td>执行服务器代码</td>
+            <td>state, code, model_id</td>
+        </tr>
+        <tr>
+            <td>ir.actions.report</td>
+            <td>生成报表</td>
+            <td>report_type, report_name</td>
+        </tr>
+    </table>
+
+    <h2>权限控制</h2>
+    <p>动作系统通过以下机制实现权限控制：</p>
+    <ul>
+        <li>groups_id: 可以指定允许执行该动作的用户组</li>
+        <li>binding_model_id: 控制动作可以绑定到哪些模型</li>
+        <li>模型级权限: 用户需要有目标模型的相应权限</li>
+    </ul>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 动作命名</h3>
+        <p>使用清晰的命名约定：</p>
+        <ul>
+            <li>action_开头表示动作</li>
+            <li>包含目标对象名称</li>
+            <li>使用动词描述行为</li>
+        </ul>
+
+        <h3>2. 上下文使用</h3>
+        <p>合理使用context传递参数：</p>
+        <ul>
+            <li>使用default_前缀设置默认值</li>
+            <li>避免在context中存储大量数据</li>
+            <li>注意context的继承关系</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <h3>Q: 动作没有正确执行?</h3>
+        <p>检查以下几点：</p>
+        <ul>
+            <li>用户是否有足够的权限</li>
+            <li>目标模型是否存在</li>
+            <li>domain表达式是否正确</li>
+            <li>context是否包含必要的值</li>
+        </ul>
+
+        <h3>Q: 如何调试动作?</h3>
+        <p>可以通过以下方式：</p>
+        <ul>
+            <li>启用开发者模式查看完整动作定义</li>
+            <li>检查服务器日志中的错误信息</li>
+            <li>使用debug=1参数在URL中</li>
+        </ul>
+    </div>
+
+    <h2>Odoo 18中的变化</h2>
+    <p>Odoo 18版本中动作系统的主要改进：</p>
+    <ul>
+        <li>更好的移动端支持</li>
+        <li>改进的动作缓存机制</li>
+        <li>新增动作类型支持</li>
+        <li>优化的权限检查机制</li>
+    </ul>
+
+    <div class="note">
+        <strong>开发建议：</strong>在开发自定义模块时,建议继承现有动作类型而不是创建全新的动作类型,这样可以保持系统的一致性并减少维护成本。
+    </div>
+
+    <h2>核心代码分析</h2>
+    
+    <h3>1. 动作基类定义</h3>
+    <div class="code-block">
+        <pre><code>
+class IrActions(models.Model):
+    _name = 'ir.actions.actions'
+    _description = 'Actions'
+    _table = 'ir_actions'
+    _order = 'name'
+
+    name = fields.Char(string='Action Name', required=True, translate=True)
+    type = fields.Char(string='Action Type', required=True)
+    xml_id = fields.Char(compute='_compute_xml_id', string="External ID")
+    help = fields.Html(string='Action Description', translate=True)
+    binding_model_id = fields.Many2one('ir.model', ondelete='cascade')
+    binding_type = fields.Selection([('action', 'Action'),
+                                   ('report', 'Report')],
+                                  required=True, default='action')
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>_table = 'ir_actions': 所有动作类型共用同一个数据库表</li>
+        <li>binding_model_id: 用于将动作绑定到特定模型</li>
+        <li>binding_type: 区分普通动作和报表动作</li>
+    </ul>
+
+    <h3>2. 窗口动作实现</h3>
+    <div class="code-block">
+        <pre><code>
+class IrActionsActWindow(models.Model):
+    _name = 'ir.actions.act_window'
+    _inherit = 'ir.actions.actions'
+    
+    view_id = fields.Many2one('ir.ui.view', string='View Ref.')
+    domain = fields.Char(string='Domain Value')
+    context = fields.Char(string='Context Value', default={}, required=True)
+    res_model = fields.Char(string='Destination Model', required=True)
+    view_mode = fields.Char(required=True, default='list,form')
+    target = fields.Selection([
+        ('current', 'Current Window'),
+        ('new', 'New Window'),
+        ('inline', 'Inline Edit'),
+        ('fullscreen', 'Full Screen'),
+        ('main', 'Main action of Current Window')
+    ], default="current")
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>view_mode: 定义可用的视图类型和顺序</li>
+        <li>target: 控制动作的打开方式</li>
+        <li>domain和context: 用于控制数据过滤和上下文</li>
+    </ul>
+
+    <h3>3. URL动作实现</h3>
+    <div class="code-block">
+        <pre><code>
+class IrActionsActUrl(models.Model):
+    _name = 'ir.actions.act_url'
+    _inherit = 'ir.actions.actions'
+    
+    url = fields.Text(string='Action URL', required=True)
+    target = fields.Selection([
+        ('new', 'New Window'),
+        ('self', 'This Window'),
+        ('download', 'Download')
+    ], string='Action Target', default='new', required=True)
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>url: 支持动态URL和静态URL</li>
+        <li>target: 特别支持download选项用于文件下载</li>
+    </ul>
+
+    <h3>4. 动作执行机制</h3>
+    <div class="code-block">
+        <pre><code>
+def _get_readable_fields(self):
+    return super()._get_readable_fields() | {
+        "context", "params", "res_model", "tag", "target",
+    }
+
+def _get_action_dict(self):
+    result = super()._get_action_dict()
+    if embedded_action_ids := result["embedded_action_ids"]:
+        EmbeddedActions = self.env["ir.embedded.actions"]
+        embedded_fields = EmbeddedActions._get_readable_fields()
+        result["embedded_action_ids"] = EmbeddedActions.browse(
+            embedded_action_ids).read(embedded_fields)
+    return result
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>_get_readable_fields: 定义动作可读取的字段</li>
+        <li>_get_action_dict: 处理动作的嵌入式动作</li>
+        <li>支持动作的继承和扩展</li>
+    </ul>
+</body>
+</html> 

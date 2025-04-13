@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo数据库中性化工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo数据库中性化工具(Neutralize)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>neutralize.py</code>是Odoo框架中的一个重要工具，用于将生产数据库转换为测试用途的数据库。它的主要目的是确保敏感操作（如发送邮件）在测试环境中不会真正执行。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>将生产数据库转换为安全的测试数据库，防止意外的外部通信和敏感操作。
+    </div>
+    
+    <h2>代码结构分析</h2>
+    
+    <h3>1. 类定义</h3>
+    <div class="code-block">
+        <pre><code>class Neutralize(Command):
+    """Neutralize a production database for testing: no emails sent, etc."""</code></pre>
+    </div>
+    
+    <h3>2. 主要方法解析</h3>
+    <div class="method-analysis">
+        <h4>run(self, args)方法</h4>
+        <ul>
+            <li>参数解析设置：
+                <ul>
+                    <li>--stdout：输出SQL而不是直接执行</li>
+                    <li>-d：指定要中性化的数据库名称</li>
+                </ul>
+            </li>
+            <li>执行流程：
+                <ol>
+                    <li>验证数据库名称是否提供</li>
+                    <li>建立数据库连接</li>
+                    <li>根据模式执行中性化操作</li>
+                    <li>处理可能的错误情况</li>
+                </ol>
+            </li>
+        </ul>
+    </div>
+
+    <h2>工作原理</h2>
+    <div class="workflow">
+        <h3>数据库中性化过程</h3>
+        <ol>
+            <li>连接指定的数据库</li>
+            <li>获取已安装模块列表</li>
+            <li>生成中性化SQL查询</li>
+            <li>执行中性化操作或输出SQL</li>
+        </ol>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 直接中性化数据库</h3>
+        <pre><code>python odoo-bin neutralize -d mydb</code></pre>
+        
+        <h3>2. 查看将要执行的SQL</h3>
+        <pre><code>python odoo-bin neutralize -d mydb --stdout</code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <ul>
+            <li>在执行中性化操作前会进行错误检查</li>
+            <li>操作失败时会回滚事务</li>
+            <li>提供明确的错误信息</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在执行中性化操作前备份数据库</li>
+            <li>使用--stdout选项预览将要执行的更改</li>
+            <li>在测试环境中验证中性化结果</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>Q: 为什么需要数据库中性化？</dt>
+            <dd>A: 在测试环境中使用生产数据时，需要确保不会触发真实的外部操作（如发送邮件），中性化工具可以安全地处理这些情况。</dd>
+            
+            <dt>Q: 中性化操作是否可逆？</dt>
+            <dd>A: 不可逆，建议在执行前备份数据库。</dd>
+            
+            <dt>Q: 如何验证中性化是否成功？</dt>
+            <dd>A: 可以检查关键表（如邮件配置、外部API设置等）是否已被正确中性化。</dd>
+        </dl>
+    </div>
+
+    <h2>技术细节</h2>
+    <div class="technical-details">
+        <h3>主要影响的功能：</h3>
+        <ul>
+            <li>电子邮件发送</li>
+            <li>外部API调用</li>
+            <li>自动化操作</li>
+            <li>计划任务</li>
+        </ul>
+    </div>
+</body>
+</html> 

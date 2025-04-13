@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模型管理模块(ir.model)详解</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模型管理模块(ir.model)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p><code>ir.model</code>是Odoo的核心模块之一,负责管理系统中所有模型(数据表)的元数据。它提供了以下主要功能:</p>
+        <ul>
+            <li>管理系统中所有模型的定义</li>
+            <li>处理模型之间的继承关系</li>
+            <li>管理模型的字段定义</li>
+            <li>控制模型的访问权限</li>
+            <li>提供动态模型创建能力</li>
+        </ul>
+    </div>
+
+    <div class="key-classes">
+        <h2>核心类解析</h2>
+        
+        <h3>1. IrModel类</h3>
+        <p>这是模型管理的主要类,继承自models.Model:</p>
+        <pre><code>class IrModel(models.Model):
+    _name = 'ir.model'
+    _description = "Models"
+    _order = 'model'</code></pre>
+
+        <h4>主要字段</h4>
+        <ul>
+            <li>name: 模型描述名称</li>
+            <li>model: 模型技术名称</li>
+            <li>info: 模型说明信息</li>
+            <li>state: 模型状态(manual/base)</li>
+            <li>field_id: 模型字段定义</li>
+            <li>access_ids: 访问权限规则</li>
+        </ul>
+
+        <h3>2. IrModelFields类</h3>
+        <p>负责管理模型字段的类:</p>
+        <pre><code>class IrModelFields(models.Model):
+    _name = 'ir.model.fields'
+    _description = "Fields"
+    _order = "name"</code></pre>
+
+        <h4>主要字段</h4>
+        <ul>
+            <li>name: 字段名称</li>
+            <li>field_description: 字段描述</li>
+            <li>ttype: 字段类型</li>
+            <li>relation: 关联模型</li>
+            <li>required: 是否必填</li>
+            <li>readonly: 是否只读</li>
+            <li>store: 是否存储</li>
+        </ul>
+    </div>
+
+    <div class="key-methods">
+        <h2>核心方法解析</h2>
+
+        <h3>1. 模型管理</h3>
+        <div class="method-detail">
+            <h4>create_model方法</h4>
+            <p>创建新模型的方法:</p>
+            <pre><code>@api.model
+def create(self, vals):
+    if 'model' in vals:
+        self._check_model_name(vals['model'])
+    # create a table for the model
+    res = super().create(vals)
+    if vals.get('state','base') == 'manual':
+        # setup models; this automatically adds model in registry
+        self.env.flush_all()
+        self.pool.setup_models(self._cr)
+        # update database schema
+        self.pool.init_models(self._cr, [vals['model']], dict(self._context, update_custom_fields=True))
+    return res</code></pre>
+        </div>
+
+        <h3>2. 字段管理</h3>
+        <div class="method-detail">
+            <h4>create_field方法</h4>
+            <p>创建新字段的方法:</p>
+            <pre><code>@api.model
+def create(self, vals):
+    if 'model_id' in vals:
+        vals['model'] = self.env['ir.model'].browse(vals['model_id']).model
+    # check field name
+    if vals.get('name'):
+        self._check_field_name(vals['name'])
+    # create field
+    field = super().create(vals)
+    if vals.get('state', 'manual') == 'manual':
+        if not self.env.registry.ready:
+            self._cr.commit()
+            self.env.registry.setup_models(self._cr)
+    return field</code></pre>
+        </div>
+    </div>
+
+    <div class="usage-examples">
+        <h2>使用示例</h2>
+
+        <h3>1. 创建自定义模型</h3>
+        <pre><code># 创建一个新的自定义模型
+model = env['ir.model'].create({
+    'name': '客户反馈',
+    'model': 'x_customer_feedback',
+    'state': 'manual',
+    'field_id': [
+        (0, 0, {
+            'name': 'x_name',
+            'field_description': '反馈标题',
+            'ttype': 'char',
+            'required': True
+        }),
+        (0, 0, {
+            'name': 'x_description',
+            'field_description': '反馈内容',
+            'ttype': 'text'
+        })
+    ]
+})</code></pre>
+
+        <h3>2. 添加字段到现有模型</h3>
+        <pre><code># 向res.partner模型添加自定义字段
+partner_model = env['ir.model'].search([('model', '=', 'res.partner')])
+field = env['ir.model.fields'].create({
+    'model_id': partner_model.id,
+    'name': 'x_customer_level',
+    'field_description': '客户等级',
+    'ttype': 'selection',
+    'selection': "[('gold','金牌'),('silver','银牌'),('bronze','铜牌')]"
+})</code></pre>
+
+        <h3>3. 设置字段权限</h3>
+        <pre><code># 设置字段访问权限
+env['ir.model.access'].create({
+    'name': 'access_customer_feedback_user',
+    'model_id': model.id,
+    'group_id': env.ref('base.group_user').id,
+    'perm_read': True,
+    'perm_write': True,
+    'perm_create': True,
+    'perm_unlink': True
+})</code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>自定义模型名称应以'x_'开头</li>
+            <li>为所有字段提供清晰的描述</li>
+            <li>谨慎使用required=True,避免数据迁移问题</li>
+            <li>合理设置字段的索引以优化查询性能</li>
+            <li>正确设置访问权限确保数据安全</li>
+            <li>使用compute字段减少数据冗余</li>
+        </ul>
+    </div>
+
+    <div class="troubleshooting">
+        <h2>常见问题解决</h2>
+        <dl>
+            <dt>问题1: 字段创建失败</dt>
+            <dd>
+                <ul>
+                    <li>检查字段名称是否合法</li>
+                    <li>确认字段类型是否支持</li>
+                    <li>验证关联字段的模型是否存在</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 权限错误</dt>
+            <dd>
+                <ul>
+                    <li>检查模型访问权限设置</li>
+                    <li>确认字段访问权限配置</li>
+                    <li>验证用户所属权限组</li>
+                </ul>
+            </dd>
+
+            <dt>问题3: 数据迁移问题</dt>
+            <dd>
+                <ul>
+                    <li>添加必填字段时提供默认值</li>
+                    <li>使用迁移脚本处理数据转换</li>
+                    <li>先添加可选字段再改为必填</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="advanced-topics">
+        <h2>高级主题</h2>
+        
+        <h3>1. 动态模型继承</h3>
+        <p>Odoo支持三种继承方式:</p>
+        <ul>
+            <li>传统继承(_inherit): 扩展现有模型</li>
+            <li>委托继承(_inherits): 通过引用关联字段继承</li>
+            <li>原型继承(_inherit, _name): 基于现有模型创建新模型</li>
+        </ul>
+
+        <h3>2. 计算字段优化</h3>
+        <p>计算字段的性能优化策略:</p>
+        <ul>
+            <li>使用store=True缓存频繁访问的计算结果</li>
+            <li>合理设置compute方法的依赖字段</li>
+            <li>批量计算避免循环调用compute方法</li>
+        </ul>
+
+        <h3>3. 安全机制</h3>
+        <p>Odoo的多层安全机制:</p>
+        <ul>
+            <li>记录规则(ir.rule): 行级访问控制</li>
+            <li>访问权限(ir.model.access): 模型级权限控制</li>
+            <li>字段访问权限: 控制具体字段的读写权限</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

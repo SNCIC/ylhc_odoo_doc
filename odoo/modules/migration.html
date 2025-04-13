@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模块迁移管理解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模块迁移管理(migration.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>migration.py</code>是Odoo框架中负责处理模块版本迁移的核心模块。它管理模块在不同版本间的数据结构和内容迁移，确保系统升级的平滑进行。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>模块版本迁移管理</li>
+            <li>迁移脚本的加载和执行</li>
+            <li>版本号解析和验证</li>
+            <li>迁移过程的错误处理</li>
+        </ul>
+    </div>
+
+    <h2>版本号格式</h2>
+    
+    <h3>版本号规范</h3>
+    <div class="code-block">
+        <pre><code>VERSION_RE = re.compile(r"""^
+    # Odoo版本前缀（可选）
+    ((6\.1|[6-9]\.0|[1-9]\d+\.0|
+      (7|8|9|10)\.saas~[1-9]\d*|
+      saas~(1[1-9]|[2-9]\d+)\.[1-9]
+    )\.)?
+    # 模块版本号（2-3个部分）
+    \d+\.\d+(\.\d+)?
+$""", re.VERBOSE | re.ASCII)</code></pre>
+    </div>
+    <p>支持的版本号格式：</p>
+    <ul>
+        <li>标准版本：x.y.z（如：1.0.0）</li>
+        <li>Odoo版本前缀：如 14.0.1.0.0</li>
+        <li>SaaS版本：如 saas~12.1</li>
+    </ul>
+
+    <h2>主要组件详解</h2>
+    
+    <h3>1. MigrationManager类</h3>
+    <div class="code-block">
+        <pre><code>class MigrationManager(object):
+    """管理模块迁移的主类"""</code></pre>
+    </div>
+    <p>MigrationManager的主要职责：</p>
+    <ul>
+        <li>管理迁移脚本的加载</li>
+        <li>控制迁移过程的执行</li>
+        <li>处理迁移过程中的错误</li>
+    </ul>
+
+    <h3>2. 脚本加载机制</h3>
+    <div class="code-block">
+        <pre><code>def load_script(path, module_name):
+    """动态加载迁移脚本"""</code></pre>
+    </div>
+    <p>脚本加载功能：</p>
+    <ul>
+        <li>动态导入Python模块</li>
+        <li>验证脚本格式</li>
+        <li>检查必要函数</li>
+    </ul>
+
+    <h2>迁移脚本组织结构</h2>
+    
+    <h3>目录结构</h3>
+    <div class="structure">
+        <pre>
+moduledir/
+├── migrations/
+│   ├── 1.0/
+│   │   ├── pre-update_table_x.py
+│   │   ├── post-create_records.py
+│   │   └── end-cleanup.py
+│   ├── 14.0.1.1/
+│   │   ├── pre-migrate.py
+│   │   └── post-migrate.py
+│   └── 0.0.0/
+│       └── end-invariants.py
+        </pre>
+    </div>
+
+    <h3>脚本类型</h3>
+    <ul>
+        <li><strong>pre-*</strong>: 模块更新前执行</li>
+        <li><strong>post-*</strong>: 模块更新后执行</li>
+        <li><strong>end-*</strong>: 所有模块更新完成后执行</li>
+    </ul>
+
+    <h2>迁移过程详解</h2>
+    
+    <h3>1. 迁移脚本执行</h3>
+    <div class="code-block">
+        <pre><code>def migrate_module(self, pkg, stage):
+    # 获取适用的迁移脚本
+    # 按版本顺序执行
+    # 处理错误和异常</code></pre>
+    </div>
+    <p>执行过程：</p>
+    <ul>
+        <li>确定当前版本和目标版本</li>
+        <li>收集适用的迁移脚本</li>
+        <li>按顺序执行迁移操作</li>
+    </ul>
+
+    <h3>2. 版本比较逻辑</h3>
+    <div class="code-block">
+        <pre><code>def compare(version):
+    # 处理特殊版本0.0.0
+    # 解析和比较版本号
+    # 处理主版本号变化</code></pre>
+    </div>
+    <p>版本比较规则：</p>
+    <ul>
+        <li>特殊版本0.0.0总是执行</li>
+        <li>考虑Odoo主版本号</li>
+        <li>处理模块版本号</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建迁移脚本示例</h3>
+    <div class="code-block">
+        <pre><code># migrations/14.0.1.0/pre-update_tables.py
+def migrate(cr, version):
+    if not version:
+        # 首次安装
+        return
+    
+    # 更新表结构
+    cr.execute("""
+        ALTER TABLE my_table
+        ADD COLUMN new_field varchar
+    """)</code></pre>
+    </div>
+
+    <h3>执行迁移示例</h3>
+    <div class="code-block">
+        <pre><code>def run_migration(cr, graph):
+    manager = MigrationManager(cr, graph)
+    for package in graph:
+        manager.migrate_module(package, 'pre')
+        # 执行模块更新
+        manager.migrate_module(package, 'post')
+    # 执行end脚本
+    for package in graph:
+        manager.migrate_module(package, 'end')</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>脚本组织</h3>
+        <ul>
+            <li>按版本号清晰组织脚本</li>
+            <li>使用有意义的文件名</li>
+            <li>保持脚本的独立性</li>
+        </ul>
+
+        <h3>迁移操作</h3>
+        <ul>
+            <li>在pre阶段处理数据库结构变更</li>
+            <li>在post阶段处理数据迁移</li>
+            <li>在end阶段处理清理工作</li>
+        </ul>
+
+        <h3>错误处理</h3>
+        <ul>
+            <li>做好版本检查</li>
+            <li>添加适当的错误处理</li>
+            <li>保持数据一致性</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>迁移脚本一旦发布就不应修改</li>
+            <li>每个迁移步骤都应该是幂等的</li>
+            <li>保持向后兼容性</li>
+            <li>做好数据备份</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解决</h2>
+    <div class="troubleshooting">
+        <h3>版本号问题</h3>
+        <ul>
+            <li>确保版本号格式正确</li>
+            <li>检查版本号递增逻辑</li>
+            <li>处理特殊版本号情况</li>
+        </ul>
+
+        <h3>脚本执行失败</h3>
+        <ul>
+            <li>检查数据库连接</li>
+            <li>验证SQL语句语法</li>
+            <li>确保数据一致性</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>总结：</strong>
+        <p>模块迁移是Odoo系统升级的关键环节，需要特别注意：</p>
+        <ul>
+            <li>严格遵循版本号规范</li>
+            <li>正确组织迁移脚本</li>
+            <li>确保迁移过程的可靠性</li>
+            <li>做好异常处理和回滚机制</li>
+        </ul>
+    </div>
+</body>
+</html> 

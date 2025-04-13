@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 合作伙伴自动合并模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 合作伙伴自动合并模块(merge_partner_automatic)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>merge_partner_automatic.py是Odoo 18中处理合作伙伴自动合并的扩展模块。它继承了基础的base.partner.merge.automatic.wizard模型，主要用于在会计模块中安全地合并合作伙伴记录。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>安全的合作伙伴合并</li>
+            <li>引用字段更新</li>
+            <li>审计日志绕过</li>
+            <li>数据一致性维护</li>
+        </ul>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_update_reference_fields</h3>
+            <pre><code>def _update_reference_fields(self, src_partners, dst_partner)</code></pre>
+            <p>更新引用字段，将源合作伙伴的引用更新到目标合作伙伴。</p>
+            <ul>
+                <li>参数:
+                    <ul>
+                        <li>src_partners: 源合作伙伴记录集</li>
+                        <li>dst_partner: 目标合作伙伴记录</li>
+                    </ul>
+                </li>
+                <li>特点:
+                    <ul>
+                        <li>使用bypass_token绕过审计日志</li>
+                        <li>保持数据一致性</li>
+                        <li>处理所有相关引用</li>
+                    </ul>
+                </li>
+            </ul>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 合并合作伙伴
+wizard = self.env['base.partner.merge.automatic.wizard'].create({
+    'partner_ids': [(6, 0, [partner1.id, partner2.id])],
+    'dst_partner_id': partner1.id,
+})
+wizard._update_reference_fields(partner2, partner1)
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>审计日志绕过机制</h3>
+        <pre><code>
+from .mail_message import bypass_token
+
+def _update_reference_fields(self, src_partners, dst_partner):
+    return super(MergePartnerAutomatic, self.with_context(
+        bypass_audit=bypass_token
+    ))._update_reference_fields(src_partners, dst_partner)
+        </code></pre>
+        <p>说明:</p>
+        <ul>
+            <li>使用bypass_token避免生成不必要的审计日志</li>
+            <li>在合并过程中保持数据完整性</li>
+            <li>确保合并操作的高效执行</li>
+        </ul>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 重复合作伙伴合并</h3>
+        <pre><code>
+# 查找并合并重复的合作伙伴
+def merge_duplicate_partners(self):
+    wizard = self.env['base.partner.merge.automatic.wizard'].create({
+        'group_by_email': True,
+        'group_by_name': True,
+        'maximum_group': 2
+    })
+    wizard.action_start_automatic_process()
+        </code></pre>
+
+        <h3>2. 手动选择合并</h3>
+        <pre><code>
+# 手动选择要合并的合作伙伴
+def manual_merge_partners(self, partner_ids, dst_partner_id):
+    wizard = self.env['base.partner.merge.automatic.wizard'].create({
+        'partner_ids': [(6, 0, partner_ids)],
+        'dst_partner_id': dst_partner_id,
+    })
+    return wizard.action_merge()
+        </code></pre>
+
+        <h3>3. 合并前验证</h3>
+        <pre><code>
+# 在合并前进行验证
+def validate_merge(self, partner_ids):
+    wizard = self.env['base.partner.merge.automatic.wizard']
+    return wizard._validate_partner_ids(partner_ids)
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>合并前进行数据备份</li>
+            <li>验证合并目标的正确性</li>
+            <li>检查相关业务数据的完整性</li>
+            <li>合理使用自动合并功能</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 数据丢失</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>合并过程中断</li>
+                    <li>引用更新失败</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>使用事务确保原子性</li>
+                    <li>合并前备份关键数据</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 性能问题</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>大量记录同时合并</li>
+                    <li>复杂的引用关系</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>分批处理大量数据</li>
+                    <li>优化合并策略</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>合并操作不可逆</li>
+            <li>需要注意数据一致性</li>
+            <li>关注性能影响</li>
+            <li>保护关键业务数据</li>
+        </ul>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加自定义合并规则
+                <pre><code>
+class MergePartnerExtended(models.TransientModel):
+    _inherit = 'base.partner.merge.automatic.wizard'
+    
+    def _merge_custom_validation(self, src_partners, dst_partner):
+        # 实现自定义验证逻辑
+        return True
+                </code></pre>
+            </li>
+            <li>增加合并后的回调处理
+                <pre><code>
+def _post_merge_hook(self, src_partners, dst_partner):
+    """合并后的处理逻辑"""
+    # 实现后处理逻辑
+    pass
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="security">
+        <h2>安全考虑</h2>
+        <ul>
+            <li>权限控制
+                <pre><code>
+# 确保用户具有合并权限
+@api.model
+def check_merge_permission(self):
+    if not self.env.user.has_group('base.group_system'):
+        raise AccessError(_("Only administrators can merge partners"))
+                </code></pre>
+            </li>
+            <li>数据保护
+                <pre><code>
+# 合并前的数据保护
+def _backup_critical_data(self, partner_ids):
+    """备份关键数据"""
+    # 实现备份逻辑
+    pass
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+</body>
+</html> 

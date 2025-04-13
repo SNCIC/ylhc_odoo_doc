@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo账户标签模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo账户标签(Account Tag)模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>account_account_tag.py</code>是Odoo会计模块中的一个重要组件，它提供了账户标签的管理功能。账户标签可以用于对账户进行分类、标记和组织，便于财务报表的生成和数据分析。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>账户标签的创建和管理</li>
+            <li>支持多语言标签名称</li>
+            <li>标签适用范围控制</li>
+            <li>国家特定的税务标签支持</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    <h3>AccountAccountTag类</h3>
+    <div class="code-block">
+        <pre><code>class AccountAccountTag(models.Model):
+    _name = 'account.account.tag'
+    _description = 'Account Tag'</code></pre>
+    </div>
+
+    <h3>主要字段</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>标签名称</td>
+            <td>必填，支持多语言</td>
+        </tr>
+        <tr>
+            <td>applicability</td>
+            <td>Selection</td>
+            <td>适用范围</td>
+            <td>accounts(账户)/taxes(税收)/products(产品)</td>
+        </tr>
+        <tr>
+            <td>color</td>
+            <td>Integer</td>
+            <td>颜色索引</td>
+            <td>用于UI显示</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活</td>
+            <td>控制标签可见性</td>
+        </tr>
+        <tr>
+            <td>tax_negate</td>
+            <td>Boolean</td>
+            <td>税额取反</td>
+            <td>在税收报表计算中取反关联行的余额</td>
+        </tr>
+        <tr>
+            <td>country_id</td>
+            <td>Many2one</td>
+            <td>国家</td>
+            <td>标签适用的国家（税收相关）</td>
+        </tr>
+    </table>
+
+    <h2>核心方法解析</h2>
+
+    <h3>1. 显示名称计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('applicability', 'country_id')
+@api.depends_context('company')
+def _compute_display_name(self):
+    if not self.env.company.multi_vat_foreign_country_ids:
+        return super()._compute_display_name()
+
+    for tag in self:
+        name = tag.name
+        if tag.applicability == "taxes" and tag.country_id and tag.country_id != self.env.company.account_fiscal_country_id:
+            name = _("%(tag)s (%(country_code)s)", tag=tag.name, country_code=tag.country_id.code)
+        tag.display_name = name</code></pre>
+    </div>
+    <p>此方法用于计算标签的显示名称：</p>
+    <ul>
+        <li>对于普通标签，直接使用name字段</li>
+        <li>对于税收标签，如果是外国税收，会在名称后添加国家代码</li>
+    </ul>
+
+    <h3>2. 标签创建</h3>
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    tags = super().create(vals_list)
+    if tax_tags := tags.filtered(lambda tag: tag.applicability == 'taxes'):
+        self._translate_tax_tags(tag_ids=tax_tags.ids)
+    return tags</code></pre>
+    </div>
+    <p>创建标签的特殊处理：</p>
+    <ul>
+        <li>支持批量创建标签</li>
+        <li>对税收标签进行特殊的翻译处理</li>
+    </ul>
+
+    <h3>3. 税收标签查询</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _get_tax_tags(self, tag_name, country_id):
+    domain = self._get_tax_tags_domain(tag_name, country_id)
+    original_lang = self._context.get('lang', 'en_US')
+    rslt_tags = self.env['account.account.tag'].with_context(active_test=False, lang='en_US').search(domain)
+    return rslt_tags.with_context(lang=original_lang)</code></pre>
+    </div>
+    <p>用于查找特定国家的税收标签：</p>
+    <ul>
+        <li>支持多语言环境</li>
+        <li>可查询未激活的标签</li>
+        <li>返回原始语言环境的结果</li>
+    </ul>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 创建新标签</h3>
+    <div class="code-block">
+        <pre><code># 创建一个普通账户标签
+self.env['account.account.tag'].create({
+    'name': '运营成本',
+    'applicability': 'accounts',
+    'color': 1,
+})
+
+# 创建一个税收标签
+self.env['account.account.tag'].create({
+    'name': '增值税',
+    'applicability': 'taxes',
+    'country_id': self.env.ref('base.cn').id,
+    'tax_negate': False,
+})</code></pre>
+    </div>
+
+    <h3>2. 查询标签</h3>
+    <div class="code-block">
+        <pre><code># 查询特定国家的税收标签
+tags = self.env['account.account.tag']._get_tax_tags('VAT', country_id=self.env.ref('base.cn').id)
+
+# 查询所有活动的账户标签
+account_tags = self.env['account.account.tag'].search([
+    ('applicability', '=', 'accounts'),
+    ('active', '=', True)
+])</code></pre>
+    </div>
+
+    <h3>3. 标签翻译</h3>
+    <div class="code-block">
+        <pre><code># 为税收标签添加翻译
+self.env['account.account.tag']._translate_tax_tags(
+    langs=['zh_CN', 'es_ES'],
+    tag_ids=[1, 2, 3]
+)</code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>标签名称在同一适用范围和国家内必须唯一</li>
+            <li>某些系统预定义的标签（如operating、financing、investing）不能被删除</li>
+            <li>税收标签的翻译会自动与相关报表行保持同步</li>
+            <li>更改标签的适用范围可能会影响现有的财务报表</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>为标签选择清晰、描述性的名称</li>
+            <li>适当使用颜色标记来增强可视化管理</li>
+            <li>定期检查未使用的标签并考虑停用</li>
+            <li>为跨国业务正确设置国家特定的税收标签</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

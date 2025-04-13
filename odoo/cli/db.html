@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo CLI 数据库管理模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo数据库管理工具(DB)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>db.py</code>是Odoo框架中的数据库管理命令行工具，提供了数据库的创建、删除、备份、还原等核心功能。这个模块对于数据库管理和维护至关重要。</p>
+
+    <h2>核心功能</h2>
+    
+    <h3>1. 数据库操作命令</h3>
+    <div class="commands">
+        <h4>主要命令：</h4>
+        <ul>
+            <li><code>load</code>: 加载数据库备份文件</li>
+            <li><code>dump</code>: 创建数据库备份</li>
+            <li><code>duplicate</code>: 复制数据库</li>
+            <li><code>rename</code>: 重命名数据库</li>
+            <li><code>drop</code>: 删除数据库</li>
+        </ul>
+    </div>
+
+    <h3>2. 配置参数</h3>
+    <div class="parameters">
+        <pre><code>parser.add_argument('-c', '--config')
+parser.add_argument('-D', '--data-dir')
+parser.add_argument('--addons-path')
+parser.add_argument('-r', '--db_user')
+parser.add_argument('-w', '--db_password')
+parser.add_argument('--pg_path')
+parser.add_argument('--db_host')
+parser.add_argument('--db_port')
+parser.add_argument('--db_sslmode')</code></pre>
+    </div>
+
+    <h2>命令详解</h2>
+    
+    <h3>1. load命令</h3>
+    <div class="command-detail">
+        <h4>功能：</h4>
+        <p>加载数据库备份文件到Odoo系统</p>
+        <h4>参数：</h4>
+        <ul>
+            <li><code>-f, --force</code>: 如果数据库存在则强制删除</li>
+            <li><code>-n, --neutralize</code>: 还原后中和数据库</li>
+            <li><code>database</code>: 目标数据库名称</li>
+            <li><code>dump_file</code>: 备份文件路径或URL</li>
+        </ul>
+        <h4>示例：</h4>
+        <pre><code>odoo-bin db load -f mydb backup.zip
+odoo-bin db load -n mydb http://example.com/backup.zip</code></pre>
+    </div>
+
+    <h3>2. dump命令</h3>
+    <div class="command-detail">
+        <h4>功能：</h4>
+        <p>创建数据库的完整备份（包含文件存储）</p>
+        <h4>参数：</h4>
+        <ul>
+            <li><code>database</code>: 要备份的数据库名称</li>
+            <li><code>dump_path</code>: 备份文件保存路径（可选，默认输出到stdout）</li>
+        </ul>
+        <h4>示例：</h4>
+        <pre><code>odoo-bin db dump mydb
+odoo-bin db dump mydb backup.zip</code></pre>
+    </div>
+
+    <h3>3. duplicate命令</h3>
+    <div class="command-detail">
+        <h4>功能：</h4>
+        <p>复制数据库（包含文件存储）</p>
+        <h4>参数：</h4>
+        <ul>
+            <li><code>-f, --force</code>: 如果目标数据库存在则强制删除</li>
+            <li><code>-n, --neutralize</code>: 复制后中和目标数据库</li>
+            <li><code>source</code>: 源数据库名称</li>
+            <li><code>target</code>: 目标数据库名称</li>
+        </ul>
+        <h4>示例：</h4>
+        <pre><code>odoo-bin db duplicate source_db target_db
+odoo-bin db duplicate -f -n source_db target_db</code></pre>
+    </div>
+
+    <h3>4. rename命令</h3>
+    <div class="command-detail">
+        <h4>功能：</h4>
+        <p>重命名数据库（包含文件存储）</p>
+        <h4>参数：</h4>
+        <ul>
+            <li><code>-f, --force</code>: 如果目标数据库存在则强制删除</li>
+            <li><code>source</code>: 原数据库名称</li>
+            <li><code>target</code>: 新数据库名称</li>
+        </ul>
+        <h4>示例：</h4>
+        <pre><code>odoo-bin db rename old_name new_name
+odoo-bin db rename -f old_name new_name</code></pre>
+    </div>
+
+    <h3>5. drop命令</h3>
+    <div class="command-detail">
+        <h4>功能：</h4>
+        <p>删除数据库（包含文件存储）</p>
+        <h4>参数：</h4>
+        <ul>
+            <li><code>database</code>: 要删除的数据库名称</li>
+        </ul>
+        <h4>示例：</h4>
+        <pre><code>odoo-bin db drop mydb</code></pre>
+    </div>
+
+    <h2>特殊功能</h2>
+    <div class="special-features">
+        <h3>1. URL支持</h3>
+        <p>load命令支持从URL下载备份文件：</p>
+        <pre><code>if url.scheme:
+    eprint(f"Fetching {args.dump_file}...", end='')
+    r = requests.get(args.dump_file, timeout=10)</code></pre>
+
+        <h3>2. 文件存储处理</h3>
+        <p>所有操作都包含文件存储的处理：</p>
+        <ul>
+            <li>备份包含完整的文件存储</li>
+            <li>还原时自动处理文件存储</li>
+            <li>复制和重命名操作保持文件存储完整性</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>定期备份重要数据库</li>
+            <li>使用中和选项处理测试环境</li>
+            <li>谨慎使用force选项</li>
+            <li>保持备份文件命名规范</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>删除操作不可恢复</li>
+            <li>确保有足够的磁盘空间</li>
+            <li>注意数据库命名规范</li>
+            <li>保护备份文件安全</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>提示：</strong>在执行重要操作前，建议先创建数据库备份。使用force选项时要特别小心，因为它会删除已存在的数据库。
+    </div>
+</body>
+</html> 

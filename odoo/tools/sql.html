@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo SQL工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo SQL工具模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>sql.py</code>是Odoo框架中的SQL工具模块,提供了一系列用于安全构建和执行SQL查询的工具函数。该模块特别注重SQL注入防护,同时提供了数据库模式管理的功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>安全的SQL查询构建</li>
+            <li>数据库表和索引管理</li>
+            <li>外键约束处理</li>
+            <li>数据库模式操作</li>
+        </ul>
+    </div>
+
+    <h2>主要类和方法</h2>
+    
+    <h3>SQL 类</h3>
+    <div class="code-block">
+        <h4>核心特性</h4>
+        <ul>
+            <li>支持参数化SQL查询</li>
+            <li>防止SQL注入</li>
+            <li>支持SQL片段组合</li>
+            <li>提供元数据追踪</li>
+        </ul>
+
+        <h4>主要方法</h4>
+        <dl>
+            <dt><code>__init__(code, *args, to_flush=None, **kwargs)</code></dt>
+            <dd>
+                <p>初始化SQL对象。支持:</p>
+                <ul>
+                    <li>字符串格式的SQL代码</li>
+                    <li>位置参数和命名参数</li>
+                    <li>元数据刷新控制</li>
+                </ul>
+            </dd>
+
+            <dt><code>identifier(name, subname=None)</code></dt>
+            <dd>
+                <p>创建安全的SQL标识符。用于:</p>
+                <ul>
+                    <li>表名引用</li>
+                    <li>列名引用</li>
+                    <li>模式名引用</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <h2>数据库管理函数</h2>
+    <div class="function-list">
+        <h3>表操作</h3>
+        <dl>
+            <dt><code>create_model_table(cr, tablename, comment=None, columns=())</code></dt>
+            <dd>创建模型对应的数据库表</dd>
+
+            <dt><code>table_exists(cr, tablename)</code></dt>
+            <dd>检查表是否存在</dd>
+
+            <dt><code>table_kind(cr, tablename)</code></dt>
+            <dd>获取表的类型(普通表、视图等)</dd>
+        </dl>
+
+        <h3>列操作</h3>
+        <dl>
+            <dt><code>create_column(cr, tablename, columnname, columntype, comment=None)</code></dt>
+            <dd>创建新列</dd>
+
+            <dt><code>rename_column(cr, tablename, columnname1, columnname2)</code></dt>
+            <dd>重命名列</dd>
+
+            <dt><code>convert_column(cr, tablename, columnname, columntype)</code></dt>
+            <dd>转换列类型</dd>
+        </dl>
+
+        <h3>约束管理</h3>
+        <dl>
+            <dt><code>add_foreign_key(cr, tablename1, columnname1, tablename2, columnname2, ondelete)</code></dt>
+            <dd>添加外键约束</dd>
+
+            <dt><code>add_constraint(cr, tablename, constraintname, definition)</code></dt>
+            <dd>添加约束</dd>
+        </dl>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <h3>基本SQL操作</h3>
+        <pre><code>
+# 创建安全的SQL查询
+sql = SQL("SELECT * FROM %s WHERE id = %s", SQL.identifier("res_partner"), 1)
+
+# 创建表
+create_model_table(cr, "my_table", 
+    comment="My Custom Table",
+    columns=[
+        ("name", "varchar", "Name field"),
+        ("value", "integer", "Value field")
+    ]
+)
+
+# 添加外键
+add_foreign_key(cr, "my_table", "partner_id", "res_partner", "id", "CASCADE")
+
+# 创建索引
+create_index(cr, "my_index", "my_table", ["name", "value"])
+        </code></pre>
+    </div>
+
+    <h2>索引管理</h2>
+    <div class="code-block">
+        <h3>索引操作函数</h3>
+        <ul>
+            <li><code>create_index(cr, indexname, tablename, expressions, method='btree', where='')</code></li>
+            <li><code>create_unique_index(cr, indexname, tablename, expressions)</code></li>
+            <li><code>drop_index(cr, indexname, tablename)</code></li>
+            <li><code>index_exists(cr, indexname)</code></li>
+        </ul>
+    </div>
+
+    <h2>工作原理</h2>
+    <div class="flow-diagram">
+        <h3>SQL查询处理流程</h3>
+        <ol>
+            <li>SQL代码和参数验证</li>
+            <li>参数转义和处理</li>
+            <li>SQL注入检查</li>
+            <li>查询组装和执行</li>
+            <li>结果处理和返回</li>
+        </ol>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>安全提示：</strong>
+        <ul>
+            <li>始终使用参数化查询,避免直接拼接SQL字符串</li>
+            <li>使用SQL.identifier()处理表名和列名</li>
+            <li>注意外键约束的级联效果</li>
+            <li>谨慎处理数据库模式变更</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>使用SQL类构建查询而不是字符串拼接</li>
+            <li>为所有表和列添加适当的注释</li>
+            <li>合理使用索引提升查询性能</li>
+            <li>定期维护和优化数据库结构</li>
+        </ul>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <h3>优化建议</h3>
+        <ul>
+            <li>合理使用索引</li>
+            <li>避免过多的外键约束</li>
+            <li>适当使用表注释和列注释</li>
+            <li>定期维护数据库统计信息</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="troubleshooting">
+        <h3>问题解决</h3>
+        <dl>
+            <dt>外键约束冲突</dt>
+            <dd>检查级联删除设置,确保数据完整性</dd>
+
+            <dt>索引性能问题</dt>
+            <dd>检查索引使用情况,避免过多索引</dd>
+
+            <dt>表结构变更失败</dt>
+            <dd>确保没有依赖的视图或约束</dd>
+        </dl>
+    </div>
+</body>
+</html> 

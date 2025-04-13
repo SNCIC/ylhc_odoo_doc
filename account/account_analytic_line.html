@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo分析账户明细模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo分析账户明细(Analytic Line)模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>account_analytic_line.py</code>是Odoo会计模块中的分析账户明细扩展，它提供了详细的分析账户记录管理功能。这个模块主要用于记录和跟踪与分析账户相关的具体业务数据。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>分析账户明细记录管理</li>
+            <li>与产品关联</li>
+            <li>与财务账户和日记账关联</li>
+            <li>自动金额计算</li>
+        </ul>
+    </div>
+
+    <h2>类定义</h2>
+    <div class="code-block">
+        <pre><code>class AccountAnalyticLine(models.Model):
+    _inherit = 'account.analytic.line'
+    _description = 'Analytic Line'</code></pre>
+    </div>
+    <p>通过继承基础分析明细模型，添加了与会计相关的特定功能。</p>
+
+    <h2>主要字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特性</th>
+        </tr>
+        <tr>
+            <td>product_id</td>
+            <td>Many2one</td>
+            <td>产品</td>
+            <td>关联产品信息</td>
+        </tr>
+        <tr>
+            <td>general_account_id</td>
+            <td>Many2one</td>
+            <td>财务账户</td>
+            <td>计算字段，可存储</td>
+        </tr>
+        <tr>
+            <td>journal_id</td>
+            <td>Many2one</td>
+            <td>财务日记账</td>
+            <td>只读，关联字段</td>
+        </tr>
+        <tr>
+            <td>partner_id</td>
+            <td>Many2one</td>
+            <td>业务伙伴</td>
+            <td>计算字段，可存储</td>
+        </tr>
+        <tr>
+            <td>move_line_id</td>
+            <td>Many2one</td>
+            <td>会计分录行</td>
+            <td>关联会计分录</td>
+        </tr>
+        <tr>
+            <td>code</td>
+            <td>Char</td>
+            <td>编码</td>
+            <td>最大8个字符</td>
+        </tr>
+        <tr>
+            <td>ref</td>
+            <td>Char</td>
+            <td>参考</td>
+            <td>引用信息</td>
+        </tr>
+        <tr>
+            <td>category</td>
+            <td>Selection</td>
+            <td>类别</td>
+            <td>包含发票和供应商账单</td>
+        </tr>
+    </table>
+
+    <h2>核心方法解析</h2>
+
+    <h3>1. 财务账户计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('move_line_id')
+def _compute_general_account_id(self):
+    for line in self:
+        line.general_account_id = line.move_line_id.account_id</code></pre>
+    </div>
+    <p>此方法用于计算关联的财务账户：</p>
+    <ul>
+        <li>基于会计分录行的账户</li>
+        <li>自动更新和同步</li>
+    </ul>
+
+    <h3>2. 业务伙伴计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('move_line_id')
+def _compute_partner_id(self):
+    for line in self:
+        line.partner_id = line.move_line_id.partner_id or line.partner_id</code></pre>
+    </div>
+    <p>此方法用于确定关联的业务伙伴：</p>
+    <ul>
+        <li>优先使用会计分录行的业务伙伴</li>
+        <li>保留原有业务伙伴作为备选</li>
+    </ul>
+
+    <h3>3. 金额变更处理</h3>
+    <div class="code-block">
+        <pre><code>@api.onchange('product_id', 'product_uom_id', 'unit_amount', 'currency_id')
+def on_change_unit_amount(self):
+    if not self.product_id:
+        return {}
+
+    prod_accounts = self.product_id.product_tmpl_id.with_company(self.company_id)._get_product_accounts()
+    unit = self.product_uom_id
+    account = prod_accounts['expense']
+    if not unit or self.product_id.uom_po_id.category_id.id != unit.category_id.id:
+        unit = self.product_id.uom_po_id
+
+    amount_unit = self.product_id._price_compute('standard_price', uom=unit)[self.product_id.id]
+    amount = amount_unit * self.unit_amount or 0.0
+    result = (self.currency_id.round(amount) if self.currency_id else round(amount, 2)) * -1
+    self.amount = result
+    self.general_account_id = account
+    self.product_uom_id = unit</code></pre>
+    </div>
+    <p>此方法处理数量变更时的自动计算：</p>
+    <ul>
+        <li>自动获取产品的标准成本</li>
+        <li>根据计量单位进行换算</li>
+        <li>自动更新相关字段</li>
+    </ul>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 创建分析明细</h3>
+    <div class="code-block">
+        <pre><code># 创建一个分析明细记录
+analytic_line = self.env['account.analytic.line'].create({
+    'name': '开发成本',
+    'account_id': analytic_account.id,
+    'product_id': product.id,
+    'unit_amount': 5.0,
+    'amount': -500.0,
+})</code></pre>
+    </div>
+
+    <h3>2. 更新分析明细</h3>
+    <div class="code-block">
+        <pre><code># 更新分析明细的数量
+analytic_line.write({
+    'unit_amount': 10.0,  # 会触发金额重新计算
+})</code></pre>
+    </div>
+
+    <h3>3. 查询分析明细</h3>
+    <div class="code-block">
+        <pre><code># 查询特定账户的分析明细
+lines = self.env['account.analytic.line'].search([
+    ('account_id', '=', analytic_account.id),
+    ('product_id', '=', product.id),
+])</code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>财务账户必须与会计分录行保持一致</li>
+            <li>产品变更会触发金额重新计算</li>
+            <li>计量单位必须与产品的计量单位类别一致</li>
+            <li>金额计算会考虑货币精度</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>及时更新分析明细的相关信息</li>
+            <li>定期检查分析明细的准确性</li>
+            <li>使用适当的参考编号便于追踪</li>
+            <li>合理设置分析明细的类别</li>
+        </ul>
+    </div>
+
+    <h2>字段约束</h2>
+    <div class="constraints">
+        <h3>财务账户一致性检查</h3>
+        <div class="code-block">
+            <pre><code>@api.constrains('move_line_id', 'general_account_id')
+def _check_general_account_id(self):
+    for line in self:
+        if line.move_line_id and line.general_account_id != line.move_line_id.account_id:
+            raise ValidationError(_('The journal item is not linked to the correct financial account'))</code></pre>
+        </div>
+        <p>此约束确保：</p>
+        <ul>
+            <li>分析明细的财务账户与会计分录行的账户保持一致</li>
+            <li>防止数据不一致的情况发生</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

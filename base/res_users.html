@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 用户管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 用户管理系统详解</h1>
+    
+    <h2>1. 模块概述</h2>
+    <p><code>res_users.py</code>是 Odoo 系统中最核心的模块之一，负责用户管理、认证和权限控制。该模块定义了以下主要功能：</p>
+    <ul>
+        <li>用户认证与登录管理</li>
+        <li>用户权限控制</li>
+        <li>API 密钥管理</li>
+        <li>多公司支持</li>
+        <li>用户设置管理</li>
+    </ul>
+
+    <h2>2. 核心类说明</h2>
+    
+    <h3>2.1 Users 类</h3>
+    <div class="code-block">
+        <pre><code>class Users(models.Model):
+    _name = "res.users"
+    _description = 'User'
+    _inherits = {'res.partner': 'partner_id'}</code></pre>
+    </div>
+    <p>Users 类是整个用户系统的核心，继承自 res.partner，主要特点：</p>
+    <ul>
+        <li>每个用户关联一个合作伙伴记录</li>
+        <li>包含登录认证相关字段</li>
+        <li>管理用户权限和访问控制</li>
+    </ul>
+
+    <h3>2.2 主要字段</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>login</td>
+            <td>Char</td>
+            <td>用户登录名，必填且唯一</td>
+        </tr>
+        <tr>
+            <td>password</td>
+            <td>Char</td>
+            <td>用户密码(加密存储)</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>用户是否激活</td>
+        </tr>
+        <tr>
+            <td>groups_id</td>
+            <td>Many2many</td>
+            <td>用户所属组</td>
+        </tr>
+        <tr>
+            <td>company_id</td>
+            <td>Many2one</td>
+            <td>用户主公司</td>
+        </tr>
+        <tr>
+            <td>company_ids</td>
+            <td>Many2many</td>
+            <td>用户可访问的公司列表</td>
+        </tr>
+    </table>
+
+    <h2>3. 核心功能实现</h2>
+
+    <h3>3.1 用户认证</h3>
+    <div class="code-block">
+        <pre><code>def _check_credentials(self, credential, env):
+    # 验证用户凭据
+    if not credential['password']:
+        raise AccessDenied()
+    
+    # 验证密码
+    valid, replacement = self._crypt_context()\
+        .verify_and_update(credential['password'], hashed)
+    if not valid:
+        raise AccessDenied()</code></pre>
+    </div>
+    <p>认证流程说明：</p>
+    <ol>
+        <li>接收用户提供的凭据</li>
+        <li>验证密码的正确性</li>
+        <li>如果需要，更新密码哈希</li>
+        <li>验证失败则抛出 AccessDenied 异常</li>
+    </ol>
+
+    <h3>3.2 权限控制</h3>
+    <div class="code-block">
+        <pre><code>def has_group(self, group_ext_id):
+    # 检查用户是否属于指定组
+    self.ensure_one()
+    return self._has_group(group_ext_id)</code></pre>
+    </div>
+    <p>权限检查示例：</p>
+    <div class="code-block">
+        <pre><code># 检查用户是否是系统管理员
+if user.has_group('base.group_system'):
+    # 执行管理员操作
+    
+# 检查用户是否是普通内部用户
+if user.has_group('base.group_user'):
+    # 执行内部用户操作</code></pre>
+    </div>
+
+    <h3>3.3 API 密钥管理</h3>
+    <p>Odoo 18 引入了新的 API 密钥管理机制：</p>
+    <div class="code-block">
+        <pre><code>class APIKeys(models.Model):
+    _name = 'res.users.apikeys'
+    
+    def _generate(self, scope, name, expiration_date):
+        # 生成新的 API 密钥
+        k = binascii.hexlify(os.urandom(API_KEY_SIZE)).decode()
+        # 存储加密的密钥
+        self.env.cr.execute("""
+        INSERT INTO {table} (name, user_id, scope, expiration_date, key, index)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """)</code></pre>
+    </div>
+
+    <h2>4. 使用示例</h2>
+
+    <h3>4.1 创建新用户</h3>
+    <div class="code-block">
+        <pre><code>def create_new_user(self):
+    vals = {
+        'name': '张三',
+        'login': 'zhangsan',
+        'password': '123456',
+        'company_id': 1,
+        'groups_id': [(6, 0, [self.env.ref('base.group_user').id])]
+    }
+    user = self.env['res.users'].create(vals)
+    return user</code></pre>
+    </div>
+
+    <h3>4.2 修改用户权限</h3>
+    <div class="code-block">
+        <pre><code>def update_user_groups(self):
+    user = self.env['res.users'].browse(user_id)
+    # 添加销售员权限
+    sales_group = self.env.ref('sales_team.group_sale_salesman')
+    user.write({
+        'groups_id': [(4, sales_group.id, 0)]
+    })</code></pre>
+    </div>
+
+    <h3>4.3 API 密钥使用</h3>
+    <div class="code-block">
+        <pre><code>def create_api_key(self):
+    # 创建一个有效期为30天的 API 密钥
+    expiration = fields.Datetime.now() + timedelta(days=30)
+    key = self.env['res.users.apikeys']._generate(
+        scope='rpc',
+        name='My API Key',
+        expiration_date=expiration
+    )</code></pre>
+    </div>
+
+    <h2>5. 最佳实践</h2>
+    <div class="best-practices">
+        <h3>5.1 安全建议</h3>
+        <ul>
+            <li>始终使用 has_group() 进行权限检查</li>
+            <li>不要直接存储明文密码</li>
+            <li>定期轮换 API 密钥</li>
+            <li>为用户分配最小必要权限</li>
+        </ul>
+
+        <h3>5.2 性能优化</h3>
+        <ul>
+            <li>使用 sudo() 时要谨慎</li>
+            <li>避免频繁的权限检查</li>
+            <li>合理使用缓存机制</li>
+        </ul>
+    </div>
+
+    <h2>6. 常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 如何处理用户密码重置？</h3>
+        <p>使用 change_password() 方法：</p>
+        <div class="code-block">
+            <pre><code>user.change_password('new_password')</code></pre>
+        </div>
+
+        <h3>Q2: 如何限制用户访问特定公司？</h3>
+        <p>修改 company_ids 字段：</p>
+        <div class="code-block">
+            <pre><code>user.write({
+    'company_ids': [(6, 0, [company_id1, company_id2])]
+})</code></pre>
+        </div>
+    </div>
+
+    <h2>7. 版本变更说明</h2>
+    <div class="version-changes">
+        <h3>Odoo 18 的主要改进</h3>
+        <ul>
+            <li>改进了 API 密钥管理机制</li>
+            <li>增强了多公司支持</li>
+            <li>优化了权限检查性能</li>
+            <li>改进了用户设置同步机制</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

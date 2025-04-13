@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 账单发送模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 账单发送模块(account_move_send)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>account_move_send.py是Odoo 18中处理账单发送的核心模块。它提供了发送单个或批量账单的功能,支持多种发送方式(如邮件、EDI等)。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>支持多种发送方式(邮件、EDI等)</li>
+            <li>批量和单个账单发送</li>
+            <li>自动生成PDF附件</li>
+            <li>支持自定义邮件模板</li>
+            <li>处理发送状态跟踪</li>
+        </ul>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_get_default_sending_method</h3>
+            <pre><code>def _get_default_sending_method(self, move) -> set</code></pre>
+            <p>获取默认的发送方式,基于合作伙伴设置。</p>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 获取发票的默认发送方式
+invoice = self.env['account.move'].browse(invoice_id)
+default_method = self._get_default_sending_method(invoice)
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_generate_and_send_invoices</h3>
+            <pre><code>def _generate_and_send_invoices(self, moves, from_cron=False, allow_raising=True, allow_fallback_pdf=False, **custom_settings)</code></pre>
+            <p>生成并发送账单的核心方法。</p>
+            <ul>
+                <li>参数:
+                    <ul>
+                        <li>moves: 要发送的账单记录集</li>
+                        <li>from_cron: 是否来自定时任务</li>
+                        <li>allow_raising: 是否允许抛出异常</li>
+                        <li>allow_fallback_pdf: 是否允许在失败时使用PDF备选方案</li>
+                    </ul>
+                </li>
+            </ul>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 发送多个发票
+invoices = self.env['account.move'].browse(invoice_ids)
+self._generate_and_send_invoices(
+    invoices,
+    custom_settings={
+        'sending_methods': {'email'},
+        'mail_template': email_template,
+    }
+)
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_prepare_invoice_pdf_report</h3>
+            <pre><code>def _prepare_invoice_pdf_report(self, invoices_data)</code></pre>
+            <p>准备发票的PDF报告。</p>
+            <div class="example">
+                <pre><code>
+# 生成PDF报告
+invoices_data = {invoice: {'pdf_report': report_template} for invoice in invoices}
+self._prepare_invoice_pdf_report(invoices_data)
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>发送流程</h3>
+        <ol>
+            <li>准备发送设置
+                <pre><code>
+settings = self._get_default_sending_settings(move)
+                </code></pre>
+            </li>
+            <li>生成文档
+                <pre><code>
+self._generate_invoice_documents(moves_data)
+                </code></pre>
+            </li>
+            <li>发送文档
+                <pre><code>
+self._hook_if_success(success_moves)
+                </code></pre>
+            </li>
+        </ol>
+
+        <h3>邮件发送配置</h3>
+        <pre><code>
+def _get_mail_params(self, move, move_data):
+    mail_attachments_widget = move_data.get('mail_attachments_widget')
+    seen_attachment_ids = set()
+    # ... 处理附件
+    return {
+        'author_id': move_data['author_partner_id'],
+        'body': move_data['mail_body'],
+        'subject': move_data['mail_subject'],
+        'partner_ids': move_data['mail_partner_ids'],
+        'attachments': mail_attachments
+    }
+        </code></pre>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 发送单个发票</h3>
+        <pre><code>
+# 发送单个发票
+invoice = self.env['account.move'].browse(invoice_id)
+self.with_context(mail_notify_force_send=True)._generate_and_send_invoices(
+    invoice,
+    custom_settings={'sending_methods': {'email'}}
+)
+        </code></pre>
+
+        <h3>2. 批量发送发票</h3>
+        <pre><code>
+# 批量发送发票
+invoices = self.env['account.move'].search([
+    ('state', '=', 'posted'),
+    ('is_move_sent', '=', False)
+])
+self._generate_and_send_invoices(
+    invoices,
+    from_cron=True,
+    allow_fallback_pdf=True
+)
+        </code></pre>
+
+        <h3>3. 自定义发送模板</h3>
+        <pre><code>
+# 使用自定义模板发送
+template = self.env.ref('account.email_template_edi_invoice')
+self._generate_and_send_invoices(
+    invoice,
+    custom_settings={
+        'mail_template': template,
+        'sending_methods': {'email'}
+    }
+)
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>使用批处理来提高性能</li>
+            <li>正确处理发送失败的情况</li>
+            <li>定期清理临时文件和附件</li>
+            <li>使用适当的错误处理机制</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 邮件发送失败</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>邮件服务器配置错误</li>
+                    <li>收件人地址无效</li>
+                    <li>附件过大</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查邮件服务器配置</li>
+                    <li>验证收件人地址</li>
+                    <li>压缩附件或分批发送</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: PDF生成失败</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>模板配置错误</li>
+                    <li>系统资源不足</li>
+                    <li>字体问题</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查报表模板</li>
+                    <li>增加系统资源</li>
+                    <li>确保字体可用</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>发送大量邮件时注意服务器负载</li>
+            <li>定期监控发送状态</li>
+            <li>保持发送记录的完整性</li>
+            <li>注意数据安全和隐私保护</li>
+        </ul>
+    </div>
+
+    <div class="cron-jobs">
+        <h2>定时任务</h2>
+        <p>模块包含自动发送的定时任务功能:</p>
+        <pre><code>
+@api.model
+def _cron_account_move_send(self, job_count=10):
+    """
+    定时发送未发送的账单
+    参数:
+        job_count: 每次处理的最大数量
+    """
+        </code></pre>
+        <p>配置建议:</p>
+        <ul>
+            <li>根据系统负载调整job_count</li>
+            <li>选择合适的执行时间</li>
+            <li>设置适当的重试机制</li>
+        </ul>
+    </div>
+</body>
+</html> 

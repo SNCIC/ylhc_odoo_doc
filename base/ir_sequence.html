@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo序列号(ir.sequence)模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo序列号(ir.sequence)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir.sequence</code>模块是Odoo中用于生成唯一标识符序列的核心模块。它可以生成各种格式的编号,如订单编号、发票编号等,支持按年、月、日期等进行分段。</p>
+
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>生成唯一序列号</li>
+            <li>支持日期分段序列</li>
+            <li>自定义序列格式</li>
+            <li>序列号填充</li>
+        </ul>
+    </div>
+
+    <h2>主要特性</h2>
+    <div class="feature-list">
+        <div class="feature">
+            <h3>1. 序列号格式定义</h3>
+            <p>支持灵活的序列号格式定义：</p>
+            <ul>
+                <li>前缀(prefix)</li>
+                <li>后缀(suffix)</li>
+                <li>填充(padding)</li>
+                <li>递增步长(number_increment)</li>
+            </ul>
+        </div>
+
+        <div class="feature">
+            <h3>2. 实现方式</h3>
+            <p>提供两种实现方式：</p>
+            <ul>
+                <li>standard: 标准PostgreSQL序列</li>
+                <li>no_gap: 无间隔序列(事务安全)</li>
+            </ul>
+        </div>
+
+        <div class="feature">
+            <h3>3. 日期序列</h3>
+            <p>支持日期相关的格式化：</p>
+            <ul>
+                <li>年份: %(year)s</li>
+                <li>月份: %(month)s</li>
+                <li>日期: %(day)s</li>
+                <li>小时: %(h24)s</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 基本序列号</h3>
+        <pre><code>
+# 创建一个基本的序列号
+sequence = env['ir.sequence'].create({
+    'name': '销售订单编号',
+    'code': 'sale.order',
+    'prefix': 'SO',
+    'padding': 5,
+    'number_increment': 1,
+})
+
+# 获取下一个序列号
+next_seq = sequence.next_by_code('sale.order')  # 结果如: SO00001
+        </code></pre>
+
+        <h3>2. 日期序列号</h3>
+        <pre><code>
+# 创建带日期的序列号
+date_sequence = env['ir.sequence'].create({
+    'name': '发票编号',
+    'code': 'account.invoice',
+    'prefix': 'INV/%(year)s/%(month)s/',
+    'padding': 4,
+    'use_date_range': True,
+})
+
+# 获取下一个序列号
+next_date_seq = date_sequence.next_by_code('account.invoice')  # 结果如: INV/2024/01/0001
+        </code></pre>
+
+        <h3>3. 无间隔序列号</h3>
+        <pre><code>
+# 创建无间隔序列号
+nogap_sequence = env['ir.sequence'].create({
+    'name': '支付编号',
+    'code': 'account.payment',
+    'implementation': 'no_gap',
+    'prefix': 'PAY/',
+    'padding': 4,
+})
+
+# 获取下一个序列号
+next_nogap_seq = nogap_sequence.next_by_code('account.payment')  # 结果如: PAY/0001
+        </code></pre>
+    </div>
+
+    <h2>核心方法解析</h2>
+    <div class="methods">
+        <h3>1. next_by_code</h3>
+        <p>根据序列代码获取下一个序列号:</p>
+        <pre><code>
+def next_by_code(self, sequence_code, sequence_date=None):
+    """
+    获取指定代码的下一个序列号
+    :param sequence_code: 序列代码
+    :param sequence_date: 序列日期
+    :return: 序列号字符串
+    """
+        </code></pre>
+
+        <h3>2. _get_prefix_suffix</h3>
+        <p>计算序列号的前缀和后缀:</p>
+        <pre><code>
+def _get_prefix_suffix(self, date=None, date_range=None):
+    """
+    计算序列号的前缀和后缀
+    支持日期格式化
+    """
+        </code></pre>
+
+        <h3>3. _next</h3>
+        <p>生成下一个序列号:</p>
+        <pre><code>
+def _next(self, sequence_date=None):
+    """
+    生成序列的下一个编号
+    处理日期范围和格式化
+    """
+        </code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 序列号设计</h3>
+        <ul>
+            <li>使用有意义的前缀</li>
+            <li>合理设置填充位数</li>
+            <li>考虑未来增长需求</li>
+        </ul>
+
+        <h3>2. 性能考虑</h3>
+        <ul>
+            <li>standard模式性能更好</li>
+            <li>no_gap模式保证连续性</li>
+            <li>合理使用日期范围</li>
+        </ul>
+
+        <h3>3. 安全建议</h3>
+        <ul>
+            <li>控制序列号访问权限</li>
+            <li>定期备份序列配置</li>
+            <li>监控序列号使用情况</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <div class="qa">
+            <h3>Q: 序列号重复怎么办？</h3>
+            <p>A: 检查以下几点：</p>
+            <ul>
+                <li>确认implementation设置</li>
+                <li>检查事务隔离级别</li>
+                <li>验证日期范围设置</li>
+            </ul>
+        </div>
+
+        <div class="qa">
+            <h3>Q: 如何重置序列号？</h3>
+            <p>A: 可以通过以下方式：</p>
+            <ul>
+                <li>直接修改number_next值</li>
+                <li>创建新的日期范围</li>
+                <li>使用SQL重置序列</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>升级说明</h2>
+    <div class="upgrade-notes">
+        <h3>Odoo 18变更</h3>
+        <ul>
+            <li>优化了序列号缓存机制</li>
+            <li>改进了日期范围处理</li>
+            <li>增强了并发处理能力</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo国际贸易术语解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo国际贸易术语(Incoterms)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p>account_incoterms.py是Odoo中处理国际贸易术语(Incoterms)的模块。它定义了国际贸易中使用的标准交易条款，用于明确买卖双方在国际贸易中的责任和义务。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>Incoterms（国际贸易术语）是由国际商会制定的国际贸易术语解释通则，用于规范国际贸易中的责任划分、费用承担、风险转移等问题。</p>
+    </div>
+
+    <h2>核心类：AccountIncoterms</h2>
+    <div class="class-description">
+        <h3>类定义及字段</h3>
+        <pre><code>class AccountIncoterms(models.Model):
+    _name = 'account.incoterms'
+    _description = 'Incoterms'</code></pre>
+        
+        <h4>主要字段</h4>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>name</td>
+                <td>Char</td>
+                <td>贸易术语名称，支持多语言</td>
+            </tr>
+            <tr>
+                <td>code</td>
+                <td>Char</td>
+                <td>贸易术语代码，固定3个字符</td>
+            </tr>
+            <tr>
+                <td>active</td>
+                <td>Boolean</td>
+                <td>是否启用该贸易术语</td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>核心功能解析</h2>
+    
+    <h3>1. 显示名称计算(_compute_display_name方法)</h3>
+    <div class="function-analysis">
+        <pre><code>@api.depends('code')
+def _compute_display_name(self):
+    for incoterm in self:
+        incoterm.display_name = '%s%s' % (
+            incoterm.code and '[%s] ' % incoterm.code or '', 
+            incoterm.name
+        )</code></pre>
+        
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>自动生成贸易术语的显示名称</li>
+            <li>格式为：[代码] 名称</li>
+            <li>依赖于code字段的变化自动更新</li>
+        </ul>
+
+        <p><strong>使用示例：</strong></p>
+        <pre><code># 创建新的贸易术语
+incoterm = env['account.incoterms'].create({
+    'name': '离岸价格',
+    'code': 'FOB',
+    'active': True
+})
+# 显示名称将自动计算为：[FOB] 离岸价格</code></pre>
+    </div>
+
+    <h2>业务场景应用</h2>
+    <div class="business-scenarios">
+        <h3>1. 创建新的贸易术语</h3>
+        <pre><code># 创建CIF贸易术语
+env['account.incoterms'].create({
+    'name': '成本保险运费',
+    'code': 'CIF',
+    'active': True
+})</code></pre>
+
+        <h3>2. 在销售订单中使用</h3>
+        <pre><code># 在销售订单中设置贸易术语
+sale_order.write({
+    'incoterm_id': incoterm.id
+})</code></pre>
+
+        <h3>3. 停用不使用的贸易术语</h3>
+        <pre><code># 停用特定贸易术语
+incoterm = env['account.incoterms'].search([('code', '=', 'EXW')])
+incoterm.write({'active': False})</code></pre>
+    </div>
+
+    <h2>常用贸易术语示例</h2>
+    <div class="incoterms-examples">
+        <table>
+            <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>EXW</td>
+                <td>工厂交货</td>
+                <td>卖方在其所在地交货</td>
+            </tr>
+            <tr>
+                <td>FOB</td>
+                <td>离岸价格</td>
+                <td>卖方负责将货物装上指定的船舶</td>
+            </tr>
+            <tr>
+                <td>CIF</td>
+                <td>成本保险运费</td>
+                <td>卖方支付运费和保险费直到目的港</td>
+            </tr>
+            <tr>
+                <td>DDP</td>
+                <td>完税后交货</td>
+                <td>卖方承担所有费用和风险直到买方指定地点</td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>技术实现细节</h2>
+    <div class="technical-details">
+        <h3>字段特性</h3>
+        <ul>
+            <li>name字段支持多语言翻译</li>
+            <li>code字段限制为3个字符</li>
+            <li>使用active字段支持软删除</li>
+        </ul>
+
+        <h3>性能考虑</h3>
+        <ul>
+            <li>使用depends装饰器优化计算字段性能</li>
+            <li>合理使用索引提高查询效率</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>始终使用标准的贸易术语代码</li>
+            <li>确保贸易术语的翻译准确</li>
+            <li>定期更新贸易术语以符合最新的国际规则</li>
+            <li>在停用贸易术语前检查是否有关联记录</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>贸易术语代码必须是标准的3个字符</li>
+            <li>确保贸易术语的名称准确反映其含义</li>
+            <li>注意贸易术语的使用可能影响到发票和运输文档</li>
+        </ul>
+    </div>
+</body>
+</html> 

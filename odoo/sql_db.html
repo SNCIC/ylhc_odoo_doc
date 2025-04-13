@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo数据库连接管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo数据库连接管理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>sql_db.py</code>是Odoo框架中的数据库连接管理核心模块，它提供了与PostgreSQL数据库交互的底层接口。这个模块负责管理数据库连接池、游标操作以及事务处理。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>数据库连接管理模块是Odoo与PostgreSQL数据库之间的桥梁，它通过连接池机制优化数据库连接的使用，并提供了事务管理和游标操作的统一接口。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>数据库连接池管理</strong>：维护和复用数据库连接</li>
+        <li><strong>事务管理</strong>：提供事务控制和保存点支持</li>
+        <li><strong>游标操作</strong>：封装数据库游标的各种操作</li>
+        <li><strong>连接监控</strong>：提供数据库连接的监控和日志记录</li>
+    </ol>
+    
+    <h2>核心类解析</h2>
+    
+    <div class="code-block">
+        <h3>1. Savepoint类</h3>
+        <pre><code>class Savepoint:
+    def __init__(self, cr):
+        self.name = str(uuid.uuid1())
+        self._cr = cr
+        self.closed = False
+        cr.execute('SAVEPOINT "%s"' % self.name)</code></pre>
+        <p>保存点管理类的主要功能：</p>
+        <ul>
+            <li>创建数据库保存点</li>
+            <li>支持事务嵌套</li>
+            <li>提供回滚和释放操作</li>
+            <li>使用UUID确保保存点名称唯一性</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>2. Cursor类</h3>
+        <pre><code>class Cursor(BaseCursor):
+    IN_MAX = 1000   # decent limit on size of IN queries
+
+    def __init__(self, pool, dbname, dsn):
+        super().__init__()
+        self.sql_from_log = {}
+        self.sql_into_log = {}
+        self.sql_log_count = 0
+        self._closed = True
+        self.__pool = pool
+        self.dbname = dbname</code></pre>
+        <p>数据库游标类的核心功能：</p>
+        <ul>
+            <li>SQL查询执行</li>
+            <li>查询日志记录</li>
+            <li>结果集处理</li>
+            <li>事务控制</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>3. ConnectionPool类</h3>
+        <pre><code>class ConnectionPool(object):
+    def __init__(self, maxconn=64, readonly=False):
+        self._connections = []
+        self._maxconn = max(maxconn, 1)
+        self._readonly = readonly
+        self._lock = threading.Lock()</code></pre>
+        <p>连接池管理类的主要特性：</p>
+        <ul>
+            <li>连接池大小控制</li>
+            <li>连接复用机制</li>
+            <li>读写分离支持</li>
+            <li>线程安全保证</li>
+        </ul>
+    </div>
+
+    <h2>关键功能实现</h2>
+    
+    <div class="implementation">
+        <h3>1. 数据库连接管理</h3>
+        <pre><code>def db_connect(to, allow_uri=False, readonly=False):
+    maxconn = odoo.evented and tools.config['db_maxconn_gevent'] or tools.config['db_maxconn']
+    if _Pool is None and not readonly:
+        _Pool = ConnectionPool(int(maxconn), readonly=False)
+    if _Pool_readonly is None and readonly:
+        _Pool_readonly = ConnectionPool(int(maxconn), readonly=True)</code></pre>
+        <p>连接管理的主要特点：</p>
+        <ul>
+            <li>支持读写分离</li>
+            <li>连接池自动初始化</li>
+            <li>最大连接数限制</li>
+            <li>支持URI连接字符串</li>
+        </ul>
+    </div>
+
+    <div class="implementation">
+        <h3>2. 游标操作封装</h3>
+        <pre><code>def execute(self, query, params=None, log_exceptions=True):
+    if isinstance(query, SQL):
+        assert params is None, "Unexpected parameters for SQL query object"
+        query, params = query.code, query.params
+    
+    start = real_time()
+    try:
+        params = params or None
+        res = self._obj.execute(query, params)
+    except Exception as e:
+        if log_exceptions:
+            _logger.error("bad query: %s\nERROR: %s", self._obj.query or query, e)
+        raise</code></pre>
+        <p>游标操作的核心功能：</p>
+        <ul>
+            <li>SQL查询执行</li>
+            <li>参数化查询支持</li>
+            <li>异常处理和日志</li>
+            <li>性能监控</li>
+        </ul>
+    </div>
+
+    <h2>使用实例</h2>
+    
+    <div class="example">
+        <h3>1. 基本数据库操作</h3>
+        <pre><code># 连接数据库
+db = db_connect('mydb')
+cr = db.cursor()
+
+try:
+    # 执行查询
+    cr.execute("SELECT * FROM res_partner WHERE id = %s", (1,))
+    result = cr.dictfetchone()
+    
+    # 提交事务
+    cr.commit()
+finally:
+    cr.close()</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>2. 使用保存点</h3>
+        <pre><code>with cr.savepoint():
+    # 执行可能失败的操作
+    cr.execute("UPDATE res_partner SET name = %s WHERE id = %s", 
+               ('New Name', 1))
+    
+    # 如果发生异常，会自动回滚到保存点
+    # 如果成功，保存点会被释放</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>3. 批量操作优化</h3>
+        <pre><code># 处理大量IN查询
+partner_ids = [1, 2, 3, ..., 1000]
+for ids in cr.split_for_in_conditions(partner_ids):
+    cr.execute("SELECT * FROM res_partner WHERE id IN %s", (tuple(ids),))
+    results = cr.dictfetchall()</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <ul>
+            <li><strong>连接池复用</strong>：避免频繁创建和关闭数据库连接</li>
+            <li><strong>游标缓存</strong>：通过游标缓存减少重复查询</li>
+            <li><strong>批量操作</strong>：支持大规模数据操作的优化</li>
+            <li><strong>查询监控</strong>：提供SQL查询性能监控和日志</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>始终在try-finally块中使用数据库游标</li>
+            <li>使用参数化查询避免SQL注入</li>
+            <li>合理使用保存点管理事务</li>
+            <li>注意处理大规模查询的性能问题</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>不要长时间持有数据库连接</li>
+            <li>避免在循环中频繁提交事务</li>
+            <li>注意处理并发访问的问题</li>
+            <li>及时关闭不再使用的游标</li>
+        </ul>
+    </div>
+
+    <h2>调试和监控</h2>
+    <div class="debugging">
+        <h3>SQL日志记录</h3>
+        <pre><code># 启用SQL日志
+logging.getLogger('odoo.sql_db').setLevel(logging.DEBUG)
+
+# 查看查询统计
+cr.print_log()</code></pre>
+        <p>可以通过日志查看：</p>
+        <ul>
+            <li>SQL查询执行时间</li>
+            <li>查询计数统计</li>
+            <li>错误和异常信息</li>
+            <li>连接池状态</li>
+        </ul>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo数据库混淆工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo数据库混淆工具(Obfuscate)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>obfuscate.py</code>是Odoo框架中的一个高级工具，用于对数据库中的敏感数据进行混淆处理。这个工具主要用于在需要分享数据库时保护敏感信息。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>安全地混淆数据库中的敏感信息，同时保持数据库的功能性和一致性。
+    </div>
+    
+    <h2>主要功能模块</h2>
+    
+    <h3>1. 密码管理</h3>
+    <div class="code-block">
+        <pre><code>def set_pwd(self, pwd):
+    """设置用于加密/解密数据的密码"""
+    
+def check_pwd(self, pwd):
+    """验证密码是否有效"""
+    
+def clear_pwd(self):
+    """清除已设置的密码"""</code></pre>
+    </div>
+    
+    <h3>2. 数据加密/解密</h3>
+    <div class="code-block">
+        <pre><code>def cypher_string(self, sql_field: SQL, password):
+    """加密字符串字段"""
+    
+def uncypher_string(self, sql_field: SQL, password):
+    """解密字符串字段"""</code></pre>
+    </div>
+
+    <h3>3. 字段处理</h3>
+    <div class="method-analysis">
+        <h4>字段类型检查</h4>
+        <pre><code>def check_field(self, table, field):
+    """检查字段类型，支持text、varchar和jsonb类型"""</code></pre>
+        
+        <h4>表转换处理</h4>
+        <pre><code>def convert_table(self, table, fields, pwd, with_commit=False, unobfuscate=False):
+    """处理表中的指定字段"""</code></pre>
+    </div>
+
+    <h2>默认混淆字段</h2>
+    <div class="default-fields">
+        <h3>主要涉及的表和字段：</h3>
+        <ul>
+            <li>res_partner
+                <ul>
+                    <li>name</li>
+                    <li>email</li>
+                    <li>phone</li>
+                    <li>street</li>
+                    <li>vat</li>
+                </ul>
+            </li>
+            <li>mail_message
+                <ul>
+                    <li>subject</li>
+                    <li>email_from</li>
+                    <li>body</li>
+                </ul>
+            </li>
+            <li>crm_lead
+                <ul>
+                    <li>name</li>
+                    <li>contact_name</li>
+                    <li>email_from</li>
+                    <li>description</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 基本混淆操作</h3>
+        <pre><code>python odoo-bin obfuscate -d mydb --pwd mysecretpassword</code></pre>
+        
+        <h3>2. 指定字段混淆</h3>
+        <pre><code>python odoo-bin obfuscate -d mydb --pwd mysecretpassword --fields res_partner.name,res_partner.email</code></pre>
+        
+        <h3>3. 解混淆操作</h3>
+        <pre><code>python odoo-bin obfuscate -d mydb --pwd mysecretpassword --unobfuscate</code></pre>
+    </div>
+
+    <h2>安全特性</h2>
+    <div class="security-features">
+        <h3>主要安全机制：</h3>
+        <ul>
+            <li>使用pgcrypto扩展进行加密</li>
+            <li>密码验证机制</li>
+            <li>事务管理确保数据一致性</li>
+            <li>提供确认机制防止意外操作</li>
+        </ul>
+    </div>
+
+    <h2>高级功能</h2>
+    <div class="advanced-features">
+        <h3>1. JSON字段处理</h3>
+        <p>支持处理JSONB类型字段中的敏感数据</p>
+        
+        <h3>2. 批量提交</h3>
+        <p>支持按表提交事务，提高性能</p>
+        
+        <h3>3. 可选字段</h3>
+        <p>支持通过文件指定要混淆的字段</p>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在混淆前备份数据库</li>
+            <li>使用强密码</li>
+            <li>记录混淆的字段清单</li>
+            <li>验证混淆后的数据可用性</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <dl>
+            <dt>Q: 混淆是否可逆？</dt>
+            <dd>A: 是的，使用相同的密码可以解混淆。</dd>
+            
+            <dt>Q: 如何处理大型数据库？</dt>
+            <dd>A: 使用--pertablecommit选项可以提高性能。</dd>
+            
+            <dt>Q: 是否支持自定义字段？</dt>
+            <dd>A: 是的，可以通过--fields或--file选项指定。</dd>
+        </dl>
+    </div>
+
+    <h2>性能考虑</h2>
+    <div class="performance">
+        <ul>
+            <li>大数据库建议使用分表提交</li>
+            <li>JSON字段处理可能较慢</li>
+            <li>建议在低负载时段执行</li>
+        </ul>
+    </div>
+</body>
+</html> 

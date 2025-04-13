@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 日志管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 日志管理(ir.logging)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_logging.py</code>是Odoo的日志管理模块，负责处理和存储系统日志信息。这个模块提供了一个统一的接口来记录来自客户端和服务器端的日志信息，支持不同级别的日志记录，并提供了灵活的日志查询功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>系统日志记录</li>
+            <li>客户端和服务器端日志管理</li>
+            <li>日志级别控制</li>
+            <li>日志查询和分析</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    
+    <h3>IrLogging类</h3>
+    <div class="code-block">
+        <pre><code>class IrLogging(models.Model):
+    _name = 'ir.logging'
+    _description = 'Logging'
+    _order = 'id DESC'
+    _allow_sudo_commands = False</code></pre>
+    </div>
+
+    <h3>字段定义</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>create_uid</td>
+            <td>Integer</td>
+            <td>创建用户ID</td>
+        </tr>
+        <tr>
+            <td>create_date</td>
+            <td>Datetime</td>
+            <td>创建时间</td>
+        </tr>
+        <tr>
+            <td>write_uid</td>
+            <td>Integer</td>
+            <td>最后更新用户ID</td>
+        </tr>
+        <tr>
+            <td>write_date</td>
+            <td>Datetime</td>
+            <td>最后更新时间</td>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>日志名称（必填）</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>Selection</td>
+            <td>日志类型（客户端/服务器）</td>
+        </tr>
+        <tr>
+            <td>dbname</td>
+            <td>Char</td>
+            <td>数据库名称</td>
+        </tr>
+        <tr>
+            <td>level</td>
+            <td>Char</td>
+            <td>日志级别</td>
+        </tr>
+        <tr>
+            <td>message</td>
+            <td>Text</td>
+            <td>日志消息（必填）</td>
+        </tr>
+        <tr>
+            <td>path</td>
+            <td>Char</td>
+            <td>日志来源路径（必填）</td>
+        </tr>
+        <tr>
+            <td>func</td>
+            <td>Char</td>
+            <td>函数名称（必填）</td>
+        </tr>
+        <tr>
+            <td>line</td>
+            <td>Char</td>
+            <td>代码行号（必填）</td>
+        </tr>
+    </table>
+
+    <h2>特殊说明</h2>
+    <div class="special-notes">
+        <h3>日志访问字段说明</h3>
+        <p>_log_access字段的特殊处理原因：</p>
+        <ul>
+            <li>日志条目通过SQL查询直接写入，绕过ORM</li>
+            <li>--log-db选项允许将日志写入远程数据库</li>
+            <li>避免在更新res.users模型时出现死锁问题</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本日志记录</h3>
+    <div class="code-example">
+        <pre><code># 创建日志记录
+self.env['ir.logging'].sudo().create({
+    'name': '系统操作',
+    'type': 'server',
+    'dbname': self.env.cr.dbname,
+    'level': 'INFO',
+    'message': '用户执行了重要操作',
+    'path': '/my_module/models/my_model.py',
+    'func': 'action_important',
+    'line': '42'
+})</code></pre>
+    </div>
+
+    <h3>2. 日志查询</h3>
+    <div class="code-example">
+        <pre><code># 查询特定类型的日志
+logs = self.env['ir.logging'].search([
+    ('type', '=', 'server'),
+    ('level', '=', 'ERROR'),
+    ('create_date', '>=', fields.Datetime.now() - timedelta(days=1))
+], order='create_date desc')</code></pre>
+    </div>
+
+    <h3>3. 日志分析</h3>
+    <div class="code-example">
+        <pre><code># 统计不同级别的日志数量
+log_stats = self.env['ir.logging'].read_group(
+    [('create_date', '>=', fields.Date.today())],
+    ['level'],
+    ['level']
+)</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 日志级别使用</h3>
+        <ul>
+            <li>ERROR: 严重错误，影响系统运行</li>
+            <li>WARNING: 警告信息，可能存在问题</li>
+            <li>INFO: 普通信息，记录重要操作</li>
+            <li>DEBUG: 调试信息，开发时使用</li>
+        </ul>
+
+        <h3>2. 日志内容规范</h3>
+        <ul>
+            <li>使用清晰的消息描述</li>
+            <li>包含必要的上下文信息</li>
+            <li>记录关键参数值</li>
+        </ul>
+
+        <h3>3. 性能考虑</h3>
+        <ul>
+            <li>避免过多的日志记录</li>
+            <li>定期清理旧日志</li>
+            <li>使用适当的索引优化查询</li>
+        </ul>
+    </div>
+
+    <h2>配置示例</h2>
+    
+    <h3>1. 日志配置</h3>
+    <pre><code># 配置文件示例 (odoo.conf)
+logfile = /var/log/odoo/odoo.log
+log_level = info
+log_handler = :INFO</code></pre>
+
+    <h3>2. 远程日志配置</h3>
+    <pre><code># 启动参数示例
+odoo-bin --log-db=logging_db --log-level=debug</code></pre>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 日志记录不显示？</h3>
+        <p>可能的原因：</p>
+        <ul>
+            <li>日志级别设置过高</li>
+            <li>日志处理器配置不正确</li>
+            <li>权限问题</li>
+        </ul>
+
+        <h3>Q2: 日志性能问题？</h3>
+        <p>优化建议：</p>
+        <ul>
+            <li>使用批量创建</li>
+            <li>定期清理旧日志</li>
+            <li>优化查询条件</li>
+        </ul>
+    </div>
+
+    <h2>开发建议</h2>
+    <div class="development-tips">
+        <h3>1. 日志记录规范</h3>
+        <pre><code># 推荐的日志记录方式
+def process_important_action(self):
+    try:
+        # 执行重要操作
+        result = self._do_important_thing()
+        
+        # 记录成功日志
+        self.env['ir.logging'].sudo().create({
+            'name': 'Important Action',
+            'type': 'server',
+            'level': 'INFO',
+            'message': f'Successfully processed action: {result}',
+            'path': __file__,
+            'func': 'process_important_action',
+            'line': '123'
+        })
+        
+    except Exception as e:
+        # 记录错误日志
+        self.env['ir.logging'].sudo().create({
+            'name': 'Important Action Error',
+            'type': 'server',
+            'level': 'ERROR',
+            'message': str(e),
+            'path': __file__,
+            'func': 'process_important_action',
+            'line': '123'
+        })
+        raise</code></pre>
+
+        <h3>2. 日志清理策略</h3>
+        <pre><code># 定期清理旧日志的示例
+@api.model
+def _clean_old_logs(self, days=30):
+    old_date = fields.Datetime.now() - timedelta(days=days)
+    old_logs = self.search([
+        ('create_date', '<', old_date),
+        ('level', 'not in', ['ERROR', 'CRITICAL'])
+    ])
+    old_logs.unlink()</code></pre>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>
+        <ul>
+            <li>日志记录应该是非侵入式的，不应影响主要业务逻辑</li>
+            <li>敏感信息不应该直接记录在日志中</li>
+            <li>定期维护和清理日志数据很重要</li>
+        </ul>
+    </div>
+</body>
+</html> 

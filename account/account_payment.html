@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo支付模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo支付模型(AccountPayment)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>AccountPayment模型是Odoo中处理支付交易的核心模型。它负责管理所有类型的支付记录，包括收款和付款，支持多种支付方式和多币种交易。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>支付记录是实际资金收付的凭证，它可以关联到发票、账单或其他业务单据，并生成相应的会计分录。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>支付编号</td>
+        </tr>
+        <tr>
+            <td>date</td>
+            <td>Date</td>
+            <td>支付日期</td>
+        </tr>
+        <tr>
+            <td>amount</td>
+            <td>Monetary</td>
+            <td>支付金额</td>
+        </tr>
+        <tr>
+            <td>payment_type</td>
+            <td>Selection</td>
+            <td>支付类型（收款/付款）</td>
+        </tr>
+        <tr>
+            <td>partner_type</td>
+            <td>Selection</td>
+            <td>业务伙伴类型（客户/供应商）</td>
+        </tr>
+        <tr>
+            <td>state</td>
+            <td>Selection</td>
+            <td>支付状态（草稿/处理中/已支付/已取消/已拒绝）</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 支付记录管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountPayment(models.Model):
+    _name = "account.payment"
+    _inherit = ['mail.thread.main.attachment', 'mail.activity.mixin']
+    _description = "Payments"
+    _order = "date desc, name desc"
+
+    state = fields.Selection([
+        ('draft', "Draft"),
+        ('in_process', "In Process"),
+        ('paid', "Paid"),
+        ('canceled', "Canceled"),
+        ('rejected', "Rejected"),
+    ], required=True, default='draft')
+        </code></pre>
+    </div>
+
+    <h3>2. 会计分录生成</h3>
+    <div class="code-block">
+        <pre><code>
+def _prepare_move_line_default_vals(self, write_off_line_vals=None):
+    ''' 准备创建会计分录行的默认值
+    :param write_off_line_vals: 可选的冲销行值
+    :return: 会计分录行值的列表
+    '''
+    self.ensure_one()
+    write_off_line_vals = write_off_line_vals or []
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建客户收款</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建客户收款记录
+payment = self.env['account.payment'].create({
+    'payment_type': 'inbound',
+    'partner_type': 'customer',
+    'partner_id': customer.id,
+    'amount': 1000.0,
+    'journal_id': bank_journal.id,
+    'payment_method_line_id': payment_method_line.id,
+})
+payment.action_post()  # 确认支付
+        </code></pre>
+    </div>
+
+    <h3>创建供应商付款</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建供应商付款记录
+payment = self.env['account.payment'].create({
+    'payment_type': 'outbound',
+    'partner_type': 'supplier',
+    'partner_id': supplier.id,
+    'amount': 2000.0,
+    'journal_id': bank_journal.id,
+    'payment_method_line_id': payment_method_line.id,
+})
+payment.action_post()  # 确认支付
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 发票支付</h3>
+    <div class="business-case">
+        <p>处理发票支付的流程：</p>
+        <ol>
+            <li>创建支付记录</li>
+            <li>关联到发票</li>
+            <li>生成会计分录</li>
+            <li>更新发票状态</li>
+        </ol>
+    </div>
+
+    <h3>2. 预付款处理</h3>
+    <div class="business-case">
+        <p>处理预付款的流程：</p>
+        <ol>
+            <li>创建预付款记录</li>
+            <li>生成会计分录</li>
+            <li>后续关联到发票</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>action_post</td>
+            <td>确认支付并生成会计分录</td>
+        </tr>
+        <tr>
+            <td>action_draft</td>
+            <td>将支付重置为草稿状态</td>
+        </tr>
+        <tr>
+            <td>action_cancel</td>
+            <td>取消支付</td>
+        </tr>
+    </table>
+
+    <h3>状态流转</h3>
+    <div class="state-flow">
+        <pre>
+草稿(draft) -> 处理中(in_process) -> 已支付(paid)
+                    |
+                    ↓
+               已取消(canceled)
+                    |
+                    ↓
+               已拒绝(rejected)
+        </pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>始终通过程序创建支付记录，避免手动创建</li>
+            <li>正确设置支付类型和业务伙伴类型</li>
+            <li>确保支付方式和日记账的正确配置</li>
+            <li>及时处理未对账的支付记录</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何处理多币种支付？</dt>
+            <dd>答：系统会根据配置的汇率自动处理币种转换，并生成相应的汇兑损益分录。</dd>
+            
+            <dt>问：支付记录可以修改吗？</dt>
+            <dd>答：草稿状态的支付记录可以修改，已确认的支付需要先取消后才能修改。</dd>
+            
+            <dt>问：如何对账支付记录？</dt>
+            <dd>答：可以通过银行对账单模块将支付记录与银行流水进行匹配。</dd>
+        </dl>
+    </div>
+
+    <h2>重要特性</h2>
+    
+    <h3>1. 多币种支持</h3>
+    <div class="feature">
+        <pre><code>
+# 多币种支付示例
+payment = self.env['account.payment'].create({
+    'currency_id': foreign_currency.id,
+    'amount': 1000.0,
+    # ... 其他字段
+})
+        </code></pre>
+    </div>
+
+    <h3>2. 批量支付</h3>
+    <div class="feature">
+        <pre><code>
+# 批量创建支付
+payments = self.env['account.payment'].create([{
+    'partner_id': partner.id,
+    'amount': amount,
+    # ... 其他字段
+} for partner, amount in payment_data])
+        </code></pre>
+    </div>
+
+    <h3>3. 支付匹配</h3>
+    <div class="feature">
+        <pre><code>
+# 支付匹配示例
+payment.reconcile_invoice_ids = [(4, invoice.id) for invoice in invoices]
+        </code></pre>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加自定义支付状态</h3>
+        <pre><code>
+# 继承支付模型添加新状态
+class CustomPayment(models.Model):
+    _inherit = 'account.payment'
+    
+    state = fields.Selection(selection_add=[
+        ('pending_approval', 'Pending Approval')
+    ])
+    
+    def action_request_approval(self):
+        self.state = 'pending_approval'
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>访问权限控制</h3>
+        <ul>
+            <li>确保只有授权用户可以创建和确认支付</li>
+            <li>敏感操作需要多级审批</li>
+            <li>支付金额限制</li>
+            <li>支付方式使用限制</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

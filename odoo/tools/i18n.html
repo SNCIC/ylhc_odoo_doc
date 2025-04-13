@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo国际化工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo国际化(i18n)工具模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>i18n.py</code>是Odoo框架中的国际化工具模块，提供了一系列用于处理多语言和区域设置的功能。该模块主要处理语言格式化、列表格式化以及区域设置的转换等功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>列表格式化：根据不同语言环境格式化列表项</li>
+            <li>区域设置转换：在Python和JavaScript的区域设置格式之间转换</li>
+            <li>正则表达式处理：处理区域设置字符串的解析</li>
+        </ul>
+    </div>
+
+    <h2>核心组件解析</h2>
+    
+    <h3>1. XPG_LOCALE_RE 正则表达式</h3>
+    <div class="code-block">
+        <pre><code>XPG_LOCALE_RE = re.compile(r"""^
+    ([a-z]+)      # language
+    (_[A-Z\d]+)?  # maybe _territory
+    (@.+)?        # maybe @modifier
+    $""", re.VERBOSE)</code></pre>
+    </div>
+    <p>这个正则表达式用于解析区域设置字符串，包含三个主要部分：</p>
+    <ul>
+        <li>语言代码（必需）：如 'zh', 'en'</li>
+        <li>地区代码（可选）：如 '_CN', '_US'</li>
+        <li>修饰符（可选）：如 '@latin'</li>
+    </ul>
+
+    <h3>2. format_list 函数</h3>
+    <div class="code-block">
+        <pre><code>def format_list(
+    env: odoo.api.Environment,
+    lst: Sequence[str],
+    style: Literal["standard", "standard-short", "or", "or-short", "unit", "unit-short", "unit-narrow"] = "standard",
+    lang_code: Optional[str] = None,
+) -> str:</code></pre>
+    </div>
+    <p>这个函数用于根据不同语言环境格式化列表。支持多种格式化样式：</p>
+    <table>
+        <tr>
+            <th>样式</th>
+            <th>描述</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>standard</td>
+            <td>标准格式</td>
+            <td>"一月、二月和三月"</td>
+        </tr>
+        <tr>
+            <td>standard-short</td>
+            <td>简短标准格式</td>
+            <td>"1月、2月和3月"</td>
+        </tr>
+        <tr>
+            <td>or</td>
+            <td>或关系格式</td>
+            <td>"一月、二月或三月"</td>
+        </tr>
+        <tr>
+            <td>unit</td>
+            <td>单位格式</td>
+            <td>"3米、7厘米"</td>
+        </tr>
+    </table>
+
+    <h3>3. py_to_js_locale 函数</h3>
+    <div class="code-block">
+        <pre><code>def py_to_js_locale(locale: str) -> str:</code></pre>
+    </div>
+    <p>此函数将Python格式的区域设置转换为JavaScript格式：</p>
+    <ul>
+        <li>基本转换：将下划线替换为连字符（如 'zh_CN' → 'zh-CN'）</li>
+        <li>特殊处理：塞尔维亚语的拉丁文和西里尔文脚本转换</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>列表格式化示例</h3>
+    <div class="code-block">
+        <pre><code># 标准格式化
+items = ['苹果', '香蕉', '橙子']
+result = format_list(env, items)  # 输出: 苹果、香蕉和橙子
+
+# 或关系格式化
+result = format_list(env, items, style="or")  # 输出: 苹果、香蕉或橙子
+
+# 带单位的格式化
+measurements = ['3米', '7厘米']
+result = format_list(env, measurements, style="unit")  # 输出: 3米、7厘米</code></pre>
+    </div>
+
+    <h3>区域设置转换示例</h3>
+    <div class="code-block">
+        <pre><code># 基本转换
+js_locale = py_to_js_locale('zh_CN')  # 输出: 'zh-CN'
+
+# 塞尔维亚语特殊处理
+js_locale = py_to_js_locale('sr@latin')  # 输出: 'sr-Latn'
+js_locale = py_to_js_locale('sr@Cyrl')   # 输出: 'sr-Cyrl'</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议</h3>
+        <ul>
+            <li>始终使用format_list函数来格式化列表，而不是手动拼接字符串</li>
+            <li>在处理多语言环境时，确保正确传递lang_code参数</li>
+            <li>在前后端交互时，使用py_to_js_locale确保区域设置格式的正确转换</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>format_list函数依赖babel库，确保正确安装</li>
+            <li>某些格式化样式可能在特定语言环境下不可用</li>
+            <li>处理塞尔维亚语时需要特别注意脚本类型的转换</li>
+        </ul>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo日期工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo日期工具模块(date_utils.py)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>date_utils.py</code>是Odoo框架中的日期处理工具模块，提供了一系列用于处理日期和时间的实用函数。该模块主要处理日期范围、财年、季度等业务场景中的日期计算需求。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>该模块封装了复杂的日期计算逻辑，使得在Odoo中处理日期相关的业务需求变得简单和统一。
+    </div>
+    
+    <h2>核心功能</h2>
+    
+    <h3>1. 日期类型判断</h3>
+    <div class="code-block">
+        <pre><code>def date_type(value: D) -> Type[D]:
+    return datetime if isinstance(value, datetime) else date</code></pre>
+        <p>用于判断一个日期对象是datetime类型还是date类型。</p>
+    </div>
+
+    <h3>2. 月份范围计算</h3>
+    <div class="code-block">
+        <pre><code>def get_month(date: D) -> Tuple[D, D]:
+    return date.replace(day=1), date.replace(day=calendar.monthrange(date.year, date.month)[1])</code></pre>
+        <p>计算给定日期所在月份的起始和结束日期。</p>
+    </div>
+
+    <h3>3. 季度相关函数</h3>
+    <div class="function-group">
+        <h4>获取季度号</h4>
+        <pre><code>def get_quarter_number(date: date) -> int:
+    return math.ceil(date.month / 3)</code></pre>
+        
+        <h4>获取季度范围</h4>
+        <pre><code>def get_quarter(date: D) -> Tuple[D, D]:
+    quarter_number = get_quarter_number(date)
+    month_from = ((quarter_number - 1) * 3) + 1
+    date_from = date.replace(month=month_from, day=1)
+    date_to = date_from + relativedelta(months=2)
+    date_to = date_to.replace(day=calendar.monthrange(date_to.year, date_to.month)[1])
+    return date_from, date_to</code></pre>
+    </div>
+
+    <h3>4. 财年计算</h3>
+    <div class="code-block">
+        <pre><code>def get_fiscal_year(date: D, day: int = 31, month: int = 12) -> Tuple[D, D]:
+    # 计算财年的开始和结束日期
+    # 默认财年结束日期为12月31日</code></pre>
+        <p>根据给定的日期计算其所属的财年范围。可以自定义财年的结束月份和日期。</p>
+    </div>
+
+    <h3>5. 时间间隔计算</h3>
+    <div class="code-block">
+        <pre><code>def get_timedelta(qty: int, granularity: Literal['hour', 'day', 'week', 'month', 'year']):
+    # 返回指定数量和粒度的时间间隔</code></pre>
+        <p>创建指定数量和粒度的时间间隔对象。</p>
+    </div>
+
+    <h3>6. 时间段起止计算</h3>
+    <div class="function-group">
+        <h4>获取时间段的开始</h4>
+        <pre><code>def start_of(value: D, granularity: Granularity) -> D:
+    # 计算指定粒度的时间段开始时间</code></pre>
+        
+        <h4>获取时间段的结束</h4>
+        <pre><code>def end_of(value: D, granularity: Granularity) -> D:
+    # 计算指定粒度的时间段结束时间</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 获取月份范围</h3>
+        <pre><code>from datetime import date
+from odoo.tools.date_utils import get_month
+
+today = date(2024, 3, 15)
+month_start, month_end = get_month(today)
+print(f"月初: {month_start}")  # 2024-03-01
+print(f"月末: {month_end}")    # 2024-03-31</code></pre>
+
+        <h3>2. 计算季度</h3>
+        <pre><code>from odoo.tools.date_utils import get_quarter, get_quarter_number
+
+date_obj = date(2024, 5, 15)
+quarter = get_quarter_number(date_obj)
+print(f"季度: Q{quarter}")  # Q2
+
+start, end = get_quarter(date_obj)
+print(f"季度范围: {start} 至 {end}")  # 2024-04-01 至 2024-06-30</code></pre>
+
+        <h3>3. 计算财年</h3>
+        <pre><code>from odoo.tools.date_utils import get_fiscal_year
+
+date_obj = date(2024, 3, 15)
+# 假设财年结束日期为3月31日
+fiscal_start, fiscal_end = get_fiscal_year(date_obj, day=31, month=3)
+print(f"财年: {fiscal_start} 至 {fiscal_end}")  # 2023-04-01 至 2024-03-31</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在处理日期范围时，优先使用模块提供的函数而不是自己计算</li>
+            <li>注意日期类型的一致性，datetime和date类型不能直接比较</li>
+            <li>使用get_fiscal_year时，确保正确设置财年的结束日期</li>
+            <li>处理时区相关的日期时，需要特别注意时区转换</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>所有日期计算函数都支持date和datetime类型的输入</li>
+            <li>在处理财年时，要注意不同国家/地区可能有不同的财年定义</li>
+            <li>使用date_range时要注意内存使用，避免生成过大的日期范围</li>
+            <li>在处理跨时区的日期时，建议统一使用UTC时间进行计算</li>
+        </ul>
+    </div>
+
+    <h2>性能考虑</h2>
+    <div class="performance">
+        <ul>
+            <li>date_range生成器函数适合处理大范围的日期序列，因为它是惰性计算的</li>
+            <li>对于频繁的日期计算，可以考虑缓存结果</li>
+            <li>在处理大量日期时，优先使用date类型而不是datetime类型，可以减少内存使用</li>
+        </ul>
+    </div>
+</body>
+</html> 

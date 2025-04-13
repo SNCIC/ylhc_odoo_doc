@@ -1,0 +1,163 @@
+/* 文档布局样式 */
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* 隐藏整个页面的滚动条 */
+    font-family: 'Microsoft YaHei', sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f9f9f9;
+}
+
+.container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden; /* 确保容器没有滚动条 */
+}
+
+.sidebar {
+    width: 250px;
+    background-color: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    overflow-y: auto; /* 允许侧边栏滚动 */
+    padding: 20px 15px;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
+}
+
+.content {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+    background-color: #fff;
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: #c1c1c1 #f1f1f1; /* Firefox */
+}
+
+/* 自定义滚动条样式 - Webkit浏览器 */
+.content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* 目录树样式 */
+.directory-tree {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.directory-tree li {
+    margin: 3px 0;
+}
+
+.directory-tree a {
+    color: #666;
+    text-decoration: none;
+    display: block;
+    padding: 6px 8px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.directory-tree a:hover {
+    color: #333;
+    background-color: #f0f0f0;
+}
+
+.directory-tree a.active {
+    color: #1976d2;
+    background-color: #e3f2fd;
+    font-weight: 500;
+}
+
+.directory-tree a.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: #1976d2;
+    border-radius: 2px;
+}
+
+.directory-group {
+    margin-bottom: 8px;
+}
+
+.directory-group-title {
+    font-weight: 500;
+    cursor: pointer;
+    padding: 6px 8px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    margin-bottom: 3px;
+    position: relative;
+    padding-left: 20px;
+    transition: all 0.2s ease;
+    color: #333;
+}
+
+.directory-group-content {
+    padding-left: 25px;
+    list-style: none;
+    margin: 0;
+}
+
+/* 移除默认的display:none，由JavaScript控制 */
+.directory-group .directory-group-content {
+    display: none;
+}
+
+.directory-group.active > .directory-group-content {
+    display: block;
+}
+
+.directory-group-title::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 4px 0 4px 6px;
+    border-color: transparent transparent transparent #666;
+    transition: transform 0.2s ease;
+}
+
+.directory-group.active > .directory-group-title::before {
+    transform: translateY(-50%) rotate(90deg);
+}
+
+/* 侧边栏标题样式 */
+.sidebar-title {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+/* 错误提示样式 */
+.error {
+    color: red;
+    padding: 20px;
+    border: 1px solid red;
+    margin: 20px;
+    border-radius: 4px;
+    background-color: #fff5f5;
+} 

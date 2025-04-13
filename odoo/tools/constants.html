@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo常量模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo常量模块(constants.py)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>constants.py</code>是Odoo框架中的一个基础常量定义模块，它定义了一些在整个框架中使用的关键常量值。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>这个模块主要定义了与文件扩展名和调试器相关的常量，这些常量在Odoo的资源管理和开发调试过程中起着重要作用。
+    </div>
+    
+    <h2>主要常量定义</h2>
+    <div class="code-block">
+        <pre><code>SCRIPT_EXTENSIONS = ('js',)
+STYLE_EXTENSIONS = ('css', 'scss', 'sass', 'less')
+TEMPLATE_EXTENSIONS = ('xml',)
+ASSET_EXTENSIONS = SCRIPT_EXTENSIONS + STYLE_EXTENSIONS + TEMPLATE_EXTENSIONS
+SUPPORTED_DEBUGGER = {'pdb', 'ipdb', 'wdb', 'pudb'}
+EXTERNAL_ASSET = object()</code></pre>
+    </div>
+
+    <h3>常量说明</h3>
+    <table>
+        <tr>
+            <th>常量名</th>
+            <th>类型</th>
+            <th>说明</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>SCRIPT_EXTENSIONS</td>
+            <td>tuple</td>
+            <td>脚本文件扩展名</td>
+            <td>定义JavaScript文件的扩展名</td>
+        </tr>
+        <tr>
+            <td>STYLE_EXTENSIONS</td>
+            <td>tuple</td>
+            <td>样式文件扩展名</td>
+            <td>定义CSS及其预处理器文件的扩展名</td>
+        </tr>
+        <tr>
+            <td>TEMPLATE_EXTENSIONS</td>
+            <td>tuple</td>
+            <td>模板文件扩展名</td>
+            <td>定义XML模板文件的扩展名</td>
+        </tr>
+        <tr>
+            <td>ASSET_EXTENSIONS</td>
+            <td>tuple</td>
+            <td>资源文件扩展名</td>
+            <td>所有前端资源文件扩展名的集合</td>
+        </tr>
+        <tr>
+            <td>SUPPORTED_DEBUGGER</td>
+            <td>set</td>
+            <td>支持的调试器</td>
+            <td>Odoo支持的Python调试器列表</td>
+        </tr>
+        <tr>
+            <td>EXTERNAL_ASSET</td>
+            <td>object</td>
+            <td>外部资源标记</td>
+            <td>用于标记外部资源的特殊对象</td>
+        </tr>
+    </table>
+
+    <h2>使用场景</h2>
+    <div class="usage-examples">
+        <h3>1. 资源文件识别</h3>
+        <pre><code>def is_asset_file(filename):
+    ext = filename.split('.')[-1]
+    return ext in ASSET_EXTENSIONS</code></pre>
+        <p>用于判断一个文件是否为前端资源文件。</p>
+
+        <h3>2. 调试器支持检查</h3>
+        <pre><code>def check_debugger(debugger_name):
+    return debugger_name in SUPPORTED_DEBUGGER</code></pre>
+        <p>用于检查某个调试器是否被Odoo支持。</p>
+
+        <h3>3. 样式文件处理</h3>
+        <pre><code>def is_style_file(filename):
+    ext = filename.split('.')[-1]
+    return ext in STYLE_EXTENSIONS</code></pre>
+        <p>用于判断一个文件是否为样式文件。</p>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在处理文件类型时，优先使用这些预定义的常量，而不是硬编码扩展名</li>
+            <li>在添加新的资源类型时，应该更新相应的常量定义</li>
+            <li>使用SUPPORTED_DEBUGGER来验证调试器的兼容性</li>
+            <li>在处理外部资源时，使用EXTERNAL_ASSET作为标记</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>这些常量定义是Odoo框架的基础配置，不建议在应用代码中修改</li>
+            <li>在处理文件扩展名时，应该使用小写进行比较</li>
+            <li>EXTERNAL_ASSET是一个单例对象，应该使用is运算符进行比较</li>
+        </ul>
+    </div>
+</body>
+</html> 

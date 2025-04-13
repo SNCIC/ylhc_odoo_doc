@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo JavaScript转译器解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo JavaScript转译器深度解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>js_transpiler.py</code>是Odoo框架中的JavaScript代码转译器，它的主要作用是将ES6模块语法转换为Odoo传统的JavaScript模块定义方式。这个模块使得开发者可以使用现代JavaScript特性，同时保持与Odoo系统的兼容性。</p>
+    
+    <div class="note">
+        <strong>主要功能：</strong>
+        <ul>
+            <li>ES6 import/export语句转换</li>
+            <li>模块路径解析和转换</li>
+            <li>支持默认导出和命名导出</li>
+            <li>处理相对路径导入</li>
+            <li>QUnit测试模块包装</li>
+        </ul>
+    </div>
+
+    <h2>核心功能解析</h2>
+
+    <h3>1. 模块路径处理</h3>
+    <div class="code-block">
+        <h4>url_to_module_path(url)</h4>
+        <p>将文件URL转换为Odoo模块路径：</p>
+        <pre><code>输入: web/static/src/one/two/three.js
+输出: @web/one/two/three.js</code></pre>
+        <p>规则：</p>
+        <ul>
+            <li>static/src → @module</li>
+            <li>static/lib → @module/../lib</li>
+            <li>static/tests → @module/../tests</li>
+        </ul>
+    </div>
+
+    <h3>2. 导入语句转换</h3>
+    <div class="feature-block">
+        <h4>支持的导入类型：</h4>
+        <pre><code>// 基本导入
+import { a, b } from "path" 
+→ const { a, b } = require("path")
+
+// 默认导入
+import something from "path" 
+→ const something = require("path")[Symbol.for("default")]
+
+// 命名空间导入
+import * as name from "path"
+→ const name = require("path")
+
+// 混合导入
+import something, { a, b } from "path"
+→ const { [Symbol.for("default")]: something, a, b } = require("path")</code></pre>
+    </div>
+
+    <h3>3. 导出语句转换</h3>
+    <div class="feature-block">
+        <h4>支持的导出类型：</h4>
+        <pre><code>// 命名导出
+export function name() {}
+→ __exports.name = name; function name() {}
+
+// 默认导出
+export default class Name {}
+→ const Name = __exports[Symbol.for("default")] = class Name {}
+
+// 变量导出
+export let name
+→ let name = __exports.name
+
+// 对象导出
+export { a, b as c }
+→ Object.assign(__exports, { a, c: b })</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 基本模块定义</h3>
+    <pre><code>/** @odoo-module */
+import { Component } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+
+export class MyComponent extends Component {
+    setup() {
+        // ...
+    }
+}
+
+registry.category("components").add("MyComponent", MyComponent);</code></pre>
+
+    <h3>2. 带别名的模块</h3>
+    <pre><code>/** @odoo-module alias=web.MyLegacyComponent */
+import { Component } from "@odoo/owl";
+
+export default class MyComponent extends Component {
+    // ...
+}</code></pre>
+
+    <h2>特殊功能</h2>
+
+    <h3>1. 模块别名</h3>
+    <div class="feature-block">
+        <p>通过<code>@odoo-module</code>注释支持模块别名：</p>
+        <ul>
+            <li>alias=web.name：为新模块创建传统命名空间别名</li>
+            <li>default=false：控制默认导出行为</li>
+            <li>ignore：跳过转译处理</li>
+        </ul>
+    </div>
+
+    <h3>2. QUnit测试支持</h3>
+    <div class="feature-block">
+        <p>自动为测试文件添加QUnit模块包装：</p>
+        <pre><code>// 输入
+QUnit.test("my test", () => {});
+
+// 输出
+QUnit.module("module_name", function() {
+    QUnit.test("my test", () => {});
+});</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>模块组织</h3>
+        <ul>
+            <li>使用清晰的目录结构组织JavaScript文件</li>
+            <li>遵循ES6模块导入导出规范</li>
+            <li>合理使用模块别名处理遗留代码</li>
+        </ul>
+
+        <h3>代码迁移</h3>
+        <ul>
+            <li>逐步将旧代码迁移到ES6模块系统</li>
+            <li>使用别名机制保持向后兼容</li>
+            <li>注意测试代码的适配</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>模块路径必须遵循规范的目录结构</li>
+            <li>别名应谨慎使用，主要用于过渡期</li>
+            <li>避免循环依赖</li>
+            <li>确保浏览器兼容性</li>
+        </ul>
+    </div>
+</body>
+</html> 

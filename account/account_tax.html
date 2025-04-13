@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 税务管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 税务管理系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>account_tax.py</code>是Odoo 18中的税务管理核心模块，它提供了完整的税务配置、计算和管理功能。该模块包含税务组和税务规则的定义，以及复杂的税额计算逻辑。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>税务组管理</li>
+            <li>税率配置和计算</li>
+            <li>税务规则定义</li>
+            <li>税额自动计算</li>
+            <li>多币种税务处理</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+
+    <h3>1. AccountTaxGroup (account.tax.group)</h3>
+    <div class="code-explanation">
+        <h4>主要属性：</h4>
+        <ul>
+            <li><code>name</code>: 税务组名称</li>
+            <li><code>sequence</code>: 排序序号</li>
+            <li><code>country_id</code>: 国家</li>
+            <li><code>tax_payable_account_id</code>: 应付税金科目</li>
+            <li><code>tax_receivable_account_id</code>: 应收税金科目</li>
+            <li><code>preceding_subtotal</code>: 前置小计标签</li>
+        </ul>
+
+        <h4>使用示例：</h4>
+        <pre><code>
+# 创建税务组
+tax_group = env['account.tax.group'].create({
+    'name': '增值税',
+    'sequence': 1,
+    'country_id': env.ref('base.cn').id,
+    'preceding_subtotal': '不含税金额'
+})
+        </code></pre>
+    </div>
+
+    <h3>2. AccountTax (account.tax)</h3>
+    <div class="code-explanation">
+        <h4>主要属性：</h4>
+        <ul>
+            <li><code>name</code>: 税种名称</li>
+            <li><code>type_tax_use</code>: 税种用途（销项/进项）</li>
+            <li><code>amount_type</code>: 计算方式</li>
+            <li><code>amount</code>: 税率</li>
+            <li><code>price_include</code>: 价格是否含税</li>
+            <li><code>include_base_amount</code>: 是否影响后续税基</li>
+        </ul>
+
+        <h4>计算方式类型：</h4>
+        <ul>
+            <li><code>percentage</code>: 百分比</li>
+            <li><code>fixed</code>: 固定金额</li>
+            <li><code>division</code>: 价税分离</li>
+            <li><code>group</code>: 税组</li>
+        </ul>
+
+        <h4>使用示例：</h4>
+        <pre><code>
+# 创建增值税
+vat_tax = env['account.tax'].create({
+    'name': '增值税13%',
+    'type_tax_use': 'sale',
+    'amount_type': 'percent',
+    'amount': 13,
+    'tax_group_id': tax_group.id,
+    'price_include': False,
+    'include_base_amount': False
+})
+
+# 创建复合税
+composite_tax = env['account.tax'].create({
+    'name': '复合税',
+    'type_tax_use': 'sale',
+    'amount_type': 'group',
+    'children_tax_ids': [(6, 0, [tax1.id, tax2.id])]
+})
+        </code></pre>
+    </div>
+
+    <h3>3. AccountTaxRepartitionLine (account.tax.repartition.line)</h3>
+    <div class="code-explanation">
+        <h4>主要属性：</h4>
+        <ul>
+            <li><code>factor_percent</code>: 分配比例</li>
+            <li><code>repartition_type</code>: 分配类型（base/tax）</li>
+            <li><code>account_id</code>: 会计科目</li>
+            <li><code>tag_ids</code>: 标签</li>
+        </ul>
+
+        <h4>使用示例：</h4>
+        <pre><code>
+# 创建税务分配行
+repartition_line = env['account.tax.repartition.line'].create({
+    'factor_percent': 100,
+    'repartition_type': 'tax',
+    'account_id': tax_account.id,
+    'tax_id': vat_tax.id
+})
+        </code></pre>
+    </div>
+
+    <h2>核心功能实现</h2>
+
+    <h3>1. 税额计算</h3>
+    <div class="implementation-details">
+        <h4>计算方法：</h4>
+        <pre><code>
+def compute_all(self, price_unit, currency=None, quantity=1.0, product=None, partner=None, is_refund=False):
+    # 1. 准备计算环境
+    taxes = self.filtered(lambda r: r.active)
+    if not taxes:
+        return {
+            'total_excluded': price_unit * quantity,
+            'total_included': price_unit * quantity,
+            'taxes': []
+        }
+
+    # 2. 计算税额
+    result = {
+        'total_excluded': 0.0,
+        'total_included': 0.0,
+        'taxes': []
+    }
+    
+    # 3. 遍历计算每个税种
+    for tax in taxes:
+        tax_amount = tax._compute_amount(price_unit, quantity)
+        result['taxes'].append({
+            'id': tax.id,
+            'name': tax.name,
+            'amount': tax_amount,
+            'base': price_unit * quantity,
+        })
+        if tax.price_include:
+            result['total_included'] += tax_amount
+        else:
+            result['total_excluded'] += tax_amount
+
+    return result
+        </code></pre>
+    </div>
+
+    <h3>2. 价税分离</h3>
+    <div class="implementation-details">
+        <pre><code>
+def _fix_tax_included_price(self, price, prod_taxes, line_taxes):
+    """处理含税价格的修正"""
+    if not prod_taxes and not line_taxes:
+        return price
+    
+    incl_tax = prod_taxes.filtered(lambda tax: tax.price_include)
+    if incl_tax:
+        return incl_tax.compute_all(price)['total_excluded']
+    return price
+        </code></pre>
+    </div>
+
+    <h2>高级功能特性</h2>
+
+    <h3>1. 多币种支持</h3>
+    <div class="feature-explanation">
+        <p>系统支持多币种税务处理：</p>
+        <ul>
+            <li>自动汇率转换</li>
+            <li>多币种税额计算</li>
+            <li>汇率差异处理</li>
+            <li>跨币种税务报表</li>
+        </ul>
+    </div>
+
+    <h3>2. 税务报表</h3>
+    <div class="feature-explanation">
+        <p>提供完整的税务报表功能：</p>
+        <ul>
+            <li>增值税申报表</li>
+            <li>税收分析报表</li>
+            <li>税务统计报表</li>
+            <li>自定义税务报表</li>
+        </ul>
+    </div>
+
+    <h2>使用场景示例</h2>
+
+    <h3>1. 创建销项税</h3>
+    <pre><code>
+def create_output_vat(env):
+    # 创建税务组
+    tax_group = env['account.tax.group'].create({
+        'name': '销项税',
+        'sequence': 1
+    })
+
+    # 创建税种
+    output_vat = env['account.tax'].create({
+        'name': '销项税13%',
+        'type_tax_use': 'sale',
+        'amount_type': 'percent',
+        'amount': 13,
+        'tax_group_id': tax_group.id,
+        'price_include': False
+    })
+
+    # 创建分配行
+    env['account.tax.repartition.line'].create([
+        {
+            'factor_percent': 100,
+            'repartition_type': 'base',
+            'tax_id': output_vat.id,
+        },
+        {
+            'factor_percent': 100,
+            'repartition_type': 'tax',
+            'tax_id': output_vat.id,
+            'account_id': tax_account.id
+        }
+    ])
+
+    return output_vat
+    </code></pre>
+
+    <h3>2. 计算含税金额</h3>
+    <pre><code>
+def calculate_tax_amount(env, price, tax_id, quantity=1.0):
+    tax = env['account.tax'].browse(tax_id)
+    result = tax.compute_all(
+        price_unit=price,
+        quantity=quantity
+    )
+    return {
+        'total_excluded': result['total_excluded'],
+        'total_included': result['total_included'],
+        'tax_details': result['taxes']
+    }
+    </code></pre>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 税务配置建议</h3>
+        <ul>
+            <li>合理规划税务组结构</li>
+            <li>正确设置税率和计算方式</li>
+            <li>注意价税关系的处理</li>
+            <li>做好税务科目映射</li>
+        </ul>
+
+        <h3>2. 性能优化</h3>
+        <ul>
+            <li>合理使用税务组</li>
+            <li>避免过复杂的税务计算</li>
+            <li>优化税务查询</li>
+            <li>合理设置缓存策略</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>确保税率设置的准确性</li>
+            <li>注意价税关系的正确性</li>
+            <li>处理好四舍五入问题</li>
+            <li>注意多币种场景下的特殊处理</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 如何处理复杂的税务计算？</h3>
+        <p>A1: 可以使用税务组（group）类型的税种，将多个税种组合在一起，系统会按照设定的顺序依次计算。</p>
+
+        <h3>Q2: 如何处理价税分离？</h3>
+        <p>A2: 使用price_include字段来控制价格是否含税，系统会自动处理价税分离的计算。</p>
+
+        <h3>Q3: 如何处理不同国家的税务规则？</h3>
+        <p>A3: 通过country_id字段关联不同的国家，可以为不同国家设置不同的税务规则和计算方式。</p>
+    </div>
+</body>
+</html> 

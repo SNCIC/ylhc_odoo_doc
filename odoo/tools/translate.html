@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo翻译工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo翻译工具模块(translate.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>translate.py</code>是Odoo框架中的核心翻译工具模块，它提供了一套完整的多语言支持系统。该模块负责处理所有与翻译相关的功能，包括XML文件翻译、PO文件处理、动态翻译等。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>XML文件翻译处理</li>
+            <li>PO文件导入导出</li>
+            <li>动态翻译支持</li>
+            <li>翻译缓存管理</li>
+            <li>多语言环境支持</li>
+        </ul>
+    </div>
+
+    <h2>主要组件解析</h2>
+
+    <h3>1. XML翻译处理器</h3>
+    <div class="code-block">
+        <h4>translate_xml_node函数</h4>
+        <pre><code>def translate_xml_node(node, callback, parse, serialize):
+    # 处理XML节点的翻译
+    ...</code></pre>
+        <p>这个函数是XML翻译的核心，它负责：</p>
+        <ul>
+            <li>递归处理XML节点</li>
+            <li>识别可翻译内容</li>
+            <li>应用翻译回调</li>
+            <li>保持XML结构完整性</li>
+        </ul>
+    </div>
+
+    <h3>2. 翻译文件处理器</h3>
+    <div class="code-block">
+        <h4>TranslationFileReader类</h4>
+        <pre><code>def TranslationFileReader(source, fileformat='po'):
+    # 根据文件格式选择合适的读取器
+    ...</code></pre>
+        <p>支持的文件格式：</p>
+        <ul>
+            <li>PO文件（标准gettext格式）</li>
+            <li>CSV文件（简单翻译格式）</li>
+        </ul>
+    </div>
+
+    <h3>3. 延迟翻译机制</h3>
+    <div class="code-block">
+        <h4>LazyGettext类</h4>
+        <pre><code>class LazyGettext:
+    """延迟翻译文本处理"""
+    def __init__(self, source, *args, _module='', _default_lang='', **kwargs):
+        self._source = source
+        self._args = args
+        self._module = _module
+        self._default_lang = _default_lang
+        ...</code></pre>
+        <p>延迟翻译的优势：</p>
+        <ul>
+            <li>提高性能：仅在需要时执行翻译</li>
+            <li>动态语言切换：支持运行时切换语言</li>
+            <li>内存优化：避免预加载所有翻译</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 基础翻译使用</h3>
+    <div class="code-example">
+        <pre><code># 在Python代码中使用
+from odoo.tools.translate import _
+
+class MyModel(models.Model):
+    _name = 'my.model'
+
+    name = fields.Char(_('Name'))  # 字段标签翻译
+    
+    def my_method(self):
+        message = _('Hello World')  # 消息翻译
+        return message</code></pre>
+    </div>
+
+    <h3>2. XML视图中的翻译</h3>
+    <div class="code-example">
+        <pre><code>&lt;record id="view_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;my.model.form&lt;/field&gt;
+    &lt;field name="model"&gt;my.model&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;group&gt;
+                &lt;field name="name" string="名称"/&gt;  &lt;!-- 自动支持翻译 --&gt;
+                &lt;label for="name" string="自定义标签"/&gt;  &lt;!-- 标签翻译 --&gt;
+            &lt;/group&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+
+    <h3>3. 延迟翻译使用</h3>
+    <div class="code-example">
+        <pre><code># 使用延迟翻译
+from odoo.tools.translate import LazyTranslate
+
+_lt = LazyTranslate(__name__)
+STATIC_LABEL = _lt('This is a static label')
+
+class MyModel(models.Model):
+    _name = 'my.model'
+
+    def get_label(self):
+        # 翻译将在这里执行
+        return str(STATIC_LABEL)</code></pre>
+    </div>
+
+    <h2>性能优化建议</h2>
+    <div class="performance-tips">
+        <h3>翻译性能优化要点：</h3>
+        <ul>
+            <li>使用延迟翻译（LazyGettext）处理静态文本</li>
+            <li>适当使用翻译缓存</li>
+            <li>避免重复翻译相同内容</li>
+            <li>合理组织翻译文件结构</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>翻译开发建议：</h3>
+        <ul>
+            <li>始终使用翻译函数包装可翻译文本</li>
+            <li>保持翻译键的一致性</li>
+            <li>提供足够的上下文信息</li>
+            <li>定期更新翻译文件</li>
+            <li>使用工具自动提取待翻译文本</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 为什么某些文本没有被翻译？</h3>
+        <p>可能的原因：</p>
+        <ul>
+            <li>文本未被翻译函数包装</li>
+            <li>翻译文件未更新</li>
+            <li>语言设置不正确</li>
+            <li>缓存未清理</li>
+        </ul>
+
+        <h3>Q2: 如何处理动态内容的翻译？</h3>
+        <p>解决方案：</p>
+        <ul>
+            <li>使用格式化字符串</li>
+            <li>保持变量部分不变</li>
+            <li>提供完整的上下文</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>在Odoo 18中，翻译系统进行了优化，提供了更好的性能和更灵活的使用方式。建议在开发中充分利用这些新特性。
+    </div>
+</body>
+</html> 

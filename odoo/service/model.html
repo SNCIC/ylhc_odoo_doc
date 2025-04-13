@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模型服务模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模型服务模块(model.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>model.py</code>是Odoo框架中的模型服务模块，负责处理所有与模型相关的RPC调用。这个模块是Odoo业务逻辑执行的核心入口点，处理了数据库事务、并发控制和错误处理等关键功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>RPC方法调度</li>
+            <li>事务管理</li>
+            <li>并发控制</li>
+            <li>错误处理和重试机制</li>
+        </ul>
+    </div>
+
+    <h2>核心组件分析</h2>
+
+    <h3>1. 常量定义</h3>
+    <div class="code-block">
+        <pre><code>PG_CONCURRENCY_ERRORS_TO_RETRY = (
+    errorcodes.LOCK_NOT_AVAILABLE, 
+    errorcodes.SERIALIZATION_FAILURE, 
+    errorcodes.DEADLOCK_DETECTED
+)
+PG_CONCURRENCY_EXCEPTIONS_TO_RETRY = (
+    errors.LockNotAvailable, 
+    errors.SerializationFailure, 
+    errors.DeadlockDetected
+)
+MAX_TRIES_ON_CONCURRENCY_FAILURE = 5</code></pre>
+    </div>
+    <p>这些常量定义了并发控制相关的参数：</p>
+    <ul>
+        <li>需要重试的PostgreSQL错误代码</li>
+        <li>需要重试的异常类型</li>
+        <li>并发失败时的最大重试次数</li>
+    </ul>
+
+    <h3>2. RPC调度函数</h3>
+    <div class="code-block">
+        <pre><code>def dispatch(method, params):
+    db, uid, passwd = params[0], int(params[1]), params[2]
+    security.check(db, uid, passwd)
+    threading.current_thread().dbname = db
+    threading.current_thread().uid = uid
+    registry = Registry(db).check_signaling()
+    with registry.manage_changes():
+        if method == 'execute':
+            res = execute(db, uid, *params[3:])
+        elif method == 'execute_kw':
+            res = execute_kw(db, uid, *params[3:])
+        else:
+            raise NameError("Method not found: %s" % method)
+    return res</code></pre>
+    </div>
+    <p>这是RPC调用的主要入口点：</p>
+    <ul>
+        <li>参数处理：
+            <ul>
+                <li>提取数据库名、用户ID和密码</li>
+                <li>进行安全验证</li>
+            </ul>
+        </li>
+        <li>线程上下文设置：
+            <ul>
+                <li>设置当前线程的数据库名</li>
+                <li>设置当前线程的用户ID</li>
+            </ul>
+        </li>
+        <li>注册表管理：
+            <ul>
+                <li>获取并检查数据库注册表</li>
+                <li>使用上下文管理器管理变更</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>3. 执行函数</h3>
+    <div class="code-block">
+        <pre><code>def execute_cr(cr, uid, obj, method, *args, **kw):
+    cr.reset()
+    env = odoo.api.Environment(cr, uid, {})
+    recs = env.get(obj)
+    if recs is None:
+        raise UserError(env._("Object %s doesn't exist", obj))
+    result = retrying(partial(odoo.api.call_kw, recs, method, args, kw), env)
+    for l in _traverse_containers(result, lazy):
+        _0 = l._value
+    return result</code></pre>
+    </div>
+    <p>这是实际执行模型方法的核心函数：</p>
+    <ul>
+        <li>环境准备：
+            <ul>
+                <li>重置游标状态</li>
+                <li>创建新的环境对象</li>
+            </ul>
+        </li>
+        <li>方法执行：
+            <ul>
+                <li>获取目标模型对象</li>
+                <li>使用重试机制执行方法</li>
+                <li>处理延迟计算的值</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>4. 重试机制</h3>
+    <div class="code-block">
+        <pre><code>def retrying(func, env):
+    for tryno in range(1, MAX_TRIES_ON_CONCURRENCY_FAILURE + 1):
+        tryleft = MAX_TRIES_ON_CONCURRENCY_FAILURE - tryno
+        try:
+            result = func()
+            if not env.cr._closed:
+                env.cr.flush()
+            break
+        except (IntegrityError, OperationalError) as exc:
+            if env.cr._closed:
+                raise
+            env.cr.rollback()
+            env.reset()
+            if isinstance(exc, IntegrityError):
+                raise _as_validation_error(env, exc) from exc
+            if not isinstance(exc, PG_CONCURRENCY_EXCEPTIONS_TO_RETRY):
+                raise
+            if not tryleft:
+                raise
+            wait_time = random.uniform(0.0, 2 ** tryno)
+            time.sleep(wait_time)
+    env.cr.commit()
+    return result</code></pre>
+    </div>
+    <p>这是处理并发和事务的关键函数：</p>
+    <ul>
+        <li>重试逻辑：
+            <ul>
+                <li>最多重试5次</li>
+                <li>使用指数退避算法</li>
+                <li>处理各种数据库异常</li>
+            </ul>
+        </li>
+        <li>错误处理：
+            <ul>
+                <li>完整性错误转换为验证错误</li>
+                <li>处理并发异常</li>
+                <li>回滚失败的事务</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本RPC调用</h3>
+    <div class="code-block">
+        <pre><code># 调用模型方法
+params = ['my_database', 1, 'admin_password', 'res.partner', 'search_read', 
+         [[['is_company', '=', True]]], {'fields': ['name', 'email']}]
+result = dispatch('execute_kw', params)
+
+# 处理结果
+for partner in result:
+    print(f"公司名称: {partner['name']}, 邮箱: {partner.get('email', 'N/A')}")</code></pre>
+    </div>
+
+    <h3>2. 错误处理</h3>
+    <div class="code-block">
+        <pre><code># 处理可能的并发错误
+try:
+    params = ['my_database', 1, 'admin_password', 'res.partner', 'write', 
+             [partner_id], {'name': 'New Name'}]
+    result = dispatch('execute_kw', params)
+except Exception as e:
+    if isinstance(e, IntegrityError):
+        print("数据完整性错误")
+    elif isinstance(e, OperationalError):
+        print("数据库操作错误")
+    else:
+        print(f"其他错误: {e}")</code></pre>
+    </div>
+
+    <h2>性能优化建议</h2>
+    <div class="best-practices">
+        <h3>1. 事务管理</h3>
+        <ul>
+            <li>避免长事务</li>
+            <li>适当使用批量操作</li>
+            <li>注意事务隔离级别</li>
+        </ul>
+
+        <h3>2. 并发控制</h3>
+        <ul>
+            <li>使用乐观锁控制</li>
+            <li>避免死锁情况</li>
+            <li>合理设置重试参数</li>
+        </ul>
+
+        <h3>3. 查询优化</h3>
+        <ul>
+            <li>使用适当的索引</li>
+            <li>避免大事务</li>
+            <li>使用分页加载</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>所有数据库操作都应该在事务中进行</li>
+            <li>注意处理并发冲突</li>
+            <li>正确处理延迟计算的值</li>
+            <li>避免循环依赖</li>
+        </ul>
+    </div>
+
+    <h2>错误处理</h2>
+    <div class="error-handling">
+        <h3>常见错误类型</h3>
+        <ul>
+            <li>IntegrityError: 数据完整性错误</li>
+            <li>OperationalError: 数据库操作错误</li>
+            <li>ValidationError: 数据验证错误</li>
+            <li>AccessDenied: 访问权限错误</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

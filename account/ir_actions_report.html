@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo报表动作模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo报表动作模型(IrActionsReport)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>IrActionsReport模型是Odoo中处理报表生成和打印的核心模型。它继承自ir.actions.report，专门用于处理会计相关的报表，如发票打印、付款收据等。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>报表动作定义了如何生成和处理各种会计文档，包括发票、对账单、付款收据等。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>is_invoice_report</td>
+            <td>Boolean</td>
+            <td>是否为发票报表</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. PDF报表生成</h3>
+    <div class="code-block">
+        <pre><code>
+def _render_qweb_pdf_prepare_streams(self, report_ref, data, res_ids=None):
+    # 处理供应商账单原始文档报表
+    if self._get_report(report_ref).report_name != 'account.report_original_vendor_bill':
+        return super()._render_qweb_pdf_prepare_streams(report_ref, data, res_ids=res_ids)
+
+    invoices = self.env['account.move'].browse(res_ids)
+    original_attachments = invoices.message_main_attachment_id
+        </code></pre>
+    </div>
+
+    <h3>2. 报表分割处理</h3>
+    <div class="code-block">
+        <pre><code>
+def _get_splitted_report(self, report_ref, content, report_type):
+    if report_type == 'html':
+        report = self._get_report(report_ref)
+        bodies, res_ids, *_unused = self._prepare_html(content, report_model=report.model)
+        return {res_id: str(body).encode() for res_id, body in zip(res_ids, bodies)}
+    elif report_type == 'pdf':
+        pdf_dict = {res_id: stream['stream'].getvalue() for res_id, stream in content.items()}
+        for stream in content.values():
+            stream['stream'].close()
+        return pdf_dict
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>生成发票PDF</h3>
+    <div class="code-example">
+        <pre><code>
+# 生成发票PDF报表
+report = self.env.ref('account.account_invoices')
+pdf_content, _ = report._render_qweb_pdf([invoice.id])
+        </code></pre>
+    </div>
+
+    <h3>生成付款收据</h3>
+    <div class="code-example">
+        <pre><code>
+# 生成付款收据
+report = self.env.ref('account.action_report_payment_receipt')
+pdf_content, _ = report._render_qweb_pdf([payment.id])
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 发票打印</h3>
+    <div class="business-case">
+        <p>处理发票打印的流程：</p>
+        <ol>
+            <li>验证发票类型</li>
+            <li>准备报表数据</li>
+            <li>生成PDF文档</li>
+            <li>添加页脚信息</li>
+        </ol>
+    </div>
+
+    <h3>2. 供应商账单处理</h3>
+    <div class="business-case">
+        <p>处理供应商账单的流程：</p>
+        <ol>
+            <li>获取原始附件</li>
+            <li>添加水印或标题</li>
+            <li>生成PDF文档</li>
+            <li>记录处理日志</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_render_qweb_pdf_prepare_streams</td>
+            <td>准备PDF流数据</td>
+        </tr>
+        <tr>
+            <td>_get_splitted_report</td>
+            <td>分割报表内容</td>
+        </tr>
+        <tr>
+            <td>_pre_render_qweb_pdf</td>
+            <td>PDF渲染前的预处理</td>
+        </tr>
+    </table>
+
+    <h3>重要约束</h3>
+    <div class="constraints">
+        <ul>
+            <li>发票报表只能用于发票类型的单据</li>
+            <li>主报表不能被删除</li>
+            <li>PDF流必须正确关闭</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>使用try-except处理PDF生成错误</li>
+            <li>及时关闭PDF流以释放资源</li>
+            <li>使用水印保护重要文档</li>
+            <li>添加适当的页眉页脚信息</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何自定义报表样式？</dt>
+            <dd>答：可以通过继承QWeb模板并修改CSS样式来自定义报表外观。</dd>
+            
+            <dt>问：如何添加水印？</dt>
+            <dd>答：使用pdf.add_banner方法可以在PDF文档上添加水印或标题。</dd>
+            
+            <dt>问：如何处理大量报表生成？</dt>
+            <dd>答：可以使用分批处理和异步生成来优化性能。</dd>
+        </dl>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加自定义报表类型</h3>
+        <pre><code>
+# 继承报表动作模型添加新功能
+class CustomReport(models.Model):
+    _inherit = 'ir.actions.report'
+    
+    custom_report_type = fields.Selection([
+        ('custom', 'Custom Report')
+    ], string='Custom Type')
+    
+    def _render_custom_report(self, res_ids):
+        # 自定义报表生成逻辑
+        pass
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>数据安全</h3>
+        <ul>
+            <li>报表访问权限控制</li>
+            <li>敏感信息保护</li>
+            <li>水印和防伪措施</li>
+            <li>操作日志记录</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

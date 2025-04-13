@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo附件模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo附件模型(IrAttachment)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>IrAttachment模型是Odoo中处理文件附件的核心模型。在会计模块中，它被扩展以支持电子数据交换(EDI)和文档处理功能，特别是处理PDF和XML格式的发票和其他会计文档。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>附件模型不仅存储文件，还提供了文件解析、处理和转换的功能，特别是在处理电子发票和银行对账单时。</p>
+    </div>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. ZIP文件处理</h3>
+    <div class="code-block">
+        <pre><code>
+def _build_zip_from_attachments(self):
+    """ 将附件压缩成ZIP文件
+    :returns: ZIP文件的二进制内容
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipfile_obj:
+        for attachment in self:
+            zipfile_obj.writestr(attachment.display_name, attachment.raw)
+    return buffer.getvalue()
+        </code></pre>
+    </div>
+
+    <h3>2. EDI文档处理</h3>
+    <div class="code-block">
+        <pre><code>
+def _decode_edi_xml(self, filename, content):
+    """解码XML格式的EDI文档
+    :returns: 包含附件信息的字典列表
+    """
+    try:
+        xml_tree = etree.fromstring(content)
+    except Exception as e:
+        _logger.info('Error when reading the xml file "%s": %s', filename, e)
+        return []
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建ZIP文件</h3>
+    <div class="code-example">
+        <pre><code>
+# 将多个附件打包成ZIP
+attachments = self.env['ir.attachment'].browse(attachment_ids)
+zip_content = attachments._build_zip_from_attachments()
+        </code></pre>
+    </div>
+
+    <h3>处理EDI文档</h3>
+    <div class="code-example">
+        <pre><code>
+# 处理EDI文档
+attachment = self.env['ir.attachment'].create({
+    'name': 'invoice.xml',
+    'datas': base64.b64encode(xml_content),
+})
+processed_data = attachment._decode_edi_xml('invoice.xml', xml_content)
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 电子发票处理</h3>
+    <div class="business-case">
+        <p>处理电子发票的流程：</p>
+        <ol>
+            <li>接收电子发票文件</li>
+            <li>解析XML或PDF内容</li>
+            <li>提取发票信息</li>
+            <li>创建发票记录</li>
+        </ol>
+    </div>
+
+    <h3>2. 文档归档</h3>
+    <div class="business-case">
+        <p>文档归档处理流程：</p>
+        <ol>
+            <li>收集相关文档</li>
+            <li>压缩打包</li>
+            <li>存储归档</li>
+            <li>提供下载</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_decode_edi_xml</td>
+            <td>解码XML格式EDI文档</td>
+        </tr>
+        <tr>
+            <td>_decode_edi_pdf</td>
+            <td>解码PDF格式EDI文档</td>
+        </tr>
+        <tr>
+            <td>_decode_edi_binary</td>
+            <td>解码二进制格式EDI文档</td>
+        </tr>
+    </table>
+
+    <h3>支持的文档格式</h3>
+    <div class="formats">
+        <ul>
+            <li>XML文档（电子发票）</li>
+            <li>PDF文档（带嵌入XML的PDF）</li>
+            <li>二进制文档（其他格式）</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>使用适当的MIME类型标识文档</li>
+            <li>正确处理文档编码</li>
+            <li>及时清理临时文件</li>
+            <li>处理大文件时注意内存使用</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何处理大型PDF文件？</dt>
+            <dd>答：使用流式处理，避免一次性加载整个文件到内存。</dd>
+            
+            <dt>问：如何处理编码问题？</dt>
+            <dd>答：使用正确的编码处理函数，并添加适当的错误处理。</dd>
+            
+            <dt>问：如何提取PDF中的XML？</dt>
+            <dd>答：使用PDF工具类提取嵌入的XML数据，并进行解析。</dd>
+        </dl>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加新的文档处理器</h3>
+        <pre><code>
+# 继承附件模型添加新的处理器
+class CustomAttachment(models.Model):
+    _inherit = 'ir.attachment'
+    
+    def _decode_custom_format(self, filename, content):
+        # 自定义格式处理逻辑
+        return [{
+            'filename': filename,
+            'content': processed_content,
+            'type': 'custom'
+        }]
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>文件安全</h3>
+        <ul>
+            <li>文件类型验证</li>
+            <li>内容安全检查</li>
+            <li>访问权限控制</li>
+            <li>敏感信息保护</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

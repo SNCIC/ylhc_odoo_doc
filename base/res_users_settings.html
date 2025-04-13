@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 用户设置模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 用户设置系统详解</h1>
+    
+    <h2>1. 模块概述</h2>
+    <p><code>res_users_settings.py</code>是 Odoo 18 中负责管理用户个性化设置的模块。该模块提供了以下主要功能：</p>
+    <ul>
+        <li>用户个性化设置的存储和管理</li>
+        <li>设置的自动同步机制</li>
+        <li>跨设备设置同步</li>
+    </ul>
+
+    <h2>2. 核心类说明</h2>
+    
+    <h3>2.1 ResUsersSettings 类</h3>
+    <div class="code-block">
+        <pre><code>class ResUsersSettings(models.Model):
+    _name = 'res.users.settings'
+    _description = 'User Settings'
+    _rec_name = 'user_id'</code></pre>
+    </div>
+    <p>ResUsersSettings 类的主要特点：</p>
+    <ul>
+        <li>每个用户只能有一个设置记录</li>
+        <li>支持动态字段扩展</li>
+        <li>提供设置格式化和同步机制</li>
+    </ul>
+
+    <h3>2.2 主要字段</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>user_id</td>
+            <td>Many2one</td>
+            <td>关联的用户，必填且唯一</td>
+        </tr>
+    </table>
+
+    <h2>3. 核心功能实现</h2>
+
+    <h3>3.1 设置管理</h3>
+    <div class="code-block">
+        <pre><code>def _find_or_create_for_user(self, user):
+    settings = user.sudo().res_users_settings_ids
+    if not settings:
+        settings = self.sudo().create({'user_id': user.id})
+    return settings</code></pre>
+    </div>
+    <p>设置管理流程：</p>
+    <ol>
+        <li>查找用户现有设置</li>
+        <li>如果不存在则创建新设置</li>
+        <li>返回设置记录</li>
+    </ol>
+
+    <h3>3.2 设置格式化</h3>
+    <div class="code-block">
+        <pre><code>def _res_users_settings_format(self, fields_to_format=None):
+    self.ensure_one()
+    fields_blacklist = self._get_fields_blacklist()
+    if fields_to_format:
+        fields_to_format = [field for field in fields_to_format 
+                          if field not in fields_blacklist]
+    return self._format_settings(fields_to_format)</code></pre>
+    </div>
+
+    <h3>3.3 设置更新</h3>
+    <div class="code-block">
+        <pre><code>def set_res_users_settings(self, new_settings):
+    self.ensure_one()
+    changed_settings = {}
+    for setting in new_settings.keys():
+        if setting in self._fields and new_settings[setting] != self[setting]:
+            changed_settings[setting] = new_settings[setting]
+    self.write(changed_settings)
+    return self._res_users_settings_format([*changed_settings.keys(), 'id'])</code></pre>
+    </div>
+
+    <h2>4. 使用示例</h2>
+
+    <h3>4.1 获取用户设置</h3>
+    <div class="code-block">
+        <pre><code>def get_user_settings(self):
+    settings = self.env['res.users.settings']._find_or_create_for_user(self.env.user)
+    return settings._res_users_settings_format()</code></pre>
+    </div>
+
+    <h3>4.2 更新用户设置</h3>
+    <div class="code-block">
+        <pre><code>def update_user_settings(self):
+    settings = self.env['res.users.settings']._find_or_create_for_user(self.env.user)
+    new_settings = {
+        'my_setting_1': 'value1',
+        'my_setting_2': 'value2'
+    }
+    return settings.set_res_users_settings(new_settings)</code></pre>
+    </div>
+
+    <h3>4.3 扩展用户设置</h3>
+    <div class="code-block">
+        <pre><code>class ExtendedUserSettings(models.Model):
+    _inherit = 'res.users.settings'
+    
+    custom_setting = fields.Char('Custom Setting')
+    
+    def _get_fields_blacklist(self):
+        # 添加不需要格式化的字段
+        fields = super()._get_fields_blacklist()
+        return fields + ['custom_setting']</code></pre>
+    </div>
+
+    <h2>5. 最佳实践</h2>
+    <div class="best-practices">
+        <h3>5.1 设置管理建议</h3>
+        <ul>
+            <li>使用 _find_or_create_for_user 获取设置</li>
+            <li>避免直接创建设置记录</li>
+            <li>正确处理设置同步</li>
+        </ul>
+
+        <h3>5.2 性能优化</h3>
+        <ul>
+            <li>合理使用字段黑名单</li>
+            <li>避免不必要的设置同步</li>
+            <li>使用批量更新操作</li>
+        </ul>
+    </div>
+
+    <h2>6. 常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 如何添加新的设置字段？</h3>
+        <p>继承 res.users.settings 模型：</p>
+        <div class="code-block">
+            <pre><code>class CustomSettings(models.Model):
+    _inherit = 'res.users.settings'
+    
+    new_field = fields.Char('New Setting')</code></pre>
+        </div>
+
+        <h3>Q2: 如何处理设置同步？</h3>
+        <p>使用 set_res_users_settings 方法：</p>
+        <div class="code-block">
+            <pre><code>settings.set_res_users_settings({
+    'setting_name': 'new_value'
+})</code></pre>
+        </div>
+    </div>
+
+    <h2>7. 版本变更说明</h2>
+    <div class="version-changes">
+        <h3>Odoo 18 的主要改进</h3>
+        <ul>
+            <li>优化了设置存储机制</li>
+            <li>改进了设置同步性能</li>
+            <li>增加了更多的设置选项</li>
+            <li>提供了更好的扩展性</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

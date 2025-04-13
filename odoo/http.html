@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo HTTP模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo HTTP系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>http.py</code>是Odoo框架中的核心模块，它实现了整个HTTP请求处理层。这个模块负责处理所有进入Odoo服务器的HTTP请求，包括路由分发、会话管理、响应生成等功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>HTTP模块是Odoo的WSGI应用入口点，它处理所有的Web请求，并将它们路由到相应的控制器。
+    </div>
+    
+    <h2>核心组件</h2>
+    <ol>
+        <li><strong>Controller类</strong>：所有控制器的基类</li>
+        <li><strong>Request类</strong>：封装HTTP请求的类</li>
+        <li><strong>Response类</strong>：处理HTTP响应的类</li>
+        <li><strong>Session类</strong>：管理用户会话的类</li>
+        <li><strong>Root类</strong>：WSGI应用的主类</li>
+    </ol>
+    
+    <h2>Controller类详解</h2>
+    <div class="code-block">
+        <pre><code>class Controller:
+    """所有Odoo控制器的基类"""</code></pre>
+    </div>
+    
+    <h3>主要特性</h3>
+    <ul>
+        <li>支持路由装饰器</li>
+        <li>支持继承和扩展</li>
+        <li>提供请求处理框架</li>
+    </ul>
+    
+    <h4>使用示例</h4>
+    <div class="code-block">
+        <pre><code>class MyController(Controller):
+    @route('/my/path', auth='public')
+    def my_handler(self):
+        return "Hello, World!"</code></pre>
+    </div>
+    
+    <h2>Request类详解</h2>
+    <div class="code-block">
+        <pre><code>class Request:
+    """封装HTTP请求的类"""</code></pre>
+    </div>
+    
+    <h3>主要属性</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>httprequest</td>
+            <td>werkzeug.Request</td>
+            <td>原始的HTTP请求对象</td>
+        </tr>
+        <tr>
+            <td>session</td>
+            <td>Session</td>
+            <td>当前会话对象</td>
+        </tr>
+        <tr>
+            <td>env</td>
+            <td>Environment</td>
+            <td>Odoo环境对象</td>
+        </tr>
+        <tr>
+            <td>context</td>
+            <td>dict</td>
+            <td>请求上下文</td>
+        </tr>
+    </table>
+    
+    <h3>主要方法</h3>
+    <ul>
+        <li><code>_handle_error</code>：处理请求过程中的错误</li>
+        <li><code>make_response</code>：创建HTTP响应</li>
+        <li><code>render</code>：渲染模板</li>
+        <li><code>redirect</code>：执行重定向</li>
+    </ul>
+    
+    <h2>Response类详解</h2>
+    <div class="code-block">
+        <pre><code>class Response(werkzeug.wrappers.Response):
+    """处理HTTP响应的类"""</code></pre>
+    </div>
+    
+    <h3>主要功能</h3>
+    <ul>
+        <li>支持QWeb模板渲染</li>
+        <li>处理响应头</li>
+        <li>支持Cookie设置</li>
+        <li>处理MIME类型</li>
+    </ul>
+    
+    <h2>Session类详解</h2>
+    <div class="code-block">
+        <pre><code>class Session(collections.abc.MutableMapping):
+    """管理用户会话的类"""</code></pre>
+    </div>
+    
+    <h3>主要功能</h3>
+    <ul>
+        <li>会话数据存储</li>
+        <li>用户认证状态管理</li>
+        <li>会话过期处理</li>
+        <li>安全令牌管理</li>
+    </ul>
+    
+    <h2>路由系统</h2>
+    
+    <h3>route装饰器</h3>
+    <div class="code-block">
+        <pre><code>@route(route=None, **kw)
+def my_route():
+    pass</code></pre>
+    </div>
+    
+    <h4>主要参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>route</td>
+            <td>str/list</td>
+            <td>URL路径</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>str</td>
+            <td>路由类型(http/json)</td>
+        </tr>
+        <tr>
+            <td>auth</td>
+            <td>str</td>
+            <td>认证方式</td>
+        </tr>
+        <tr>
+            <td>methods</td>
+            <td>list</td>
+            <td>允许的HTTP方法</td>
+        </tr>
+        <tr>
+            <td>cors</td>
+            <td>str</td>
+            <td>跨域设置</td>
+        </tr>
+    </table>
+    
+    <h2>安全特性</h2>
+    
+    <h3>CSRF保护</h3>
+    <ul>
+        <li>自动为表单添加CSRF令牌</li>
+        <li>验证POST请求的CSRF令牌</li>
+        <li>支持禁用CSRF保护</li>
+    </ul>
+    
+    <h3>会话安全</h3>
+    <ul>
+        <li>会话ID加密</li>
+        <li>会话数据安全存储</li>
+        <li>防止会话固定攻击</li>
+    </ul>
+    
+    <h2>Odoo 18的新特性</h2>
+    <div class="version-changes">
+        <h3>新增功能</h3>
+        <ul>
+            <li>支持异步路由处理</li>
+            <li>改进的错误处理机制</li>
+            <li>更好的跨域支持</li>
+            <li>优化的会话管理</li>
+        </ul>
+        
+        <h3>性能优化</h3>
+        <ul>
+            <li>改进的路由匹配算法</li>
+            <li>优化的静态文件处理</li>
+            <li>更高效的会话存储</li>
+        </ul>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>基本控制器示例</h3>
+    <div class="code-block">
+        <pre><code>from odoo import http
+from odoo.http import request
+
+class MyModule(http.Controller):
+    @http.route('/my/page', auth='public')
+    def my_page(self):
+        return request.render('my_module.template_name', {
+            'values': ['a', 'b', 'c']
+        })</code></pre>
+    </div>
+    
+    <h3>JSON API示例</h3>
+    <div class="code-block">
+        <pre><code>class MyAPI(http.Controller):
+    @http.route('/api/data', type='json', auth='user')
+    def get_data(self):
+        return {
+            'status': 'success',
+            'data': request.env['my.model'].search_read([])
+        }</code></pre>
+    </div>
+    
+    <h3>文件下载示例</h3>
+    <div class="code-block">
+        <pre><code>@http.route('/download/file', auth='user')
+def download_file(self):
+    return request.make_response(
+        data,
+        headers=[
+            ('Content-Type', 'application/octet-stream'),
+            ('Content-Disposition', 'attachment; filename="file.pdf"')
+        ]
+    )</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>路由设计</h3>
+        <ul>
+            <li>使用有意义的URL路径</li>
+            <li>适当设置认证要求</li>
+            <li>正确处理HTTP方法</li>
+            <li>合理使用路由类型</li>
+        </ul>
+        
+        <h3>安全考虑</h3>
+        <ul>
+            <li>始终验证用户权限</li>
+            <li>防止CSRF攻击</li>
+            <li>安全处理用户输入</li>
+            <li>正确设置响应头</li>
+        </ul>
+        
+        <h3>性能优化</h3>
+        <ul>
+            <li>使用适当的缓存策略</li>
+            <li>优化数据库查询</li>
+            <li>合理使用会话存储</li>
+            <li>正确处理静态文件</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>提示：</strong>在开发新的控制器时，建议参考Odoo的标准模块中的实现方式，这些模块提供了很多最佳实践的示例。
+    </div>
+</body>
+</html> 

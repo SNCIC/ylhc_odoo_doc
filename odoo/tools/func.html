@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo函数工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo函数工具模块(func.py)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>func.py</code>是Odoo框架中的函数工具模块，提供了一系列用于处理函数和属性的装饰器和工具类。这个模块主要用于优化代码结构和提高性能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>该模块实现了多个高级Python特性，包括属性装饰器、延迟加载、同步控制等功能，这些功能在Odoo的核心实现中被广泛使用。
+    </div>
+    
+    <h2>核心功能</h2>
+    
+    <h3>1. 延迟属性(lazy_property)</h3>
+    <div class="code-block">
+        <pre><code>class lazy_property(typing.Generic[T]):
+    """
+    对象的延迟属性装饰器，只在首次访问时计算值
+    
+    用法示例：
+    class MyClass:
+        @lazy_property
+        def expensive_computation(self):
+            return compute_expensive_value()
+    """</code></pre>
+        <p>这是一个重要的性能优化装饰器，可以延迟计算直到真正需要时才执行。</p>
+    </div>
+
+    <h3>2. 类属性装饰器(classproperty)</h3>
+    <div class="code-block">
+        <pre><code>class classproperty(typing.Generic[T]):
+    """
+    类属性装饰器，允许在类级别定义属性
+    
+    用法示例：
+    class MyClass:
+        @classproperty
+        def class_level_property(cls):
+            return compute_class_level_value()
+    """</code></pre>
+    </div>
+
+    <h3>3. 延迟类属性(lazy_classproperty)</h3>
+    <div class="code-block">
+        <pre><code>class lazy_classproperty(classproperty[T]):
+    """
+    结合了lazy_property和classproperty的功能
+    """</code></pre>
+    </div>
+
+    <h3>4. 延迟计算(lazy)</h3>
+    <div class="code-block">
+        <pre><code>class lazy(object):
+    """
+    延迟计算的代理对象
+    
+    用法示例：
+    expensive_result = lazy(compute_expensive_function, arg1, arg2)
+    # 直到实际使用expensive_result时才会计算
+    """</code></pre>
+    </div>
+
+    <h3>5. 条件装饰器(conditional)</h3>
+    <div class="code-block">
+        <pre><code>def conditional(condition, decorator):
+    """
+    根据条件应用装饰器
+    
+    用法示例：
+    @conditional(config.get('use_cache'), cache_decorator)
+    def my_function():
+        pass
+    """</code></pre>
+    </div>
+
+    <h3>6. 同步装饰器(synchronized)</h3>
+    <div class="code-block">
+        <pre><code>def synchronized(lock_attr='_lock'):
+    """
+    方法级别的同步控制装饰器
+    
+    用法示例：
+    class MyClass:
+        def __init__(self):
+            self._lock = threading.Lock()
+            
+        @synchronized()
+        def thread_safe_method(self):
+            # 这个方法在同一时间只能被一个线程执行
+            pass
+    """</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 使用lazy_property优化性能</h3>
+        <pre><code>class Product:
+    def __init__(self):
+        self.price = 100
+        self.tax_rate = 0.1
+        
+    @lazy_property
+    def tax_amount(self):
+        # 这个计算只会在首次访问时执行
+        return self.price * self.tax_rate
+        
+product = Product()
+# 第一次访问时计算
+print(product.tax_amount)  # 10.0
+# 后续访问直接返回缓存的值
+print(product.tax_amount)  # 10.0</code></pre>
+
+        <h3>2. 使用classproperty定义类级别属性</h3>
+        <pre><code>class Configuration:
+    _config = {'version': '1.0'}
+    
+    @classproperty
+    def version(cls):
+        return cls._config['version']
+        
+# 直接通过类访问属性
+print(Configuration.version)  # '1.0'</code></pre>
+
+        <h3>3. 使用lazy延迟计算</h3>
+        <pre><code>def expensive_computation(x, y):
+    # 假设这是一个耗时的计算
+    return x + y
+
+# 创建延迟计算对象
+result = lazy(expensive_computation, 10, 20)
+# 直到这里才实际执行计算
+print(result)  # 30</code></pre>
+
+        <h3>4. 使用synchronized实现线程安全</h3>
+        <pre><code>import threading
+
+class Counter:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._count = 0
+        
+    @synchronized()
+    def increment(self):
+        # 这个方法是线程安全的
+        self._count += 1
+        return self._count</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>使用lazy_property来优化计算密集型的属性访问</li>
+            <li>使用classproperty来定义不需要实例化就能访问的属性</li>
+            <li>使用conditional来实现基于配置的功能开关</li>
+            <li>在多线程环境中使用synchronized确保方法的线程安全</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>lazy_property不支持mangled names（以__开头的属性名）</li>
+            <li>synchronized装饰器要求对象必须有对应的锁属性</li>
+            <li>lazy对象的所有操作都会触发实际计算</li>
+            <li>使用条件装饰器时要注意条件的求值时机</li>
+        </ul>
+    </div>
+
+    <h2>性能考虑</h2>
+    <div class="performance">
+        <h3>优化建议</h3>
+        <ul>
+            <li>对于频繁访问但计算开销大的属性，使用lazy_property</li>
+            <li>对于不常变化的类级别属性，使用lazy_classproperty</li>
+            <li>在使用synchronized时，要注意锁的粒度，避免性能瓶颈</li>
+            <li>合理使用conditional避免不必要的装饰器开销</li>
+        </ul>
+    </div>
+
+    <h2>高级用法</h2>
+    <div class="advanced">
+        <h3>1. 重置所有延迟属性</h3>
+        <pre><code>class MyClass:
+    @lazy_property
+    def prop1(self): return expensive_computation1()
+    
+    @lazy_property
+    def prop2(self): return expensive_computation2()
+
+obj = MyClass()
+# 重置所有延迟属性
+lazy_property.reset_all(obj)</code></pre>
+
+        <h3>2. 组合使用装饰器</h3>
+        <pre><code>class MyClass:
+    @conditional(DEBUG_MODE, synchronized())
+    @lazy_property
+    def debug_info(self):
+        return generate_debug_info()</code></pre>
+    </div>
+</body>
+</html> 

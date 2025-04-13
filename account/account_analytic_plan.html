@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo分析账户计划模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo分析账户计划模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>account_analytic_plan.py</code>是Odoo会计模块中的一个重要组件，它定义了分析账户的适用性规则。这个模块主要用于管理和控制分析账户在不同业务场景下的应用。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>定义和管理分析账户的适用规则，包括发票、供应商账单等业务领域的分析账户处理。
+    </div>
+    
+    <h2>主要类解析</h2>
+    <h3>AccountAnalyticApplicability类</h3>
+    <div class="code-block">
+        <pre><code>class AccountAnalyticApplicability(models.Model):
+    _inherit = 'account.analytic.applicability'
+    _description = "Analytic Plan's Applicabilities"</code></pre>
+    </div>
+    
+    <h3>字段定义</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>business_domain</td>
+            <td>Selection</td>
+            <td>业务领域</td>
+            <td>定义分析账户适用的业务类型（发票、供应商账单）</td>
+        </tr>
+        <tr>
+            <td>account_prefix</td>
+            <td>Char</td>
+            <td>财务账户前缀</td>
+            <td>定义适用的财务账户前缀规则</td>
+        </tr>
+        <tr>
+            <td>product_categ_id</td>
+            <td>Many2one</td>
+            <td>产品类别</td>
+            <td>关联产品类别</td>
+        </tr>
+        <tr>
+            <td>display_account_prefix</td>
+            <td>Boolean</td>
+            <td>显示账户前缀</td>
+            <td>控制是否显示账户前缀字段</td>
+        </tr>
+        <tr>
+            <td>account_prefix_placeholder</td>
+            <td>Char</td>
+            <td>前缀占位符</td>
+            <td>提供账户前缀的示例值</td>
+        </tr>
+    </table>
+
+    <h3>核心方法解析</h3>
+    
+    <h4>1. _compute_prefix_placeholder方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('account_prefix', 'business_domain')
+def _compute_prefix_placeholder(self):
+    # 方法实现...</code></pre>
+    </div>
+    <p>此方法用于计算账户前缀的占位符示例，主要功能：</p>
+    <ul>
+        <li>根据业务领域（发票/账单）选择合适的账户类型</li>
+        <li>自动生成合适的账户前缀示例</li>
+        <li>处理不同账户编码规则</li>
+    </ul>
+
+    <h4>2. _get_score方法</h4>
+    <div class="code-block">
+        <pre><code>def _get_score(self, **kwargs):
+    # 方法实现...</code></pre>
+    </div>
+    <p>计算分析账户适用性得分的方法：</p>
+    <ul>
+        <li>检查账户前缀匹配</li>
+        <li>验证产品类别匹配</li>
+        <li>返回适用性评分</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 创建分析账户适用规则</h3>
+    <div class="code-block">
+        <pre><code>self.env['account.analytic.applicability'].create({
+    'business_domain': 'invoice',
+    'account_prefix': '40,41,42',
+    'product_categ_id': product_category.id,
+})</code></pre>
+    </div>
+
+    <h3>2. 检查账户适用性</h3>
+    <div class="code-block">
+        <pre><code>applicability = self.env['account.analytic.applicability'].search([
+    ('business_domain', '=', 'invoice')
+])
+score = applicability._get_score(
+    product=product.id,
+    account=account.id
+)</code></pre>
+    </div>
+
+    <h2>业务场景应用</h2>
+    
+    <div class="use-case">
+        <h3>1. 发票处理场景</h3>
+        <ul>
+            <li>自动根据账户前缀分配分析账户</li>
+            <li>基于产品类别进行分析账户匹配</li>
+            <li>处理客户发票和供应商账单的不同规则</li>
+        </ul>
+    </div>
+
+    <div class="use-case">
+        <h3>2. 财务报告场景</h3>
+        <ul>
+            <li>提供分析账户使用的统计数据</li>
+            <li>支持多维度的财务分析</li>
+            <li>辅助决策支持</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>账户前缀必须符合公司的会计科目编码规则</li>
+            <li>适用性规则的优先级由得分决定</li>
+            <li>需要注意不同业务领域的特殊处理要求</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>为不同业务类型设置清晰的账户前缀规则</li>
+            <li>合理使用产品类别进行分组</li>
+            <li>定期检查和更新适用性规则</li>
+            <li>保持账户编码体系的一致性</li>
+        </ul>
+    </div>
+</body>
+</html> 

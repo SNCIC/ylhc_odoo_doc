@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo服务器模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo服务器模块(server.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>server.py</code>是Odoo框架中的服务器核心模块，负责管理Odoo服务器的启动、运行和停止。它实现了多种服务器模式，包括线程模式、Gevent模式和预分叉模式，以适应不同的部署场景。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>服务器进程管理</li>
+            <li>多种服务器模式支持</li>
+            <li>自动重载机制</li>
+            <li>工作进程管理</li>
+            <li>系统信号处理</li>
+        </ul>
+    </div>
+
+    <h2>服务器类型</h2>
+    
+    <h3>1. 基础服务器类(CommonServer)</h3>
+    <div class="code-block">
+        <pre><code>class CommonServer(object):
+    def __init__(self, app):
+        self.app = app
+        self.interface = config['http_interface'] or '0.0.0.0'
+        self.port = config['http_port']
+        self.pid = os.getpid()</code></pre>
+    </div>
+    <p>CommonServer是所有服务器类型的基类：</p>
+    <ul>
+        <li>基础配置：
+            <ul>
+                <li>HTTP接口和端口设置</li>
+                <li>进程ID管理</li>
+                <li>应用程序实例管理</li>
+            </ul>
+        </li>
+        <li>通用功能：
+            <ul>
+                <li>socket关闭处理</li>
+                <li>停止函数注册</li>
+                <li>服务器停止处理</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>2. 线程服务器(ThreadedServer)</h3>
+    <div class="code-block">
+        <pre><code>class ThreadedServer(CommonServer):
+    def __init__(self, app):
+        super(ThreadedServer, self).__init__(app)
+        self.main_thread_id = threading.current_thread().ident
+        self.quit_signals_received = 0</code></pre>
+    </div>
+    <p>线程服务器是最基本的服务器类型：</p>
+    <ul>
+        <li>特点：
+            <ul>
+                <li>使用Python标准线程</li>
+                <li>适合中小规模部署</li>
+                <li>易于调试和维护</li>
+            </ul>
+        </li>
+        <li>功能：
+            <ul>
+                <li>信号处理</li>
+                <li>资源限制管理</li>
+                <li>cron任务支持</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>3. Gevent服务器(GeventServer)</h3>
+    <div class="code-block">
+        <pre><code>class GeventServer(CommonServer):
+    def __init__(self, app):
+        super(GeventServer, self).__init__(app)
+        self.port = config['gevent_port']
+        self.httpd = None</code></pre>
+    </div>
+    <p>Gevent服务器提供了事件驱动的处理方式：</p>
+    <ul>
+        <li>特点：
+            <ul>
+                <li>非阻塞I/O</li>
+                <li>高并发处理能力</li>
+                <li>适合长连接场景</li>
+            </ul>
+        </li>
+        <li>应用场景：
+            <ul>
+                <li>长轮询服务</li>
+                <li>WebSocket支持</li>
+                <li>高并发API服务</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>4. 预分叉服务器(PreforkServer)</h3>
+    <div class="code-block">
+        <pre><code>class PreforkServer(CommonServer):
+    def __init__(self, app):
+        super(PreforkServer, self).__init__(app)
+        self.population = config['workers']
+        self.timeout = config['limit_time_real']
+        self.limit_request = config['limit_request']</code></pre>
+    </div>
+    <p>预分叉服务器提供了最佳的性能和稳定性：</p>
+    <ul>
+        <li>特点：
+            <ul>
+                <li>多进程架构</li>
+                <li>进程隔离</li>
+                <li>更好的资源利用</li>
+            </ul>
+        </li>
+        <li>管理功能：
+            <ul>
+                <li>工作进程管理</li>
+                <li>负载均衡</li>
+                <li>进程回收</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>核心功能实现</h2>
+
+    <h3>1. 文件系统监控</h3>
+    <div class="code-block">
+        <pre><code>class FSWatcherBase(object):
+    def handle_file(self, path):
+        if path.endswith('.py') and not os.path.basename(path).startswith('.~'):
+            try:
+                source = open(path, 'rb').read() + b'\n'
+                compile(source, path, 'exec')
+            except IOError:
+                _logger.error('autoreload: python code change detected, IOError for %s', path)
+            except SyntaxError:
+                _logger.error('autoreload: python code change detected, SyntaxError in %s', path)
+            else:
+                if not server_phoenix:
+                    _logger.info('autoreload: python code updated, autoreload activated')
+                    restart()
+                    return True</code></pre>
+    </div>
+    <p>文件系统监控实现了代码热重载功能：</p>
+    <ul>
+        <li>监控机制：
+            <ul>
+                <li>Inotify支持（Linux）</li>
+                <li>Watchdog支持（跨平台）</li>
+                <li>文件变更检测</li>
+            </ul>
+        </li>
+        <li>重载处理：
+            <ul>
+                <li>语法检查</li>
+                <li>错误处理</li>
+                <li>优雅重启</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>2. 工作进程管理</h3>
+    <div class="code-block">
+        <pre><code>class Worker(object):
+    def __init__(self, multi):
+        self.multi = multi
+        self.watchdog_time = time.time()
+        self.watchdog_pipe = multi.pipe_new()
+        self.eintr_pipe = multi.pipe_new()
+        self.watchdog_timeout = multi.timeout
+        self.request_max = multi.limit_request</code></pre>
+    </div>
+    <p>工作进程实现了请求处理和资源管理：</p>
+    <ul>
+        <li>进程控制：
+            <ul>
+                <li>生命周期管理</li>
+                <li>资源限制</li>
+                <li>请求限制</li>
+            </ul>
+        </li>
+        <li>监控功能：
+            <ul>
+                <li>看门狗机制</li>
+                <li>超时控制</li>
+                <li>资源监控</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>配置和优化</h2>
+    
+    <h3>1. 服务器配置</h3>
+    <div class="best-practices">
+        <h3>基础配置</h3>
+        <ul>
+            <li>workers: 工作进程数量</li>
+            <li>limit_time_real: 请求超时时间</li>
+            <li>limit_memory_hard: 内存硬限制</li>
+            <li>limit_request: 每个工作进程的最大请求数</li>
+        </ul>
+
+        <h3>高级配置</h3>
+        <ul>
+            <li>max_cron_threads: cron线程数量</li>
+            <li>db_template: 数据库模板</li>
+            <li>unaccent: 不区分重音支持</li>
+        </ul>
+    </div>
+
+    <h3>2. 性能优化</h3>
+    <div class="optimization">
+        <h3>系统优化</h3>
+        <ul>
+            <li>文件描述符限制调整</li>
+            <li>内存分配策略优化</li>
+            <li>CPU亲和性设置</li>
+        </ul>
+
+        <h3>应用优化</h3>
+        <ul>
+            <li>请求队列管理</li>
+            <li>连接池配置</li>
+            <li>缓存策略</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 基本服务器启动</h3>
+    <div class="code-block">
+        <pre><code># 使用线程服务器
+from odoo.service.server import ThreadedServer
+app = create_wsgi_app()
+server = ThreadedServer(app)
+server.run()</code></pre>
+    </div>
+
+    <h3>2. 预分叉服务器配置</h3>
+    <div class="code-block">
+        <pre><code># 使用预分叉服务器
+from odoo.service.server import PreforkServer
+app = create_wsgi_app()
+server = PreforkServer(app)
+server.population = 4  # 设置4个工作进程
+server.run()</code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>生产环境建议使用预分叉服务器</li>
+            <li>合理配置工作进程数量</li>
+            <li>注意内存限制设置</li>
+            <li>定期检查服务器日志</li>
+            <li>实施适当的监控措施</li>
+        </ul>
+    </div>
+
+    <h2>故障排除</h2>
+    <div class="troubleshooting">
+        <h3>常见问题</h3>
+        <ul>
+            <li>内存溢出
+                <ul>
+                    <li>检查内存限制配置</li>
+                    <li>分析内存使用情况</li>
+                    <li>考虑增加swap空间</li>
+                </ul>
+            </li>
+            <li>进程崩溃
+                <ul>
+                    <li>检查系统日志</li>
+                    <li>分析崩溃转储</li>
+                    <li>更新系统库</li>
+                </ul>
+            </li>
+            <li>性能问题
+                <ul>
+                    <li>优化数据库查询</li>
+                    <li>调整工作进程数</li>
+                    <li>检查网络配置</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+</body>
+</html> 

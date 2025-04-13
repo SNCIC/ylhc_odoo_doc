@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模块脚手架工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模块脚手架工具(Scaffold)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>scaffold.py</code>是Odoo框架中的一个重要开发工具，用于快速生成新的Odoo模块骨架。它可以帮助开发者快速创建标准化的模块结构，提高开发效率。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>根据模板生成Odoo模块的基本结构和文件，支持自定义模板。
+    </div>
+    
+    <h2>主要功能模块</h2>
+    
+    <h3>1. 命令行参数</h3>
+    <div class="parameters">
+        <ul>
+            <li><code>-t, --template</code>: 使用的模板名称或路径</li>
+            <li><code>name</code>: 要创建的模块名称</li>
+            <li><code>dest</code>: 模块创建的目标目录</li>
+        </ul>
+    </div>
+    
+    <h3>2. 工具函数</h3>
+    <div class="utility-functions">
+        <h4>命名转换函数</h4>
+        <pre><code>def snake(s):
+    """将字符串转换为蛇形命名"""
+    
+def pascal(s):
+    """将字符串转换为帕斯卡命名"""</code></pre>
+        
+        <h4>目录处理函数</h4>
+        <pre><code>def directory(p, create=False):
+    """处理目录路径，必要时创建目录"""</code></pre>
+    </div>
+
+    <h2>模板系统</h2>
+    <div class="template-system">
+        <h3>template类</h3>
+        <pre><code>class template(object):
+    def __init__(self, identifier):
+        """初始化模板对象"""
+    
+    def files(self):
+        """列出模板中的所有文件"""
+    
+    def render_to(self, modname, directory, params=None):
+        """渲染模板到指定目录"""</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 基本使用</h3>
+        <pre><code>python odoo-bin scaffold my_module /path/to/addons</code></pre>
+        
+        <h3>2. 使用自定义模板</h3>
+        <pre><code>python odoo-bin scaffold --template custom_template my_module /path/to/addons</code></pre>
+        
+        <h3>3. 创建本地化模块</h3>
+        <pre><code>python odoo-bin scaffold -t l10n_payroll my_country-code /path/to/addons</code></pre>
+    </div>
+
+    <h2>模板结构</h2>
+    <div class="template-structure">
+        <h3>默认模板包含：</h3>
+        <ul>
+            <li>__init__.py</li>
+            <li>__manifest__.py</li>
+            <li>models/</li>
+            <li>views/</li>
+            <li>security/</li>
+            <li>data/</li>
+        </ul>
+    </div>
+
+    <h2>模板渲染</h2>
+    <div class="template-rendering">
+        <h3>渲染过程：</h3>
+        <ol>
+            <li>读取模板文件</li>
+            <li>处理模板变量</li>
+            <li>生成目标文件</li>
+            <li>处理特殊扩展名</li>
+        </ol>
+    </div>
+
+    <h2>特殊处理</h2>
+    <div class="special-handling">
+        <h3>文件处理规则：</h3>
+        <ul>
+            <li>.template扩展名会被移除</li>
+            <li>支持的文本文件类型：.py, .xml, .csv, .js, .rst, .html</li>
+            <li>其他文件类型按二进制处理</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>使用有意义的模块名称</li>
+            <li>遵循Odoo命名规范</li>
+            <li>合理组织模块结构</li>
+            <li>适当使用自定义模板</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <dl>
+            <dt>Q: 如何创建自定义模板？</dt>
+            <dd>A: 可以复制默认模板并修改，然后通过--template参数指定路径。</dd>
+            
+            <dt>Q: 支持哪些模板变量？</dt>
+            <dd>A: 支持模块名称、版本号等基本变量，可在模板中使用Jinja2语法。</dd>
+            
+            <dt>Q: 如何处理特殊字符？</dt>
+            <dd>A: 模块名会自动转换为适当的格式，特殊字符会被正确处理。</dd>
+        </dl>
+    </div>
+
+    <h2>开发建议</h2>
+    <div class="development-tips">
+        <h3>模块开发建议：</h3>
+        <ul>
+            <li>遵循Odoo开发规范</li>
+            <li>合理组织代码结构</li>
+            <li>添加必要的文档</li>
+            <li>包含示例数据</li>
+        </ul>
+    </div>
+
+    <h2>扩展功能</h2>
+    <div class="extensions">
+        <h3>可能的扩展方向：</h3>
+        <ul>
+            <li>支持更多模板类型</li>
+            <li>增加模板验证</li>
+            <li>添加代码生成选项</li>
+            <li>支持模块依赖管理</li>
+        </ul>
+    </div>
+</body>
+</html> 

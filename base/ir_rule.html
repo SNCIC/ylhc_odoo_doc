@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo记录规则(ir.rule)模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo记录规则(ir.rule)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir.rule</code>模块是Odoo中实现记录级访问控制的核心模块。它允许管理员为不同的用户组设置记录级别的访问规则,控制用户可以查看和操作哪些记录。</p>
+
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>定义记录级访问规则</li>
+            <li>支持动态域过滤</li>
+            <li>多公司数据隔离</li>
+            <li>用户组权限控制</li>
+        </ul>
+    </div>
+
+    <h2>主要特性</h2>
+    <div class="feature-list">
+        <div class="feature">
+            <h3>1. 记录规则定义</h3>
+            <p>通过domain_force字段定义过滤条件,决定用户可以访问哪些记录。</p>
+            <pre><code>
+{
+    'name': '只能查看自己的记录',
+    'model_id': 'res.partner',
+    'domain_force': "[('user_id','=',user.id)]",
+    'perm_read': True,
+    'perm_write': True,
+    'perm_create': True,
+    'perm_unlink': True,
+}
+            </code></pre>
+        </div>
+
+        <div class="feature">
+            <h3>2. 权限控制</h3>
+            <p>提供四种基本权限控制:</p>
+            <ul>
+                <li>perm_read: 读取权限</li>
+                <li>perm_write: 修改权限</li>
+                <li>perm_create: 创建权限</li>
+                <li>perm_unlink: 删除权限</li>
+            </ul>
+        </div>
+
+        <div class="feature">
+            <h3>3. 规则评估上下文</h3>
+            <p>提供规则评估时的上下文变量:</p>
+            <ul>
+                <li>user: 当前用户对象</li>
+                <li>time: 时间处理模块</li>
+                <li>company_ids: 当前用户可访问的公司ID列表</li>
+                <li>company_id: 当前用户的主公司ID</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 基本记录规则</h3>
+        <pre><code>
+# 创建一个基本的记录规则
+rule = env['ir.rule'].create({
+    'name': '销售订单个人规则',
+    'model_id': env['ir.model']._get('sale.order').id,
+    'domain_force': "[('user_id', '=', user.id)]",
+    'groups': [(4, env.ref('sales_team.group_sale_salesman').id)],
+})
+        </code></pre>
+
+        <h3>2. 多公司规则</h3>
+        <pre><code>
+# 创建多公司数据隔离规则
+company_rule = env['ir.rule'].create({
+    'name': '产品多公司规则',
+    'model_id': env['ir.model']._get('product.template').id,
+    'domain_force': "[('company_id', 'in', company_ids)]",
+    'global': True,
+})
+        </code></pre>
+
+        <h3>3. 动态域规则</h3>
+        <pre><code>
+# 创建动态过滤规则
+dynamic_rule = env['ir.rule'].create({
+    'name': '动态日期过滤',
+    'model_id': env['ir.model']._get('account.move').id,
+    'domain_force': "['&', ('date', '>=', (context_today() - relativedelta(months=1)).strftime('%Y-%m-%d')), ('date', '<=', context_today().strftime('%Y-%m-%d'))]",
+    'groups': [(4, env.ref('account.group_account_invoice').id)],
+})
+        </code></pre>
+    </div>
+
+    <h2>核心方法解析</h2>
+    <div class="methods">
+        <h3>1. _compute_domain</h3>
+        <p>计算记录规则的实际过滤域:</p>
+        <pre><code>
+def _compute_domain(self, model_name, mode="read"):
+    """
+    计算给定模型的访问规则域
+    :param model_name: 模型名称
+    :param mode: 访问模式(read/write/create/unlink)
+    :return: 域表达式列表
+    """
+        </code></pre>
+
+        <h3>2. _eval_context</h3>
+        <p>提供规则评估的上下文环境:</p>
+        <pre><code>
+def _eval_context(self):
+    """
+    返回规则评估的上下文字典
+    包含: user, time, company_ids, company_id
+    """
+        </code></pre>
+
+        <h3>3. _get_rules</h3>
+        <p>获取适用于特定模型的所有规则:</p>
+        <pre><code>
+def _get_rules(self, model_name, mode='read'):
+    """
+    返回适用于指定模型和模式的所有规则
+    :param model_name: 模型名称
+    :param mode: 访问模式
+    :return: 规则记录集
+    """
+        </code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 规则优先级</h3>
+        <ul>
+            <li>全局规则优先于组规则</li>
+            <li>多个规则的域条件会自动进行AND运算</li>
+            <li>同一组内的多个规则进行OR运算</li>
+        </ul>
+
+        <h3>2. 性能考虑</h3>
+        <ul>
+            <li>避免过于复杂的domain表达式</li>
+            <li>合理使用索引字段作为过滤条件</li>
+            <li>规则缓存会自动处理</li>
+        </ul>
+
+        <h3>3. 安全建议</h3>
+        <ul>
+            <li>始终测试规则在不同用户下的行为</li>
+            <li>注意规则组合可能产生的意外结果</li>
+            <li>谨慎处理管理员权限绕过</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <div class="qa">
+            <h3>Q: 规则不生效怎么办？</h3>
+            <p>A: 检查以下几点：</p>
+            <ul>
+                <li>确认规则的model_id是否正确</li>
+                <li>检查domain_force的语法</li>
+                <li>验证用户组设置</li>
+                <li>确认规则的active状态</li>
+            </ul>
+        </div>
+
+        <div class="qa">
+            <h3>Q: 如何调试规则？</h3>
+            <p>A: 可以使用以下方法：</p>
+            <ul>
+                <li>启用开发者模式查看SQL查询</li>
+                <li>使用sudo()临时绕过规则</li>
+                <li>检查_compute_domain的结果</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>升级说明</h2>
+    <div class="upgrade-notes">
+        <h3>Odoo 18变更</h3>
+        <ul>
+            <li>改进了规则缓存机制</li>
+            <li>优化了多公司场景下的性能</li>
+            <li>增强了错误提示信息</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

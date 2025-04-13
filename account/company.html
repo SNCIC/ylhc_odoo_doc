@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 公司会计设置模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 公司会计设置系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>company.py</code>是Odoo 18中的公司会计设置管理模块，它定义了公司级别的会计参数、设置和规则。该模块是会计系统的基础配置模块。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>会计期间设置</li>
+            <li>锁定日期管理</li>
+            <li>会计科目配置</li>
+            <li>税务设置</li>
+            <li>多公司支持</li>
+        </ul>
+    </div>
+
+    <h2>核心常量定义</h2>
+    <div class="code-explanation">
+        <h4>月份选择：</h4>
+        <pre><code>
+MONTH_SELECTION = [
+    ('1', 'January'),
+    ('2', 'February'),
+    ('3', 'March'),
+    ('4', 'April'),
+    ('5', 'May'),
+    ('6', 'June'),
+    ('7', 'July'),
+    ('8', 'August'),
+    ('9', 'September'),
+    ('10', 'October'),
+    ('11', 'November'),
+    ('12', 'December'),
+]
+        </code></pre>
+
+        <h4>其他重要常量：</h4>
+        <pre><code>
+# Peppol默认国家列表
+PEPPOL_DEFAULT_COUNTRIES = [
+    'AT', 'BE', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI',
+    'FR', 'GR', 'IE', 'IS', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL',
+    'NO', 'PL', 'PT', 'RO', 'SE', 'SI',
+]
+
+# 锁定日期字段
+LOCK_DATE_FIELDS = [
+    'fiscalyear_lock_date',
+    'tax_lock_date',
+    'sale_lock_date',
+    'purchase_lock_date',
+    'hard_lock_date',
+]
+        </code></pre>
+    </div>
+
+    <h2>核心类解析</h2>
+
+    <h3>ResCompany (res.company)</h3>
+    <div class="code-explanation">
+        <h4>主要字段：</h4>
+        <ul>
+            <li><code>fiscalyear_last_day</code>: 会计年度最后一天</li>
+            <li><code>fiscalyear_last_month</code>: 会计年度最后月份</li>
+            <li><code>fiscalyear_lock_date</code>: 会计年度锁定日期</li>
+            <li><code>tax_lock_date</code>: 税务锁定日期</li>
+            <li><code>chart_template</code>: 科目表模板</li>
+            <li><code>transfer_account_id</code>: 内部转账科目</li>
+            <li><code>expects_chart_of_accounts</code>: 是否需要科目表</li>
+        </ul>
+
+        <h4>使用示例：</h4>
+        <pre><code>
+# 更新公司会计设置
+def update_company_accounting(env, company_id):
+    company = env['res.company'].browse(company_id)
+    company.write({
+        'fiscalyear_last_day': 31,
+        'fiscalyear_last_month': '12',
+        'tax_lock_date': '2024-01-01',
+        'expects_chart_of_accounts': True
+    })
+        </code></pre>
+    </div>
+
+    <h2>核心功能实现</h2>
+
+    <h3>1. 会计期间管理</h3>
+    <div class="implementation-details">
+        <pre><code>
+def compute_fiscalyear_dates(self, current_date):
+    """计算会计年度的起止日期"""
+    self.ensure_one()
+    date_from, date_to = date_utils.get_fiscal_year(
+        current_date,
+        day=self.fiscalyear_last_day,
+        month=int(self.fiscalyear_last_month)
+    )
+    return {
+        'date_from': date_from,
+        'date_to': date_to
+    }
+        </code></pre>
+    </div>
+
+    <h3>2. 锁定日期管理</h3>
+    <div class="implementation-details">
+        <pre><code>
+def _validate_locks(self, values):
+    """验证锁定日期的变更"""
+    new_locks = {
+        field: fields.Date.to_date(values[field])
+        for field in LOCK_DATE_FIELDS
+        if field in values
+    }
+
+    # 验证硬锁定日期
+    if 'hard_lock_date' in new_locks:
+        for company in self:
+            if not company.hard_lock_date:
+                continue
+            if not hard_lock_date:
+                raise UserError(_("不能删除硬锁定日期"))
+            if hard_lock_date < company.hard_lock_date:
+                raise UserError(_("新的硬锁定日期必须晚于或等于之前的日期"))
+        </code></pre>
+    </div>
+
+    <h3>3. 科目表管理</h3>
+    <div class="implementation-details">
+        <pre><code>
+def get_chart_of_accounts_or_fail(self):
+    """获取或验证科目表"""
+    account = self.env['account.account'].search(
+        self.env['account.account']._check_company_domain(self),
+        limit=1
+    )
+    if len(account) == 0:
+        action = self.env.ref('account.action_account_config')
+        msg = _("找不到此公司的科目表，请配置会计本地化。")
+        raise RedirectWarning(msg, action.id, _("转到配置面板"))
+    return account
+        </code></pre>
+    </div>
+
+    <h2>高级功能特性</h2>
+
+    <h3>1. 多公司支持</h3>
+    <div class="feature-explanation">
+        <p>系统支持多公司环境：</p>
+        <ul>
+            <li>独立的会计期间</li>
+            <li>独立的科目表</li>
+            <li>独立的税务设置</li>
+            <li>公司间交易管理</li>
+        </ul>
+    </div>
+
+    <h3>2. 税务管理</h3>
+    <div class="feature-explanation">
+        <p>完整的税务管理功能：</p>
+        <ul>
+            <li>默认税率设置</li>
+            <li>税务期间管理</li>
+            <li>税务报表配置</li>
+            <li>跨国税务支持</li>
+        </ul>
+    </div>
+
+    <h2>使用场景示例</h2>
+
+    <h3>1. 设置会计年度</h3>
+    <pre><code>
+def setup_fiscal_year(env, company_id, last_month='12', last_day=31):
+    company = env['res.company'].browse(company_id)
+    company.write({
+        'fiscalyear_last_month': last_month,
+        'fiscalyear_last_day': last_day
+    })
+    
+    # 计算当前会计年度
+    current_date = fields.Date.today()
+    fiscal_dates = company.compute_fiscalyear_dates(current_date)
+    print(f"会计年度：{fiscal_dates['date_from']} - {fiscal_dates['date_to']}")
+    </code></pre>
+
+    <h3>2. 配置锁定日期</h3>
+    <pre><code>
+def setup_lock_dates(env, company_id):
+    company = env['res.company'].browse(company_id)
+    company.write({
+        'fiscalyear_lock_date': '2024-01-01',
+        'tax_lock_date': '2024-01-01',
+        'sale_lock_date': '2024-01-01',
+        'purchase_lock_date': '2024-01-01'
+    })
+    </code></pre>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 会计期间设置</h3>
+        <ul>
+            <li>合理设置会计年度</li>
+            <li>及时更新锁定日期</li>
+            <li>定期检查会计设置</li>
+            <li>做好期间管理</li>
+        </ul>
+
+        <h3>2. 多公司管理</h3>
+        <ul>
+            <li>明确公司层级关系</li>
+            <li>合理设置共享规则</li>
+            <li>注意数据隔离</li>
+            <li>规范公司间交易</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>谨慎设置锁定日期</li>
+            <li>注意会计期间衔接</li>
+            <li>保持科目表一致性</li>
+            <li>关注税务合规性</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 如何更改会计年度？</h3>
+        <p>A1: 可以通过修改fiscalyear_last_month和fiscalyear_last_day来更改会计年度，但建议在年度开始时进行更改。</p>
+
+        <h3>Q2: 如何处理锁定日期例外？</h3>
+        <p>A2: 系统支持通过account.lock_exception模型来设置锁定日期的例外情况。</p>
+
+        <h3>Q3: 如何管理多公司环境？</h3>
+        <p>A3: 每个公司可以有独立的会计设置，通过company_id字段进行隔离，同时系统提供了公司间交易的管理机制。</p>
+    </div>
+
+    <h2>扩展功能</h2>
+    <div class="extensions">
+        <h3>1. 自动化配置</h3>
+        <pre><code>
+def auto_configure_company(env, company_id):
+    """自动配置公司会计设置"""
+    company = env['res.company'].browse(company_id)
+    
+    # 设置基础参数
+    company.write({
+        'fiscalyear_last_day': 31,
+        'fiscalyear_last_month': '12',
+        'expects_chart_of_accounts': True,
+        'account_storno': False
+    })
+    
+    # 设置默认科目
+    if not company.transfer_account_id:
+        transfer_account = env['account.account'].create({
+            'code': '1299',
+            'name': '内部转账',
+            'account_type': 'asset_current',
+            'reconcile': True,
+            'company_id': company_id
+        })
+        company.transfer_account_id = transfer_account.id
+        </code></pre>
+
+        <h3>2. 期间检查</h3>
+        <pre><code>
+def check_fiscal_periods(env, company_id):
+    """检查会计期间设置"""
+    company = env['res.company'].browse(company_id)
+    current_date = fields.Date.today()
+    fiscal_dates = company.compute_fiscalyear_dates(current_date)
+    
+    # 检查锁定日期
+    if company.fiscalyear_lock_date and company.fiscalyear_lock_date > fiscal_dates['date_to']:
+        raise UserError(_("锁定日期不能晚于会计年度结束日期"))
+    
+    # 检查税务锁定日期
+    if company.tax_lock_date and company.tax_lock_date > fiscal_dates['date_to']:
+        raise UserError(_("税务锁定日期不能晚于会计年度结束日期"))
+        </code></pre>
+    </div>
+</body>
+</html> 

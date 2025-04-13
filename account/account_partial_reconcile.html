@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo部分调节模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo部分调节模型(AccountPartialReconcile)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>AccountPartialReconcile模型是Odoo中处理会计分录部分调节的核心模型。它用于处理应收账款和应付账款的部分支付匹配，以及处理多币种交易的汇兑损益。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>部分调节是指当一笔付款或收款只覆盖了发票金额的一部分时，系统需要建立这部分金额之间的关联关系。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>debit_move_id</td>
+            <td>Many2one</td>
+            <td>借方会计分录行，必填字段</td>
+        </tr>
+        <tr>
+            <td>credit_move_id</td>
+            <td>Many2one</td>
+            <td>贷方会计分录行，必填字段</td>
+        </tr>
+        <tr>
+            <td>full_reconcile_id</td>
+            <td>Many2one</td>
+            <td>完全调节记录的引用</td>
+        </tr>
+        <tr>
+            <td>exchange_move_id</td>
+            <td>Many2one</td>
+            <td>汇兑损益的会计分录</td>
+        </tr>
+        <tr>
+            <td>amount</td>
+            <td>Monetary</td>
+            <td>调节金额（公司币种）</td>
+        </tr>
+        <tr>
+            <td>debit_amount_currency</td>
+            <td>Monetary</td>
+            <td>借方的外币金额</td>
+        </tr>
+        <tr>
+            <td>credit_amount_currency</td>
+            <td>Monetary</td>
+            <td>贷方的外币金额</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 部分调节处理</h3>
+    <div class="code-block">
+        <pre><code>
+def _collect_tax_cash_basis_values(self):
+    # 收集创建税收现金基础分录所需的所有信息
+    tax_cash_basis_values_per_move = {}
+    for partial in self:
+        for move in {partial.debit_move_id.move_id, partial.credit_move_id.move_id}:
+            # 处理税收现金基础的逻辑
+        </code></pre>
+    </div>
+
+    <h3>2. 汇兑损益处理</h3>
+    <p>当涉及不同币种的交易时，系统会自动计算并创建汇兑损益分录：</p>
+    <div class="code-block">
+        <pre><code>
+# 汇率计算示例
+payment_rate = self.env['res.currency']._get_conversion_rate(
+    counterpart_line.company_currency_id,
+    source_line.currency_id,
+    counterpart_line.company_id,
+    payment_date,
+)
+        </code></pre>
+    </div>
+
+    <h3>3. 现金基础税收处理</h3>
+    <p>系统支持现金基础的税收处理方式，当收到付款时才确认税收：</p>
+    <div class="code-block">
+        <pre><code>
+def _prepare_cash_basis_tax_line_vals(self, tax_line, balance, amount_currency):
+    # 准备现金基础税收分录的值
+    tax_ids = tax_line.tax_ids.filtered(lambda x: x.tax_exigibility == 'on_payment')
+    </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建部分调节</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建部分调节的示例
+partial = self.env['account.partial.reconcile'].create({
+    'debit_move_id': debit_line.id,
+    'credit_move_id': credit_line.id,
+    'amount': 1000.0,
+    'debit_amount_currency': 1200.0,
+    'credit_amount_currency': 1200.0,
+})
+        </code></pre>
+    </div>
+
+    <h3>取消调节</h3>
+    <div class="code-example">
+        <pre><code>
+# 取消调节的示例
+partial.unlink()  # 这将触发相关的汇兑分录反转
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 部分付款场景</h3>
+    <div class="business-case">
+        <p>当客户支付发票的一部分金额时：</p>
+        <ol>
+            <li>系统创建付款分录</li>
+            <li>创建部分调节记录</li>
+            <li>更新发票的未付金额</li>
+        </ol>
+    </div>
+
+    <h3>2. 多币种交易场景</h3>
+    <div class="business-case">
+        <p>当处理不同币种的交易时：</p>
+        <ol>
+            <li>系统自动计算汇率差异</li>
+            <li>创建汇兑损益分录</li>
+            <li>关联到原始交易</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_collect_tax_cash_basis_values</td>
+            <td>收集税收现金基础所需的值</td>
+        </tr>
+        <tr>
+            <td>_create_tax_cash_basis_moves</td>
+            <td>创建税收现金基础分录</td>
+        </tr>
+        <tr>
+            <td>unlink</td>
+            <td>处理调节记录的删除</td>
+        </tr>
+    </table>
+
+    <h3>重要约束</h3>
+    <div class="constraints">
+        <ul>
+            <li>debit_move_id 和 credit_move_id 必须存在</li>
+            <li>金额必须为正数</li>
+            <li>币种必须正确设置</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>始终通过程序创建部分调节，避免手动创建</li>
+            <li>在处理多币种交易时，确保所有币种和汇率正确设置</li>
+            <li>在取消调节前，确保没有依赖的其他记录</li>
+            <li>定期检查未完全调节的记录，以确保及时处理</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：为什么需要部分调节？</dt>
+            <dd>答：部分调节允许系统跟踪部分付款情况，这在实际业务中非常常见，如分期付款、预付款等场景。</dd>
+            
+            <dt>问：如何处理汇兑损益？</dt>
+            <dd>答：系统会自动根据付款日期的汇率计算差异，并创建相应的会计分录。</dd>
+            
+            <dt>问：现金基础税收是什么？</dt>
+            <dd>答：这是一种特殊的税收处理方式，只有在实际收到付款时才确认税收，而不是在开具发票时。</dd>
+        </dl>
+    </div>
+
+</body>
+</html> 

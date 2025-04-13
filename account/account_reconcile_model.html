@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo调节模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo调节模型(AccountReconcileModel)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>AccountReconcileModel模型是Odoo中用于自动化银行对账和调节过程的核心模型。它定义了一系列规则，用于自动匹配和处理银行对账单中的交易记录。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>调节模型通过预定义的规则自动识别和处理银行交易，大大提高了对账效率。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>调节模型名称</td>
+        </tr>
+        <tr>
+            <td>rule_type</td>
+            <td>Selection</td>
+            <td>规则类型（按钮/建议/发票匹配）</td>
+        </tr>
+        <tr>
+            <td>auto_reconcile</td>
+            <td>Boolean</td>
+            <td>是否自动调节</td>
+        </tr>
+        <tr>
+            <td>match_nature</td>
+            <td>Selection</td>
+            <td>匹配类型（收款/付款/两者）</td>
+        </tr>
+        <tr>
+            <td>line_ids</td>
+            <td>One2many</td>
+            <td>调节规则明细行</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 调节规则管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountReconcileModel(models.Model):
+    _name = 'account.reconcile.model'
+    _description = 'Preset to create journal entries during a invoices and payments matching'
+    _inherit = ['mail.thread']
+    _order = 'sequence, id'
+
+    rule_type = fields.Selection([
+        ('writeoff_button', 'Button to generate counterpart entry'),
+        ('writeoff_suggestion', 'Rule to suggest counterpart entry'),
+        ('invoice_matching', 'Rule to match invoices/bills'),
+    ], string='Type', default='writeoff_button', required=True)
+        </code></pre>
+    </div>
+
+    <h3>2. 伙伴映射管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountReconcileModelPartnerMapping(models.Model):
+    _name = 'account.reconcile.model.partner.mapping'
+    _description = 'Partner mapping for reconciliation models'
+
+    partner_id = fields.Many2one('res.partner', required=True)
+    payment_ref_regex = fields.Char(string="Find Text in Label")
+    narration_regex = fields.Char(string="Find Text in Notes")
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建调节规则</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建自动调节规则
+reconcile_model = self.env['account.reconcile.model'].create({
+    'name': '银行手续费',
+    'rule_type': 'writeoff_suggestion',
+    'auto_reconcile': True,
+    'match_nature': 'amount_paid',
+    'match_label': 'contains',
+    'match_label_param': '手续费',
+    'line_ids': [(0, 0, {
+        'account_id': bank_fees_account.id,
+        'amount_type': 'fixed',
+        'amount_string': '10.0',
+        'label': '银行手续费'
+    })]
+})
+        </code></pre>
+    </div>
+
+    <h3>创建伙伴映射</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建伙伴映射规则
+partner_mapping = self.env['account.reconcile.model.partner.mapping'].create({
+    'model_id': reconcile_model.id,
+    'partner_id': partner.id,
+    'payment_ref_regex': '.*INV\\d{6}.*',
+    'narration_regex': '.*Customer Payment.*'
+})
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 自动处理银行费用</h3>
+    <div class="business-case">
+        <p>自动识别和处理银行费用：</p>
+        <ol>
+            <li>设置费用识别规则</li>
+            <li>配置会计科目</li>
+            <li>启用自动调节</li>
+        </ol>
+    </div>
+
+    <h3>2. 客户付款匹配</h3>
+    <div class="business-case">
+        <p>自动匹配客户付款：</p>
+        <ol>
+            <li>设置付款识别规则</li>
+            <li>配置客户映射</li>
+            <li>关联发票匹配</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_get_write_off_move_lines_dict</td>
+            <td>获取冲销分录行数据</td>
+        </tr>
+        <tr>
+            <td>_apply_rules</td>
+            <td>应用调节规则</td>
+        </tr>
+        <tr>
+            <td>_get_partner_from_mapping</td>
+            <td>根据映射获取伙伴</td>
+        </tr>
+    </table>
+
+    <h3>规则类型说明</h3>
+    <div class="rule-types">
+        <ul>
+            <li>writeoff_button：手动触发的冲销按钮</li>
+            <li>writeoff_suggestion：自动提供的冲销建议</li>
+            <li>invoice_matching：发票自动匹配规则</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>为常见的银行费用创建自动调节规则</li>
+            <li>使用准确的正则表达式进行匹配</li>
+            <li>定期检查和优化调节规则</li>
+            <li>为重要客户设置专门的匹配规则</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何提高调节的准确性？</dt>
+            <dd>答：使用精确的匹配条件，包括金额范围、描述匹配和正则表达式。</dd>
+            
+            <dt>问：自动调节是否安全？</dt>
+            <dd>答：系统会根据严格的规则进行匹配，但建议先使用手动确认模式测试规则的准确性。</dd>
+            
+            <dt>问：如何处理特殊交易？</dt>
+            <dd>答：可以创建专门的调节规则，或使用手动调节方式处理特殊情况。</dd>
+        </dl>
+    </div>
+
+    <h2>调节规则行详解</h2>
+    <div class="reconcile-model-line">
+        <h3>AccountReconcileModelLine模型</h3>
+        <pre><code>
+class AccountReconcileModelLine(models.Model):
+    _name = 'account.reconcile.model.line'
+    _description = 'Rules for the reconciliation model'
+    
+    amount_type = fields.Selection([
+        ('fixed', '固定金额'),
+        ('percentage', '余额百分比'),
+        ('percentage_st_line', '对账单行百分比'),
+        ('regex', '从标签提取')
+    ], required=True)
+    
+    amount_string = fields.Char(string="Amount", help="金额值或正则表达式")
+    label = fields.Char(string='分录标签')
+        </code></pre>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加新的匹配规则</h3>
+        <pre><code>
+# 继承调节模型添加新的匹配规则
+class CustomReconcileModel(models.Model):
+    _inherit = 'account.reconcile.model'
+    
+    custom_match_type = fields.Selection([
+        ('custom', 'Custom Matching')
+    ], string='Custom Match')
+    
+    def _apply_custom_rules(self, st_lines):
+        # 自定义匹配逻辑
+        pass
+        </code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>数据安全</h3>
+        <ul>
+            <li>调节规则的访问权限控制</li>
+            <li>自动调节的金额限制</li>
+            <li>调节历史记录追踪</li>
+            <li>规则修改审计日志</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

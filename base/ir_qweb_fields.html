@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo QWeb字段渲染模块(ir.qweb.field)详解</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo QWeb字段渲染模块(ir.qweb.field)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p><code>ir.qweb.field</code>是Odoo的QWeb模板引擎中负责字段渲染的核心模块。它提供了以下主要功能:</p>
+        <ul>
+            <li>处理不同类型字段的HTML渲染</li>
+            <li>支持自定义字段渲染逻辑</li>
+            <li>提供字段值格式化</li>
+            <li>处理多语言显示</li>
+            <li>支持字段值转换</li>
+        </ul>
+    </div>
+
+    <div class="key-classes">
+        <h2>核心类解析</h2>
+        
+        <h3>1. FieldConverter基类</h3>
+        <p>所有字段转换器的基类:</p>
+        <pre><code>class FieldConverter(models.AbstractModel):
+    _name = 'ir.qweb.field'
+    _description = 'Qweb Field'</code></pre>
+
+        <h3>2. 常用字段转换器</h3>
+        <ul>
+            <li>IntegerConverter: 整数字段转换</li>
+            <li>FloatConverter: 浮点数字段转换</li>
+            <li>DateConverter: 日期字段转换</li>
+            <li>DateTimeConverter: 日期时间字段转换</li>
+            <li>TextConverter: 文本字段转换</li>
+            <li>HTMLConverter: HTML字段转换</li>
+            <li>SelectionConverter: 选择字段转换</li>
+            <li>ManyToOneConverter: 多对一字段转换</li>
+            <li>ImageConverter: 图片字段转换</li>
+        </ul>
+    </div>
+
+    <div class="key-methods">
+        <h2>核心方法解析</h2>
+
+        <h3>1. 值转换</h3>
+        <div class="method-detail">
+            <h4>value_to_html方法</h4>
+            <p>将字段值转换为HTML:</p>
+            <pre><code>@api.model
+def value_to_html(self, value, options):
+    """ 将单个值转换为HTML输出
+    :param value: 字段值
+    :param options: 转换选项
+    :return: HTML字符串
+    """</code></pre>
+        </div>
+
+        <h3>2. 记录转换</h3>
+        <div class="method-detail">
+            <h4>record_to_html方法</h4>
+            <p>将记录字段转换为HTML:</p>
+            <pre><code>@api.model
+def record_to_html(self, record, field_name, options):
+    """ 将记录的指定字段转换为HTML
+    :param record: 记录对象
+    :param field_name: 字段名称
+    :param options: 转换选项
+    :return: HTML字符串
+    """</code></pre>
+        </div>
+    </div>
+
+    <div class="usage-examples">
+        <h2>使用示例</h2>
+
+        <h3>1. 基本字段渲染</h3>
+        <pre><code># QWeb模板示例
+&lt;t t-field="record.name"/&gt;
+&lt;t t-field="record.amount" t-options='{"widget": "float", "precision": 2}'/&gt;
+&lt;t t-field="record.date" t-options='{"format": "dd/MM/yyyy"}'/&gt;</code></pre>
+
+        <h3>2. 自定义字段渲染</h3>
+        <pre><code># 创建自定义字段渲染器
+class CustomFieldConverter(models.AbstractModel):
+    _name = 'ir.qweb.field.custom'
+    _inherit = 'ir.qweb.field'
+
+    @api.model
+    def value_to_html(self, value, options):
+        if value:
+            return f'&lt;span class="custom-field"&gt;{value}&lt;/span&gt;'
+        return ''</code></pre>
+
+        <h3>3. 使用转换选项</h3>
+        <pre><code># 在视图中使用转换选项
+&lt;field name="arch" type="xml"&gt;
+    &lt;form&gt;
+        &lt;div t-field="record.description" 
+             t-options='{"widget": "html", "safe": true}'/&gt;
+    &lt;/form&gt;
+&lt;/field&gt;</code></pre>
+    </div>
+
+    <div class="field-types">
+        <h2>支持的字段类型</h2>
+        
+        <h3>1. 基本类型</h3>
+        <ul>
+            <li>Char: 字符串类型</li>
+            <li>Integer: 整数类型</li>
+            <li>Float: 浮点数类型</li>
+            <li>Boolean: 布尔类型</li>
+            <li>Text: 文本类型</li>
+        </ul>
+
+        <h3>2. 日期时间类型</h3>
+        <ul>
+            <li>Date: 日期类型</li>
+            <li>Datetime: 日期时间类型</li>
+            <li>Time: 时间类型</li>
+        </ul>
+
+        <h3>3. 关系类型</h3>
+        <ul>
+            <li>Many2one: 多对一关系</li>
+            <li>One2many: 一对多关系</li>
+            <li>Many2many: 多对多关系</li>
+        </ul>
+
+        <h3>4. 特殊类型</h3>
+        <ul>
+            <li>Binary: 二进制数据</li>
+            <li>Selection: 选择类型</li>
+            <li>Reference: 引用类型</li>
+            <li>Html: HTML内容</li>
+        </ul>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>使用适当的字段类型和转换器</li>
+            <li>正确设置转换选项</li>
+            <li>处理空值和异常情况</li>
+            <li>注意字段值的安全性</li>
+            <li>优化渲染性能</li>
+            <li>保持代码可维护性</li>
+        </ul>
+    </div>
+
+    <div class="troubleshooting">
+        <h2>常见问题解决</h2>
+        <dl>
+            <dt>问题1: 字段不显示</dt>
+            <dd>
+                <ul>
+                    <li>检查字段名称是否正确</li>
+                    <li>验证字段权限设置</li>
+                    <li>确认转换器是否正确</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 格式化错误</dt>
+            <dd>
+                <ul>
+                    <li>检查转换选项设置</li>
+                    <li>验证字段值类型</li>
+                    <li>确认语言环境配置</li>
+                </ul>
+            </dd>
+
+            <dt>问题3: 性能问题</dt>
+            <dd>
+                <ul>
+                    <li>优化字段加载</li>
+                    <li>使用适当的缓存</li>
+                    <li>减少不必要的转换</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="advanced-topics">
+        <h2>高级主题</h2>
+        
+        <h3>1. 自定义转换器</h3>
+        <p>创建自定义字段转换器的步骤:</p>
+        <ol>
+            <li>继承ir.qweb.field基类</li>
+            <li>实现value_to_html方法</li>
+            <li>注册转换器</li>
+            <li>在视图中使用</li>
+        </ol>
+
+        <h3>2. 多语言支持</h3>
+        <p>处理多语言字段显示:</p>
+        <ul>
+            <li>使用translate=True标记字段</li>
+            <li>处理语言切换</li>
+            <li>格式化本地化显示</li>
+        </ul>
+
+        <h3>3. 安全考虑</h3>
+        <p>字段渲染的安全措施:</p>
+        <ul>
+            <li>HTML转义</li>
+            <li>XSS防护</li>
+            <li>权限控制</li>
+        </ul>
+    </div>
+
+    <div class="optimization-tips">
+        <h2>优化建议</h2>
+        <ul>
+            <li>使用适当的字段类型</li>
+            <li>避免复杂的转换逻辑</li>
+            <li>合理使用缓存机制</li>
+            <li>优化数据加载</li>
+            <li>注意性能瓶颈</li>
+            <li>保持代码简洁</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

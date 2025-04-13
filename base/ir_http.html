@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 HTTP路由模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 HTTP路由(ir.http)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_http.py</code>是Odoo的核心HTTP路由处理模块，负责处理所有的HTTP请求路由、认证和响应。这个模块是Odoo Web框架的基础，提供了URL路由、请求处理、认证和安全等核心功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>HTTP请求路由管理</li>
+            <li>认证方法处理</li>
+            <li>请求分发和响应处理</li>
+            <li>安全控制</li>
+            <li>MIME类型处理</li>
+        </ul>
+    </div>
+
+    <h2>核心组件</h2>
+    
+    <h3>1. 常量定义</h3>
+    <div class="code-block">
+        <pre><code># MIME类型映射
+EXTENSION_TO_WEB_MIMETYPES = {
+    '.css': 'text/css',
+    '.less': 'text/less',
+    '.scss': 'text/scss',
+    '.js': 'text/javascript',
+    '.xml': 'text/xml',
+    '.csv': 'text/csv',
+    '.html': 'text/html',
+}</code></pre>
+    </div>
+
+    <h3>2. 转换器类</h3>
+    <div class="code-block">
+        <h4>ModelConverter</h4>
+        <pre><code>class ModelConverter(werkzeug.routing.BaseConverter):
+    regex = r'[0-9]+'
+    
+    def to_python(self, value):
+        return env[self.model].browse(self.unslug(value)[1])
+        
+    def to_url(self, value):
+        return self.slug(value)</code></pre>
+    </div>
+
+    <h3>3. IrHttp类</h3>
+    <div class="code-block">
+        <pre><code>class IrHttp(models.AbstractModel):
+    _name = 'ir.http'
+    _description = "HTTP Routing"</code></pre>
+    </div>
+
+    <h2>主要功能实现</h2>
+    
+    <h3>1. 路由管理</h3>
+    <div class="code-example">
+        <h4>路由映射生成：</h4>
+        <pre><code>@tools.ormcache('key', cache='routing')
+def routing_map(self, key=None):
+    registry = Registry(threading.current_thread().dbname)
+    installed = registry._init_modules.union(odoo.conf.server_wide_modules)
+    mods = sorted(installed)
+    
+    routing_map = werkzeug.routing.Map(
+        strict_slashes=False, 
+        converters=self._get_converters()
+    )
+    
+    for url, endpoint in self._generate_routing_rules(mods):
+        rule = FasterRule(url, endpoint=endpoint, **routing)
+        routing_map.add(rule)
+        
+    return routing_map</code></pre>
+    </div>
+
+    <h3>2. 认证方法</h3>
+    <div class="code-example">
+        <h4>认证处理：</h4>
+        <pre><code>@classmethod
+def _auth_method_user(cls):
+    if request.env.uid in [None] + cls._get_public_users():
+        raise http.SessionExpiredException("Session expired")
+
+@classmethod
+def _auth_method_public(cls):
+    if request.env.uid is None:
+        public_user = request.env.ref('base.public_user')
+        request.update_env(user=public_user.id)</code></pre>
+    </div>
+
+    <h3>3. 请求处理</h3>
+    <div class="code-example">
+        <pre><code>@classmethod
+def _pre_dispatch(cls, rule, args):
+    # 预处理请求
+    request.dispatcher.pre_dispatch(rule, args)
+    
+    # 验证语言设置
+    env = request.env if request.env.uid else request.env['base'].with_user(SUPERUSER_ID).env
+    request.update_context(lang=get_lang(env).code)
+    
+    # 检查记录访问权限
+    for key, val in list(args.items()):
+        if isinstance(val, models.BaseModel):
+            args[key] = val.with_env(request.env)
+            args[key].check_access('read')</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本路由定义</h3>
+    <pre><code>class MyController(http.Controller):
+    @http.route('/my/path', auth='user')
+    def my_handler(self):
+        return request.render('my_module.template')</code></pre>
+
+    <h3>2. 自定义认证</h3>
+    <pre><code>class CustomAuth(http.Controller):
+    @http.route('/api/data', auth='bearer')
+    def get_data(self):
+        # 使用bearer token认证
+        return {'data': 'secured'}</code></pre>
+
+    <h3>3. 文件处理</h3>
+    <pre><code>@http.route('/download', auth='public')
+def download_file(self):
+    return request.env['ir.http']._serve_fallback()</code></pre>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 路由设计</h3>
+        <ul>
+            <li>使用RESTful风格的URL设计</li>
+            <li>合理设置认证方式</li>
+            <li>正确处理URL参数</li>
+        </ul>
+
+        <h3>2. 安全考虑</h3>
+        <ul>
+            <li>总是验证用户权限</li>
+            <li>防止CSRF攻击</li>
+            <li>使用适当的内容类型</li>
+        </ul>
+
+        <h3>3. 性能优化</h3>
+        <ul>
+            <li>使用路由缓存</li>
+            <li>避免重复计算</li>
+            <li>合理使用会话存储</li>
+        </ul>
+    </div>
+
+    <h2>高级特性</h2>
+    
+    <h3>1. 自定义转换器</h3>
+    <div class="code-example">
+        <pre><code>class CustomConverter(werkzeug.routing.BaseConverter):
+    def to_python(self, value):
+        return custom_process(value)
+        
+    def to_url(self, value):
+        return custom_format(value)
+
+# 注册转换器
+class MyHttp(IrHttp):
+    @classmethod
+    def _get_converters(cls):
+        return {
+            **super()._get_converters(),
+            'custom': CustomConverter
+        }</code></pre>
+    </div>
+
+    <h3>2. 响应处理</h3>
+    <pre><code>@classmethod
+def _dispatch(cls, endpoint):
+    result = endpoint(**request.params)
+    if isinstance(result, Response) and result.is_qweb:
+        result.flatten()
+    return result</code></pre>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 如何处理跨域请求？</h3>
+        <p>可以通过设置CORS头来处理：</p>
+        <pre><code>@http.route('/api/data', cors='*')
+def get_data(self):
+    return {'data': 'accessible from anywhere'}</code></pre>
+
+        <h3>Q2: 如何处理大文件上传？</h3>
+        <p>通过设置max_content_length参数：</p>
+        <pre><code>@http.route('/upload', type='http', auth='user', methods=['POST'])
+def upload_file(self, **post):
+    request.httprequest.max_content_length = max_size
+    return self._handle_upload(post.get('file'))</code></pre>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>
+        <ul>
+            <li>路由规则的顺序很重要，更具体的规则应该放在前面</li>
+            <li>认证方法的选择会影响性能和安全性</li>
+            <li>正确处理异常和错误响应</li>
+        </ul>
+    </div>
+
+    <h2>开发建议</h2>
+    <div class="development-tips">
+        <h3>1. 路由组织</h3>
+        <p>按功能模块组织路由：</p>
+        <pre><code># controllers/main.py
+class MainController(http.Controller):
+    @http.route(['/module/action1', '/module/action2'])
+    def actions(self, **kw):
+        return self._handle_actions(kw)</code></pre>
+
+        <h3>2. 错误处理</h3>
+        <p>实现统一的错误处理：</p>
+        <pre><code>@classmethod
+def _handle_error(cls, exception):
+    if isinstance(exception, AccessDenied):
+        return request.redirect('/web/login')
+    return request.dispatcher.handle_error(exception)</code></pre>
+    </div>
+</body>
+</html> 

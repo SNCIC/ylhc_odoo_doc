@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo注册表系统解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo注册表系统(registry.py)详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>registry.py</code>是Odoo框架中的一个核心模块，它实现了模型注册表系统。注册表负责管理所有模型类的实例，处理数据库连接，并提供缓存机制。这是Odoo ORM系统的基础组件之一。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>模型注册表管理</li>
+            <li>数据库连接管理</li>
+            <li>缓存系统实现</li>
+            <li>模型初始化和设置</li>
+            <li>字段依赖管理</li>
+        </ul>
+    </div>
+
+    <h2>关键常量和配置</h2>
+    <div class="code-block">
+        <pre><code>_REGISTRY_CACHES = {
+    'default': 8192,
+    'assets': 512,
+    'templates': 1024,
+    'routing': 1024,
+    'routing.rewrites': 8192,
+    'templates.cached_values': 2048,
+    'groups': 1
+}
+
+_CACHES_BY_KEY = {
+    'default': ('default', 'templates.cached_values'),
+    'assets': ('assets', 'templates.cached_values'),
+    'templates': ('templates', 'templates.cached_values'),
+    'routing': ('routing', 'routing.rewrites', 'templates.cached_values'),
+    'groups': ('groups', 'templates', 'templates.cached_values')
+}</code></pre>
+    </div>
+
+    <h2>核心类：Registry</h2>
+    
+    <h3>1. 基本属性</h3>
+    <div class="code-block">
+        <pre><code>class Registry(Mapping):
+    """
+    特定数据库的模型注册表
+    - 本质上是模型名称到模型类的映射
+    - 每个数据库一个注册表实例
+    """
+    _lock = threading.RLock()
+    _saved_lock = None</code></pre>
+    </div>
+
+    <h3>2. 初始化和设置</h3>
+    <div class="code-block">
+        <pre><code>def init(self, db_name):
+    """
+    初始化注册表
+    - 设置模型字典
+    - 初始化缓存
+    - 设置数据库连接
+    - 配置测试模式
+    """
+    self.models = {}
+    self._sql_constraints = set()
+    self._init = True
+    # ... 其他初始化代码 ...</code></pre>
+    </div>
+
+    <h3>3. 模型管理</h3>
+    <div class="code-block">
+        <pre><code>def setup_models(self, cr):
+    """
+    完成模型设置
+    1. 准备环境
+    2. 设置模型基础结构
+    3. 设置字段
+    4. 完成设置
+    5. 处理字段依赖
+    """</code></pre>
+    </div>
+
+    <h3>4. 缓存管理</h3>
+    <div class="code-block">
+        <pre><code>def clear_cache(self, *cache_names):
+    """
+    清除指定缓存
+    - 支持选择性清除
+    - 记录清除原因
+    - 触发缓存失效信号
+    """
+
+def clear_all_caches(self):
+    """
+    清除所有缓存
+    - 完全重置缓存状态
+    - 用于重大更改后
+    """</code></pre>
+    </div>
+
+    <h2>触发器树系统</h2>
+    
+    <h3>TriggerTree类</h3>
+    <div class="code-block">
+        <pre><code>class TriggerTree(dict):
+    """
+    字段触发器树
+    - 管理字段依赖关系
+    - 处理计算字段更新
+    - 优化依赖追踪
+    """</code></pre>
+    </div>
+
+    <h2>实际应用示例</h2>
+
+    <h3>1. 获取注册表实例</h3>
+    <div class="code-block">
+        <pre><code>from odoo.modules.registry import Registry
+
+# 获取数据库注册表
+registry = Registry(db_name)
+
+# 访问模型
+model_class = registry['res.partner']</code></pre>
+    </div>
+
+    <h3>2. 模型设置和初始化</h3>
+    <div class="code-block">
+        <pre><code>def init_models(self, cr, model_names, context):
+    """
+    初始化模型示例
+    """
+    env = odoo.api.Environment(cr, SUPERUSER_ID, context)
+    
+    # 设置模型
+    for model in models:
+        model._auto_init()
+        model.init()
+        
+    # 更新IR模型
+    env['ir.model']._reflect_models(model_names)</code></pre>
+    </div>
+
+    <h3>3. 缓存管理示例</h3>
+    <div class="code-block">
+        <pre><code># 清除特定缓存
+registry.clear_cache('default', 'assets')
+
+# 清除所有缓存
+registry.clear_all_caches()
+
+# 使用上下文管理器处理更改
+with registry.manage_changes():
+    # 执行可能触发缓存失效的操作
+    pass</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <h3>缓存策略</h3>
+        <ul>
+            <li>使用LRU缓存</li>
+            <li>分类缓存管理</li>
+            <li>选择性缓存清理</li>
+            <li>缓存大小配置</li>
+        </ul>
+
+        <h3>并发处理</h3>
+        <ul>
+            <li>线程安全锁机制</li>
+            <li>事务隔离</li>
+            <li>连接池管理</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>注册表使用</h3>
+        <ul>
+            <li>正确管理数据库连接</li>
+            <li>适时清理缓存</li>
+            <li>使用事务控制</li>
+            <li>处理并发访问</li>
+        </ul>
+
+        <h3>模型管理</h3>
+        <ul>
+            <li>合理组织模型结构</li>
+            <li>优化字段依赖</li>
+            <li>控制计算字段开销</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>注意线程安全性</li>
+            <li>合理使用缓存机制</li>
+            <li>正确处理事务</li>
+            <li>注意性能影响</li>
+        </ul>
+    </div>
+
+    <h2>Odoo 18的改进</h2>
+    <ul>
+        <li>改进的缓存管理</li>
+        <li>优化的并发处理</li>
+        <li>更好的性能表现</li>
+        <li>增强的可靠性</li>
+    </ul>
+
+    <div class="note">
+        <strong>开发建议：</strong>
+        <p>在使用注册表系统时，建议：</p>
+        <ul>
+            <li>理解缓存机制</li>
+            <li>正确处理并发</li>
+            <li>优化模型结构</li>
+            <li>注意性能影响</li>
+        </ul>
+    </div>
+
+    <h2>高级特性</h2>
+    
+    <h3>1. 只读数据库支持</h3>
+    <div class="code-block">
+        <pre><code>def cursor(self, readonly=False):
+    """
+    获取数据库游标
+    - 支持只读连接
+    - 自动故障转移
+    - 连接池管理
+    """</code></pre>
+    </div>
+
+    <h3>2. 测试模式支持</h3>
+    <div class="code-block">
+        <pre><code>def enter_test_mode(self, cr):
+    """
+    进入测试模式
+    - 特殊的游标处理
+    - 锁定机制改变
+    - 事务控制
+    """</code></pre>
+    </div>
+
+    <h3>3. 信号系统</h3>
+    <div class="code-block">
+        <pre><code>def signal_changes(self):
+    """
+    通知其他进程注册表或缓存已失效
+    - 数据库级别的信号
+    - 进程间通信
+    - 自动重载机制
+    """</code></pre>
+    </div>
+
+    <h2>调试和故障排除</h2>
+    <div class="debugging">
+        <h3>常见问题</h3>
+        <ul>
+            <li>缓存不一致</li>
+            <li>并发访问冲突</li>
+            <li>模型加载失败</li>
+            <li>性能问题</li>
+        </ul>
+
+        <h3>解决方案</h3>
+        <ul>
+            <li>检查缓存状态</li>
+            <li>验证锁机制</li>
+            <li>分析日志信息</li>
+            <li>监控性能指标</li>
+        </ul>
+    </div>
+</body>
+</html> 

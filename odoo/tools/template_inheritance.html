@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模板继承机制解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模板继承机制(Template Inheritance)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>template_inheritance.py</code>是Odoo框架中的模板继承处理模块,实现了XML视图的继承和修改机制。该模块允许开发者以声明式的方式修改现有视图,是Odoo视图继承系统的核心。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>XML视图继承处理</li>
+            <li>视图元素定位和修改</li>
+            <li>属性继承和操作</li>
+            <li>视图结构验证</li>
+        </ul>
+    </div>
+
+    <h2>主要函数</h2>
+    
+    <h3>locate_node</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>在源架构中定位需要修改的节点。</p>
+        <pre><code>def locate_node(arch, spec)</code></pre>
+        <p>参数说明:</p>
+        <ul>
+            <li><code>arch</code>: 源架构(父视图)</li>
+            <li><code>spec</code>: 继承视图中的规格节点</li>
+        </ul>
+        <p>支持的定位方式:</p>
+        <ul>
+            <li>xpath表达式</li>
+            <li>字段名匹配</li>
+            <li>属性匹配</li>
+        </ul>
+    </div>
+
+    <h3>apply_inheritance_specs</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>应用继承视图的修改规范到源架构。</p>
+        <pre><code>def apply_inheritance_specs(source, specs_tree, inherit_branding=False, pre_locate=lambda s: True)</code></pre>
+        <p>参数说明:</p>
+        <ul>
+            <li><code>source</code>: 源架构</li>
+            <li><code>specs_tree</code>: 继承规范树</li>
+            <li><code>inherit_branding</code>: 是否添加继承标记</li>
+            <li><code>pre_locate</code>: 节点定位前的预处理函数</li>
+        </ul>
+    </div>
+
+    <h2>继承操作类型</h2>
+    <div class="inheritance-types">
+        <h3>支持的操作</h3>
+        <dl>
+            <dt><code>position="inside"</code></dt>
+            <dd>在目标节点内部添加内容</dd>
+
+            <dt><code>position="replace"</code></dt>
+            <dd>替换目标节点</dd>
+
+            <dt><code>position="after"</code></dt>
+            <dd>在目标节点后添加内容</dd>
+
+            <dt><code>position="before"</code></dt>
+            <dd>在目标节点前添加内容</dd>
+
+            <dt><code>position="attributes"</code></dt>
+            <dd>修改目标节点的属性</dd>
+        </dl>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <h3>基本继承示例</h3>
+        <pre><code>
+&lt;!-- 原始视图 --&gt;
+&lt;form&gt;
+    &lt;field name="name"/&gt;
+    &lt;field name="description"/&gt;
+&lt;/form&gt;
+
+&lt;!-- 继承视图 --&gt;
+&lt;field name="arch" type="xml"&gt;
+    &lt;form position="inside"&gt;
+        &lt;field name="new_field"/&gt;
+    &lt;/form&gt;
+&lt;/field&gt;
+        </code></pre>
+
+        <h3>属性修改示例</h3>
+        <pre><code>
+&lt;field name="arch" type="xml"&gt;
+    &lt;field name="name" position="attributes"&gt;
+        &lt;attribute name="readonly"&gt;1&lt;/attribute&gt;
+    &lt;/field&gt;
+&lt;/field&gt;
+        </code></pre>
+    </div>
+
+    <h2>工作原理</h2>
+    <div class="flow-diagram">
+        <h3>继承处理流程</h3>
+        <ol>
+            <li>解析继承规范</li>
+            <li>在源架构中定位目标节点</li>
+            <li>根据position属性确定操作类型</li>
+            <li>执行相应的DOM操作</li>
+            <li>处理特殊属性(如attrs)</li>
+            <li>验证修改结果</li>
+        </ol>
+    </div>
+
+    <h2>特殊处理</h2>
+    <div class="special-cases">
+        <h3>属性处理</h3>
+        <ul>
+            <li>Python表达式属性(readonly, invisible等)</li>
+            <li>装饰器属性(decoration-*)</li>
+            <li>条件属性(attrs)</li>
+        </ul>
+
+        <h3>移动操作</h3>
+        <p>通过position="move"实现节点移动:</p>
+        <pre><code>
+&lt;xpath expr="//field[@name='target']" position="move"&gt;
+    &lt;xpath expr="//group[@name='destination']" position="inside"/&gt;
+&lt;/xpath&gt;
+        </code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>开发提示：</strong>
+        <ul>
+            <li>确保xpath表达式的准确性</li>
+            <li>注意属性修改的优先级</li>
+            <li>避免循环继承</li>
+            <li>处理好节点移动的依赖关系</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>优先使用字段名而不是xpath定位</li>
+            <li>保持继承层次的清晰</li>
+            <li>合理使用属性继承</li>
+            <li>注意视图性能影响</li>
+        </ul>
+    </div>
+
+    <h2>调试技巧</h2>
+    <div class="debugging">
+        <h3>常用调试方法</h3>
+        <ul>
+            <li>使用开发者工具查看视图继承</li>
+            <li>检查xpath表达式匹配</li>
+            <li>验证属性修改效果</li>
+            <li>测试不同继承组合</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="troubleshooting">
+        <h3>问题解决</h3>
+        <dl>
+            <dt>节点定位失败</dt>
+            <dd>检查xpath表达式或字段名是否正确</dd>
+
+            <dt>属性继承冲突</dt>
+            <dd>检查继承顺序和优先级</dd>
+
+            <dt>视图加载性能</dt>
+            <dd>优化继承层次,减少不必要的修改</dd>
+        </dl>
+    </div>
+</body>
+</html> 

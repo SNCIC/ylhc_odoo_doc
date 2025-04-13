@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo视图验证模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo视图验证模块(view_validation.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>view_validation.py</code>是Odoo框架中的视图验证模块，它负责确保XML视图定义的正确性和安全性。该模块使用断言而不是RNG模式来进行验证，提供了更灵活和可控的验证机制。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>XML视图结构验证</li>
+            <li>域表达式验证</li>
+            <li>属性值验证</li>
+            <li>安全检查</li>
+        </ul>
+    </div>
+
+    <h2>主要组件解析</h2>
+
+    <h3>1. 域表达式解析器</h3>
+    <div class="code-block">
+        <h4>get_domain_value_names函数</h4>
+        <pre><code>def get_domain_value_names(domain):
+    """返回域中使用的所有字段名称
+    例如：[
+        ('id', 'in', [1, 2, 3]),
+        ('field_a', 'in', parent.truc),
+        ('field_b', 'in', context.get('b')),
+        (1, '=', 1),
+        bool(context.get('c')),
+    ]
+    返回 {'id', 'field_a', 'field_b'}, {'parent', 'parent.truc', 'context'}
+    """</code></pre>
+        <p>域表达式解析功能：</p>
+        <ul>
+            <li>识别字段名称</li>
+            <li>提取上下文变量</li>
+            <li>验证域语法</li>
+            <li>处理特殊操作符</li>
+        </ul>
+    </div>
+
+    <h3>2. 表达式上下文验证</h3>
+    <div class="code-block">
+        <h4>IGNORED_IN_EXPRESSION常量</h4>
+        <pre><code>IGNORED_IN_EXPRESSION = {
+    'True', 'False', 'None',    # Python 2.7中的标识符
+    'self',
+    'uid',
+    'context',
+    'context_today',
+    'allowed_company_ids',
+    'current_company_id',
+    'time',
+    'datetime',
+    'relativedelta',
+    'current_date',
+    'today',
+    'now',
+    'abs',
+    'len',
+    'bool',
+    'float',
+    'str',
+    'unicode',
+    'set',
+}</code></pre>
+        <p>预定义的安全标识符：</p>
+        <ul>
+            <li>系统内置变量</li>
+            <li>时间相关函数</li>
+            <li>类型转换函数</li>
+            <li>基础Python函数</li>
+        </ul>
+    </div>
+
+    <h3>3. 表达式解析器</h3>
+    <div class="code-block">
+        <h4>get_expression_field_names函数</h4>
+        <pre><code>def get_expression_field_names(expression):
+    """返回表达式中使用的所有字段名称"""</code></pre>
+        <p>表达式解析功能：</p>
+        <ul>
+            <li>AST语法树分析</li>
+            <li>字段名称提取</li>
+            <li>上下文变量识别</li>
+            <li>安全性验证</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 域表达式验证</h3>
+    <div class="code-example">
+        <pre><code># 验证域表达式
+domain = [
+    ('user_id', '=', 1),
+    ('state', 'in', ['draft', 'done']),
+    ('date', '>=', 'context_today()'),
+]
+field_names, context_refs = get_domain_value_names(domain)
+# field_names = {'user_id', 'state', 'date'}
+# context_refs = set()</code></pre>
+    </div>
+
+    <h3>2. 视图属性验证</h3>
+    <div class="code-example">
+        <pre><code># XML视图定义
+&lt;field name="arch" type="xml"&gt;
+    &lt;form&gt;
+        &lt;field name="name" readonly="context.get('is_readonly')"/&gt;
+        &lt;field name="state" invisible="state == 'done'"/&gt;
+    &lt;/form&gt;
+&lt;/field&gt;
+
+# Python代码中验证
+expr = "context.get('is_readonly')"
+field_names = get_expression_field_names(expr)
+# field_names = {'context'}</code></pre>
+    </div>
+
+    <h2>安全性考虑</h2>
+    <div class="security">
+        <h3>视图验证的安全要点：</h3>
+        <ul>
+            <li>防止注入攻击</li>
+            <li>限制危险函数调用</li>
+            <li>验证字段访问权限</li>
+            <li>控制上下文访问</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>视图开发建议：</h3>
+        <ul>
+            <li>使用安全的表达式语法</li>
+            <li>避免复杂的域表达式</li>
+            <li>正确使用上下文变量</li>
+            <li>遵循字段访问规则</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 为什么某些表达式被拒绝？</h3>
+        <p>可能的原因：</p>
+        <ul>
+            <li>使用了不安全的函数</li>
+            <li>访问了未授权的字段</li>
+            <li>表达式语法错误</li>
+            <li>上下文使用不当</li>
+        </ul>
+
+        <h3>Q2: 如何处理复杂的条件判断？</h3>
+        <p>建议方案：</p>
+        <ul>
+            <li>拆分复杂表达式</li>
+            <li>使用计算字段</li>
+            <li>利用Python方法</li>
+            <li>合理使用上下文</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>在Odoo 18中，视图验证系统更加严格，建议在开发时严格遵循安全规范，避免使用不安全的表达式。
+    </div>
+</body>
+</html> 

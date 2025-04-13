@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo缓存工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo缓存工具模块(cache.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>cache.py</code>是Odoo框架中的缓存管理工具模块，提供了一套完整的缓存装饰器系统，用于优化数据库查询性能。该模块实现了LRU（最近最少使用）缓存机制，可以显著提高频繁访问数据的响应速度。</p>
+    
+    <div class="note">
+        <strong>重要说明：</strong>此模块是Odoo性能优化的关键组件，通过缓存减少数据库访问，提高系统响应速度。
+    </div>
+
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>LRU缓存装饰器</strong>：为模型方法提供缓存功能</li>
+        <li><strong>缓存统计</strong>：跟踪缓存命中率和性能指标</li>
+        <li><strong>上下文感知缓存</strong>：支持基于上下文的缓存策略</li>
+        <li><strong>缓存清理机制</strong>：提供缓存失效和清理功能</li>
+    </ol>
+
+    <h2>主要组件详解</h2>
+
+    <h3>1. ormcache_counter类</h3>
+    <div class="code-block">
+        <pre><code>class ormcache_counter(object):
+    """缓存统计计数器"""
+    __slots__ = ['hit', 'miss', 'err', 'gen_time', 'cache_name']
+
+    def __init__(self):
+        self.hit = 0      # 缓存命中次数
+        self.miss = 0     # 缓存未命中次数
+        self.err = 0      # 错误次数
+        self.gen_time = 0 # 生成缓存数据所用时间
+        self.cache_name = None</code></pre>
+    </div>
+
+    <h3>2. ormcache装饰器</h3>
+    <div class="code-block">
+        <pre><code>class ormcache(object):
+    """模型方法的LRU缓存装饰器"""
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.skiparg = kwargs.get('skiparg')
+        self.cache_name = kwargs.get('cache', 'default')</code></pre>
+    </div>
+
+    <h3>3. ormcache_context装饰器</h3>
+    <div class="code-block">
+        <pre><code>class ormcache_context(ormcache):
+    """支持上下文感知的LRU缓存装饰器变体"""
+    def __init__(self, *args, **kwargs):
+        super(ormcache_context, self).__init__(*args, **kwargs)
+        self.keys = kwargs['keys']</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本缓存装饰器</h3>
+    <div class="code-block">
+        <pre><code>from odoo.tools.cache import ormcache
+
+class ResPartner(models.Model):
+    _name = 'res.partner'
+
+    @ormcache('model_name', 'mode')
+    def _compute_domain(self, model_name, mode="read"):
+        # 复杂的域计算逻辑
+        return domain</code></pre>
+    </div>
+
+    <h3>2. 上下文感知缓存</h3>
+    <div class="code-block">
+        <pre><code>from odoo.tools.cache import ormcache_context
+
+class ProductProduct(models.Model):
+    _name = 'product.product'
+
+    @ormcache_context('company_id', keys=['lang'])
+    def get_product_name(self, company_id):
+        # 根据语言返回产品名称
+        return self.with_context().name</code></pre>
+    </div>
+
+    <h3>3. 手动管理缓存</h3>
+    <div class="code-block">
+        <pre><code># 清除特定缓存
+self.env['res.partner']._compute_domain.clear_cache(self.env['res.partner'])
+
+# 清除所有缓存
+self.env.registry.clear_all_caches()</code></pre>
+    </div>
+
+    <h2>缓存键生成机制</h2>
+    <div class="key-generation">
+        <h3>自动键生成</h3>
+        <ul>
+            <li>基于装饰器参数生成缓存键</li>
+            <li>支持复杂参数的序列化</li>
+            <li>处理特殊类型（如recordset）</li>
+        </ul>
+
+        <h3>键生成示例</h3>
+        <pre><code># 基本键生成
+@ormcache('name', 'company_id')
+def get_data(self, name, company_id):
+    # 缓存键将基于name和company_id生成
+    pass
+
+# 上下文键生成
+@ormcache_context('user_id', keys=['lang', 'tz'])
+def get_user_data(self, user_id):
+    # 缓存键将包含user_id和指定的上下文键
+    pass</code></pre>
+    </div>
+
+    <h2>性能监控</h2>
+    <div class="performance-monitoring">
+        <h3>统计信息</h3>
+        <ul>
+            <li>缓存命中率</li>
+            <li>生成时间</li>
+            <li>错误统计</li>
+            <li>缓存大小</li>
+        </ul>
+
+        <h3>日志输出示例</h3>
+        <pre>Database demo
+default cache, 1234 entries, 5678 hit, 90 miss, 1 err, 0.123s time, 98.4% ratio for res.partner._compute_domain</pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>何时使用缓存</h3>
+        <ul>
+            <li>计算密集型操作</li>
+            <li>频繁访问的数据</li>
+            <li>结果相对稳定的查询</li>
+            <li>跨事务共享的数据</li>
+        </ul>
+
+        <h3>何时避免使用缓存</h3>
+        <ul>
+            <li>频繁变化的数据</li>
+            <li>用户特定的临时数据</li>
+            <li>大量不同参数组合的方法</li>
+            <li>敏感数据（考虑安全影响）</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>警告：</strong>
+        <ul>
+            <li>缓存装饰器的方法不应返回Recordset</li>
+            <li>注意内存使用，避免缓存过大数据</li>
+            <li>合理设置缓存失效策略</li>
+            <li>考虑多进程环境下的缓存一致性</li>
+        </ul>
+    </div>
+
+    <h2>缓存清理机制</h2>
+    <div class="cache-clearing">
+        <h3>自动清理</h3>
+        <ul>
+            <li>数据库更新时</li>
+            <li>模块安装/升级时</li>
+            <li>达到内存限制时</li>
+        </ul>
+
+        <h3>手动清理</h3>
+        <ul>
+            <li>通过API清理特定缓存</li>
+            <li>重启服务器清理所有缓存</li>
+            <li>通过管理界面清理</li>
+        </ul>
+    </div>
+
+    <h2>与其他模块的集成</h2>
+    <p>cache模块与以下Odoo组件紧密集成：</p>
+    <ul>
+        <li>ORM系统</li>
+        <li>Registry管理</li>
+        <li>事务管理</li>
+        <li>多进程管理</li>
+    </ul>
+
+    <h2>总结</h2>
+    <p>cache模块是Odoo性能优化的关键组件，它：</p>
+    <ul>
+        <li>提供了灵活的缓存机制</li>
+        <li>支持复杂的缓存策略</li>
+        <li>包含完整的监控功能</li>
+        <li>易于集成和使用</li>
+        <li>提供了清晰的API</li>
+    </ul>
+
+    <div class="note">
+        <strong>开发建议：</strong>在开发Odoo模块时，应该合理使用缓存机制来优化性能，但同时要注意缓存的一致性和内存使用。建议在开发初期就考虑缓存策略，并进行适当的性能测试。
+    </div>
+</body>
+</html> 

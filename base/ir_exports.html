@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 导出配置模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 导出配置(ir.exports)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_exports.py</code>是Odoo中负责管理数据导出配置的核心模块。它定义了两个主要模型：IrExports和IrExportsLine，用于存储和管理用户自定义的数据导出配置。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>管理数据导出模板</li>
+            <li>存储导出字段配置</li>
+            <li>支持自定义导出配置</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    
+    <h3>1. IrExports类</h3>
+    <div class="code-block">
+        <pre><code>class IrExports(models.Model):
+    _name = "ir.exports"
+    _description = 'Exports'
+    _order = 'name'
+
+    name = fields.Char(string='Export Name')
+    resource = fields.Char(index=True)
+    export_fields = fields.One2many('ir.exports.line', 'export_id', string='Export ID', copy=True)</code></pre>
+    </div>
+
+    <h4>字段说明</h4>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>导出配置名称</td>
+        </tr>
+        <tr>
+            <td>resource</td>
+            <td>Char</td>
+            <td>关联的模型名称（带索引）</td>
+        </tr>
+        <tr>
+            <td>export_fields</td>
+            <td>One2many</td>
+            <td>导出字段配置行</td>
+        </tr>
+    </table>
+
+    <h3>2. IrExportsLine类</h3>
+    <div class="code-block">
+        <pre><code>class IrExportsLine(models.Model):
+    _name = 'ir.exports.line'
+    _description = 'Exports Line'
+    _order = 'id'
+
+    name = fields.Char(string='Field Name')
+    export_id = fields.Many2one('ir.exports', string='Export', index=True, ondelete='cascade')</code></pre>
+    </div>
+
+    <h4>字段说明</h4>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>字段名称</td>
+        </tr>
+        <tr>
+            <td>export_id</td>
+            <td>Many2one</td>
+            <td>关联的导出配置</td>
+        </tr>
+    </table>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 创建导出配置</h3>
+    <div class="code-example">
+        <h4>Python代码：</h4>
+        <pre><code># 创建导出配置
+export_config = self.env['ir.exports'].create({
+    'name': '客户导出模板',
+    'resource': 'res.partner',
+    'export_fields': [
+        (0, 0, {'name': 'name'}),
+        (0, 0, {'name': 'email'}),
+        (0, 0, {'name': 'phone'}),
+        (0, 0, {'name': 'street'})
+    ]
+})</code></pre>
+    </div>
+
+    <h3>2. XML配置示例</h3>
+    <pre><code>&lt;record id="export_customers" model="ir.exports"&gt;
+    &lt;field name="name"&gt;标准客户导出&lt;/field&gt;
+    &lt;field name="resource"&gt;res.partner&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;record id="export_line_name" model="ir.exports.line"&gt;
+    &lt;field name="export_id" ref="export_customers"/&gt;
+    &lt;field name="name"&gt;name&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;record id="export_line_email" model="ir.exports.line"&gt;
+    &lt;field name="export_id" ref="export_customers"/&gt;
+    &lt;field name="name"&gt;email&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+
+    <h3>3. 使用导出配置</h3>
+    <div class="code-example">
+        <h4>Python代码：</h4>
+        <pre><code># 获取导出配置
+export_config = self.env['ir.exports'].search([
+    ('resource', '=', 'res.partner'),
+    ('name', '=', '客户导出模板')
+])
+
+# 获取导出字段列表
+export_fields = export_config.export_fields.mapped('name')
+
+# 导出数据
+partners = self.env['res.partner'].search([])
+data = partners.export_data(export_fields)</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 配置管理</h3>
+        <ul>
+            <li>使用有意义的配置名称</li>
+            <li>按模块组织导出配置</li>
+            <li>避免重复的导出配置</li>
+        </ul>
+
+        <h3>2. 字段选择</h3>
+        <ul>
+            <li>合理选择导出字段</li>
+            <li>考虑字段的依赖关系</li>
+            <li>注意字段的访问权限</li>
+        </ul>
+
+        <h3>3. 性能优化</h3>
+        <ul>
+            <li>避免导出过多字段</li>
+            <li>使用适当的过滤条件</li>
+            <li>考虑数据量对性能的影响</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 如何处理关联字段的导出？</h3>
+        <p>关联字段可以使用点号表示法：</p>
+        <pre><code># 示例：导出客户的公司名称
+{
+    'name': 'parent_id.name'  # 导出上级合作伙伴的名称
+}</code></pre>
+
+        <h3>Q2: 如何处理多语言字段？</h3>
+        <p>多语言字段会自动根据当前用户的语言环境导出对应的翻译。</p>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>
+        <ul>
+            <li>导出配置是全局的，要注意命名冲突</li>
+            <li>删除导出配置会同时删除相关的导出行记录</li>
+            <li>导出字段必须是模型中实际存在的字段</li>
+        </ul>
+    </div>
+
+    <h2>开发建议</h2>
+    <div class="development-tips">
+        <h3>1. 模块化管理</h3>
+        <p>建议将导出配置按模块组织，便于维护和升级：</p>
+        <pre><code># __manifest__.py
+{
+    'data': [
+        'data/ir_exports_data.xml',
+    ]
+}</code></pre>
+
+        <h3>2. 权限控制</h3>
+        <p>可以通过记录规则控制导出配置的访问：</p>
+        <pre><code>&lt;record id="ir_exports_personal_rule" model="ir.rule"&gt;
+    &lt;field name="name"&gt;Personal Export&lt;/field&gt;
+    &lt;field name="model_id" ref="model_ir_exports"/&gt;
+    &lt;field name="domain_force"&gt;[('create_uid', '=', user.id)]&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+</body>
+</html> 

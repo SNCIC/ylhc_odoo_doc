@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo会计配置设置模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo会计配置设置模块(ResConfigSettings)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_config_settings.py</code>是Odoo框架中的会计模块配置设置类，继承自<code>res.config.settings</code>。这个类提供了所有与会计相关的系统配置选项。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>管理会计模块的所有系统级配置，包括货币设置、税务设置、银行账户设置等。
+    </div>
+    
+    <h2>主要字段定义</h2>
+    <h3>基础设置字段</h3>
+    <ul>
+        <li><code>has_accounting_entries</code>: 布尔字段，计算字段，表示是否存在会计分录</li>
+        <li><code>currency_id</code>: Many2one字段，关联到res.currency，设置公司主要货币</li>
+        <li><code>has_chart_of_accounts</code>: 布尔字段，计算字段，表示公司是否有科目表</li>
+        <li><code>chart_template</code>: Selection字段，科目表模板选择</li>
+    </ul>
+
+    <h3>税务相关字段</h3>
+    <ul>
+        <li><code>sale_tax_id</code>: Many2one字段，默认销售税</li>
+        <li><code>purchase_tax_id</code>: Many2one字段，默认采购税</li>
+        <li><code>tax_calculation_rounding_method</code>: Selection字段，税额计算舍入方法</li>
+        <li><code>tax_exigibility</code>: 布尔字段，现金基准</li>
+    </ul>
+
+    <h3>银行账户相关字段</h3>
+    <ul>
+        <li><code>currency_exchange_journal_id</code>: Many2one字段，汇兑损益日记账</li>
+        <li><code>income_currency_exchange_account_id</code>: Many2one字段，汇兑收益科目</li>
+        <li><code>expense_currency_exchange_account_id</code>: Many2one字段，汇兑损失科目</li>
+    </ul>
+
+    <h2>核心方法解析</h2>
+    
+    <h3>1. set_values方法</h3>
+    <div class="code-block">
+        <pre><code>def set_values(self):
+    super().set_values()
+    if self.env.company == self.company_id and self.chart_template \
+    and self.chart_template != self.company_id.chart_template:
+        self.env['account.chart.template'].try_loading(self.chart_template, company=self.company_id)</code></pre>
+    </div>
+    <p>该方法在保存配置时被调用，主要功能是：</p>
+    <ul>
+        <li>调用父类的set_values方法保存基础配置</li>
+        <li>如果选择了新的科目表模板，则为公司安装新的科目表</li>
+    </ul>
+
+    <h3>2. _compute_has_chart_of_accounts方法</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('company_id')
+def _compute_has_chart_of_accounts(self):
+    self.has_chart_of_accounts = bool(self.company_id.chart_template)
+    self.has_accounting_entries = self.company_id.root_id._existing_accounting()</code></pre>
+    </div>
+    <p>计算字段方法，用于：</p>
+    <ul>
+        <li>检查公司是否已安装科目表</li>
+        <li>检查是否存在会计分录</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基础配置设置</h3>
+    <div class="code-block">
+        <pre><code># 设置公司主要货币
+self.env['res.config.settings'].create({
+    'currency_id': self.env.ref('base.USD').id,
+    'company_id': self.env.company.id
+}).execute()</code></pre>
+    </div>
+
+    <h3>2. 税务设置</h3>
+    <div class="code-block">
+        <pre><code># 设置默认销售税
+settings = self.env['res.config.settings'].create({
+    'sale_tax_id': self.env['account.tax'].search([
+        ('type_tax_use', '=', 'sale'),
+        ('company_id', '=', self.env.company.id)
+    ], limit=1).id
+})
+settings.execute()</code></pre>
+    </div>
+
+    <h3>3. 汇率设置</h3>
+    <div class="code-block">
+        <pre><code># 设置汇兑损益相关科目
+settings = self.env['res.config.settings'].create({
+    'currency_exchange_journal_id': exchange_journal.id,
+    'income_currency_exchange_account_id': income_account.id,
+    'expense_currency_exchange_account_id': expense_account.id
+})
+settings.execute()</code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>修改公司主要货币时需要特别谨慎，可能影响已有的会计凭证</li>
+            <li>更改科目表模板会导致系统重新加载科目表，可能影响现有数据</li>
+            <li>税务设置变更可能影响已有的未确认订单和发票</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <ul>
+        <li>在系统初始化时完成基础配置设置</li>
+        <li>定期检查汇率设置，确保汇兑损益正确入账</li>
+        <li>谨慎修改税务设置，避免影响已有业务</li>
+        <li>定期备份数据，特别是在进行重要配置更改之前</li>
+    </ul>
+
+    <div class="note">
+        <strong>技术说明：</strong>
+        <p>本模块是Odoo会计模块的核心配置中心，所有的会计相关设置都通过此模块进行管理和维护。正确的配置对会计模块的正常运行至关重要。</p>
+    </div>
+</body>
+</html> 

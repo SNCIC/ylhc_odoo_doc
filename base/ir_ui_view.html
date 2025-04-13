@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo视图系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo视图系统(ir.ui.view)详解</h1>
+    
+    <h2>1. 模块概述</h2>
+    <p><code>ir.ui.view</code>是Odoo系统中最重要的模块之一,负责管理所有的用户界面视图定义。它处理视图的继承、组合、验证等核心功能,是实现Odoo灵活界面定制的基础。</p>
+
+    <h2>2. 核心特性</h2>
+    <div class="feature-list">
+        <h3>2.1 视图类型</h3>
+        <ul>
+            <li><code>form</code>: 表单视图</li>
+            <li><code>list</code>: 列表视图</li>
+            <li><code>kanban</code>: 看板视图</li>
+            <li><code>search</code>: 搜索视图</li>
+            <li><code>calendar</code>: 日历视图</li>
+            <li><code>pivot</code>: 透视表视图</li>
+            <li><code>graph</code>: 图表视图</li>
+            <li><code>qweb</code>: QWeb模板视图</li>
+        </ul>
+
+        <h3>2.2 主要功能</h3>
+        <ul>
+            <li>视图继承与扩展</li>
+            <li>视图组合与验证</li>
+            <li>动态视图加载</li>
+            <li>视图权限控制</li>
+            <li>视图缓存管理</li>
+        </ul>
+    </div>
+
+    <h2>3. 核心方法解析</h2>
+    
+    <h3>3.1 视图继承处理</h3>
+    <pre><code>
+def _apply_inheritance_specs(self, source, specs_tree, pre_locate=lambda s: True):
+    """处理视图继承
+    
+    主要功能:
+    1. 解析继承规则
+    2. 定位目标节点
+    3. 应用修改操作
+    4. 返回修改后的视图
+    """
+    </code></pre>
+    
+    <div class="note">
+        <strong>实现说明:</strong>
+        <p>视图继承通过以下步骤实现:</p>
+        <ol>
+            <li>解析继承视图的arch字段</li>
+            <li>根据xpath或其他定位表达式找到目标节点</li>
+            <li>根据position属性执行相应的修改操作</li>
+            <li>验证修改后的视图结构</li>
+        </ol>
+    </div>
+
+    <h3>3.2 视图组合</h3>
+    <pre><code>
+def _get_combined_arch(self):
+    """获取组合后的视图架构
+    
+    合并主视图和所有继承视图
+    """
+    </code></pre>
+
+    <div class="example">
+        <h4>使用示例:</h4>
+        <pre><code>
+# 创建基础视图
+base_view = env['ir.ui.view'].create({
+    'name': '客户表单',
+    'model': 'res.partner',
+    'type': 'form',
+    'arch': '''
+        &lt;form&gt;
+            &lt;field name="name"/&gt;
+            &lt;field name="email"/&gt;
+        &lt;/form&gt;
+    '''
+})
+
+# 创建继承视图
+inherited_view = env['ir.ui.view'].create({
+    'name': '客户表单扩展',
+    'model': 'res.partner',
+    'inherit_id': base_view.id,
+    'arch': '''
+        &lt;field name="email" position="after"&gt;
+            &lt;field name="phone"/&gt;
+        &lt;/field&gt;
+    '''
+})
+        </code></pre>
+    </div>
+
+    <h2>4. 重要字段说明</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>视图名称</td>
+        </tr>
+        <tr>
+            <td>model</td>
+            <td>Char</td>
+            <td>关联的模型名称</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>Selection</td>
+            <td>视图类型(form/list等)</td>
+        </tr>
+        <tr>
+            <td>arch</td>
+            <td>Text</td>
+            <td>视图架构XML定义</td>
+        </tr>
+        <tr>
+            <td>inherit_id</td>
+            <td>Many2one</td>
+            <td>继承的父视图</td>
+        </tr>
+        <tr>
+            <td>mode</td>
+            <td>Selection</td>
+            <td>继承模式(extension/primary)</td>
+        </tr>
+        <tr>
+            <td>groups_id</td>
+            <td>Many2many</td>
+            <td>可访问该视图的用户组</td>
+        </tr>
+    </table>
+
+    <h2>5. 视图继承规则</h2>
+    
+    <h3>5.1 位置属性(position)</h3>
+    <ul>
+        <li><code>inside</code>: 在目标节点内部插入</li>
+        <li><code>replace</code>: 替换目标节点</li>
+        <li><code>after</code>: 在目标节点之后插入</li>
+        <li><code>before</code>: 在目标节点之前插入</li>
+        <li><code>attributes</code>: 修改目标节点的属性</li>
+    </ul>
+
+    <h3>5.2 继承示例</h3>
+    <pre><code>
+&lt;!-- 基础视图 --&gt;
+&lt;form&gt;
+    &lt;group&gt;
+        &lt;field name="name"/&gt;
+        &lt;field name="email"/&gt;
+    &lt;/group&gt;
+&lt;/form&gt;
+
+&lt;!-- 继承视图 --&gt;
+&lt;field name="arch" type="xml"&gt;
+    &lt;field name="email" position="after"&gt;
+        &lt;field name="phone"/&gt;
+    &lt;/field&gt;
+&lt;/field&gt;
+    </code></pre>
+
+    <h2>6. 视图验证</h2>
+    <div class="validation">
+        <h3>6.1 架构验证</h3>
+        <ul>
+            <li>XML语法检查</li>
+            <li>字段存在性验证</li>
+            <li>视图类型一致性检查</li>
+            <li>继承规则验证</li>
+        </ul>
+
+        <h3>6.2 权限验证</h3>
+        <ul>
+            <li>用户组权限检查</li>
+            <li>字段访问权限验证</li>
+            <li>记录规则验证</li>
+        </ul>
+    </div>
+
+    <h2>7. 最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>合理使用视图继承而不是复制修改</li>
+            <li>注意视图性能优化</li>
+            <li>保持视图结构清晰</li>
+            <li>正确设置视图权限</li>
+            <li>适当使用视图缓存</li>
+        </ol>
+    </div>
+
+    <h2>8. 注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>避免过深的视图继承层次</li>
+            <li>注意视图字段的依赖关系</li>
+            <li>合理控制视图大小和复杂度</li>
+            <li>正确处理视图的多语言支持</li>
+            <li>注意视图缓存失效的情况</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

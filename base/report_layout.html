@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo报表布局模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo报表布局系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>report_layout.py</code>是Odoo框架中的一个重要模块，它定义了报表布局的基础结构。这个模块主要负责管理和存储报表模板的布局信息，是Odoo报表系统的核心组件之一。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>报表布局模型提供了一种统一的方式来管理文档模板的外观和样式，使得用户可以轻松地自定义和切换不同的报表样式。
+    </div>
+    
+    <h2>核心代码解析</h2>
+    <div class="code-block">
+        <pre><code>class ReportLayout(models.Model):
+    _name = "report.layout"
+    _description = 'Report Layout'
+    _order = 'sequence'
+
+    view_id = fields.Many2one('ir.ui.view', 'Document Template', required=True)
+    image = fields.Char(string="Preview image src")
+    pdf = fields.Char(string="Preview pdf src")
+    sequence = fields.Integer(default=50)
+    name = fields.Char()</code></pre>
+    </div>
+
+    <h3>模型属性解释</h3>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>值</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>_name</td>
+            <td>report.layout</td>
+            <td>模型的技术名称，用于在系统中唯一标识此模型</td>
+        </tr>
+        <tr>
+            <td>_description</td>
+            <td>Report Layout</td>
+            <td>模型的人类可读描述</td>
+        </tr>
+        <tr>
+            <td>_order</td>
+            <td>sequence</td>
+            <td>记录的默认排序字段，按sequence字段升序排列</td>
+        </tr>
+    </table>
+
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+            <th>特性</th>
+        </tr>
+        <tr>
+            <td>view_id</td>
+            <td>Many2one</td>
+            <td>关联到ir.ui.view模型的文档模板</td>
+            <td>必填字段，定义实际的报表模板</td>
+        </tr>
+        <tr>
+            <td>image</td>
+            <td>Char</td>
+            <td>预览图片的源路径</td>
+            <td>用于在UI中显示模板预览图</td>
+        </tr>
+        <tr>
+            <td>pdf</td>
+            <td>Char</td>
+            <td>预览PDF文件的源路径</td>
+            <td>用于提供PDF格式的模板预览</td>
+        </tr>
+        <tr>
+            <td>sequence</td>
+            <td>Integer</td>
+            <td>排序序号</td>
+            <td>默认值为50，用于自定义显示顺序</td>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>布局名称</td>
+            <td>用于标识和显示布局</td>
+        </tr>
+    </table>
+
+    <h2>使用场景</h2>
+    <p>ReportLayout模型在以下场景中特别有用：</p>
+    <ul>
+        <li>自定义公司文档模板</li>
+        <li>管理多种报表样式</li>
+        <li>提供报表预览功能</li>
+        <li>组织和排序不同的报表布局</li>
+    </ul>
+
+    <h2>实际应用示例</h2>
+    <h3>1. 创建新的报表布局</h3>
+    <div class="code-block">
+        <pre><code>from odoo import api, fields, models
+
+class CustomReportLayout(models.Model):
+    _inherit = 'report.layout'
+
+    @api.model
+    def create_custom_layout(self):
+        # 创建一个新的报表布局
+        return self.create({
+            'name': '自定义报表布局',
+            'view_id': self.env.ref('module_name.custom_report_template').id,
+            'image': '/module_name/static/img/preview.png',
+            'pdf': '/module_name/static/pdf/preview.pdf',
+            'sequence': 10,
+        })</code></pre>
+    </div>
+
+    <h3>2. 在视图中使用</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="view_report_layout_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;report.layout.form&lt;/field&gt;
+    &lt;field name="model"&gt;report.layout&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="name"/&gt;
+                    &lt;field name="view_id"/&gt;
+                    &lt;field name="sequence"/&gt;
+                &lt;/group&gt;
+                &lt;group&gt;
+                    &lt;field name="image" widget="image"/&gt;
+                    &lt;field name="pdf"/&gt;
+                &lt;/group&gt;
+            &lt;/sheet&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+
+    <h3>3. 在报表中应用布局</h3>
+    <div class="code-block">
+        <pre><code>class SaleOrder(models.Model):
+    _inherit = 'sale.order'
+
+    def _get_report_base_filename(self):
+        self.ensure_one()
+        return '%s %s' % ('报价单', self.name)</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 布局命名规范</h3>
+        <ul>
+            <li>使用清晰、描述性的名称</li>
+            <li>遵循公司的命名约定</li>
+            <li>考虑多语言支持</li>
+        </ul>
+
+        <h3>2. 预览图片管理</h3>
+        <ul>
+            <li>使用适当大小的预览图片</li>
+            <li>确保图片格式统一</li>
+            <li>优化图片加载性能</li>
+        </ul>
+
+        <h3>3. 序号管理</h3>
+        <ul>
+            <li>合理规划sequence值</li>
+            <li>预留足够的间隔空间</li>
+            <li>考虑未来扩展需求</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>view_id字段是必填的，确保关联的视图模板存在</li>
+            <li>预览图片和PDF路径应该是可访问的</li>
+            <li>合理设置sequence值以避免排序冲突</li>
+            <li>注意文件路径的正确性和权限设置</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <div class="qa">
+            <h3>Q: 如何切换报表布局？</h3>
+            <p>A: 可以通过修改公司设置中的默认报表布局，或在具体报表打印时选择不同的布局。</p>
+        </div>
+        <div class="qa">
+            <h3>Q: 预览图片无法显示怎么办？</h3>
+            <p>A: 检查图片路径是否正确，确保文件存在且有正确的访问权限。</p>
+        </div>
+        <div class="qa">
+            <h3>Q: 如何自定义新的报表布局？</h3>
+            <p>A: 创建新的QWeb模板，然后通过report.layout模型关联该模板，并设置相应的预览图片和PDF。</p>
+        </div>
+    </div>
+
+    <h2>扩展开发</h2>
+    <p>如果需要扩展report.layout的功能，可以考虑以下方面：</p>
+    <ul>
+        <li>添加更多的布局属性（如页边距、字体等）</li>
+        <li>实现布局预览功能</li>
+        <li>添加布局分类功能</li>
+        <li>增加布局复制功能</li>
+    </ul>
+
+    <div class="note">
+        <strong>开发建议：</strong>在扩展开发时，建议保持向后兼容性，并充分考虑性能影响。
+    </div>
+</body>
+</html> 

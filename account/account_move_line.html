@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 会计分录明细模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 会计分录明细模块(account_move_line)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>account_move_line.py是Odoo 18中处理会计分录明细的核心模块。它定义了会计分录中每一笔明细的结构和行为,是会计系统中最基础的记录单元。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>会计分录明细的创建和管理</li>
+            <li>借贷金额的计算和平衡</li>
+            <li>税务处理和计算</li>
+            <li>外币金额转换</li>
+            <li>对账和核销功能</li>
+            <li>分析性会计支持</li>
+            <li>产品和价格管理</li>
+        </ul>
+    </div>
+
+    <div class="main-fields">
+        <h2>主要字段</h2>
+
+        <section class="field-group">
+            <h3>基本信息字段</h3>
+            <pre><code>
+# 父级字段
+move_id = fields.Many2one('account.move', string='Journal Entry', required=True)
+journal_id = fields.Many2one(related='move_id.journal_id', store=True)
+company_id = fields.Many2one(related='move_id.company_id', store=True)
+
+# 会计字段
+account_id = fields.Many2one('account.account', string='Account')
+name = fields.Char(string='Label')
+debit = fields.Monetary(string='Debit', currency_field='company_currency_id')
+credit = fields.Monetary(string='Credit', currency_field='company_currency_id')
+balance = fields.Monetary(string='Balance', currency_field='company_currency_id')
+
+# 货币字段
+currency_id = fields.Many2one('res.currency', string='Currency')
+amount_currency = fields.Monetary(string='Amount in Currency')
+            </code></pre>
+        </section>
+
+        <section class="field-group">
+            <h3>税务字段</h3>
+            <pre><code>
+tax_ids = fields.Many2many('account.tax', string="Taxes")
+tax_line_id = fields.Many2one('account.tax', string='Originator Tax')
+tax_group_id = fields.Many2one(related='tax_line_id.tax_group_id')
+tax_base_amount = fields.Monetary(string="Base Amount")
+            </code></pre>
+        </section>
+
+        <section class="field-group">
+            <h3>对账字段</h3>
+            <pre><code>
+reconciled = fields.Boolean(compute='_compute_amount_residual', store=True)
+full_reconcile_id = fields.Many2one('account.full.reconcile', string="Matching")
+matched_debit_ids = fields.One2many('account.partial.reconcile', 'credit_move_id')
+matched_credit_ids = fields.One2many('account.partial.reconcile', 'debit_move_id')
+            </code></pre>
+        </section>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_compute_balance</h3>
+            <pre><code>@api.depends('move_id')
+def _compute_balance(self):
+    for line in self:
+        line.balance = line.debit - line.credit</code></pre>
+            <p>计算分录行的余额。</p>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 余额会自动计算
+move_line = self.env['account.move.line'].create({
+    'move_id': move.id,
+    'debit': 1000.0,
+    'credit': 0.0,
+})
+print(move_line.balance)  # 输出: 1000.0
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_compute_amount_residual</h3>
+            <pre><code>@api.depends('debit', 'credit', 'amount_currency', 'currency_id', 'matched_debit_ids', 'matched_credit_ids', 'matched_debit_ids.amount', 'matched_credit_ids.amount', 'account_id.reconcile')</code></pre>
+            <p>计算未核销金额。这是一个复杂的计算,考虑了多种因素:</p>
+            <ul>
+                <li>原始借贷金额</li>
+                <li>已核销金额</li>
+                <li>外币金额</li>
+                <li>科目是否可核销</li>
+            </ul>
+            <div class="example">
+                <pre><code>
+# 查看未核销金额
+move_line = self.env['account.move.line'].browse(line_id)
+residual = move_line.amount_residual
+residual_currency = move_line.amount_residual_currency
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>reconcile</h3>
+            <pre><code>def reconcile(self)</code></pre>
+            <p>执行分录行的核销操作。</p>
+            <div class="example">
+                <pre><code>
+# 核销分录行
+lines_to_reconcile = self.env['account.move.line'].browse([line1_id, line2_id])
+lines_to_reconcile.reconcile()
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>金额计算流程</h3>
+        <ol>
+            <li>借贷金额计算
+                <pre><code>
+@api.depends('balance', 'move_id.is_storno')
+def _compute_debit_credit(self):
+    for line in self:
+        if line.is_storno:
+            line.debit = -line.balance if line.balance < 0.0 else 0.0
+            line.credit = line.balance if line.balance > 0.0 else 0.0
+        else:
+            line.debit = line.balance if line.balance > 0.0 else 0.0
+            line.credit = -line.balance if line.balance < 0.0 else 0.0
+                </code></pre>
+            </li>
+            <li>外币金额转换
+                <pre><code>
+@api.depends('currency_rate', 'balance')
+def _compute_amount_currency(self):
+    for line in self:
+        if line.currency_id == line.company_currency_id:
+            line.amount_currency = line.balance
+        else:
+            line.amount_currency = line.balance * line.currency_rate
+                </code></pre>
+            </li>
+        </ol>
+
+        <h3>税务处理流程</h3>
+        <pre><code>
+@api.depends('product_id', 'account_id', 'partner_id', 'date')
+def _compute_tax_ids(self):
+    for line in self:
+        if line.display_type in ('line_section', 'line_note'):
+            continue
+        
+        if line.product_id:
+            line.tax_ids = line._get_computed_taxes()
+        </code></pre>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 创建会计分录行</h3>
+        <pre><code>
+# 创建借方分录
+debit_line = self.env['account.move.line'].create({
+    'move_id': move.id,
+    'account_id': debit_account.id,
+    'partner_id': partner.id,
+    'debit': amount,
+    'credit': 0.0,
+    'name': '付款',
+})
+
+# 创建贷方分录
+credit_line = self.env['account.move.line'].create({
+    'move_id': move.id,
+    'account_id': credit_account.id,
+    'partner_id': partner.id,
+    'debit': 0.0,
+    'credit': amount,
+    'name': '付款',
+})
+        </code></pre>
+
+        <h3>2. 外币业务处理</h3>
+        <pre><code>
+# 创建外币分录
+foreign_currency_line = self.env['account.move.line'].create({
+    'move_id': move.id,
+    'account_id': account.id,
+    'currency_id': usd_currency.id,
+    'amount_currency': 1000.0,  # USD金额
+    'debit': 7000.0,  # CNY金额
+    'name': '外币收款',
+})
+        </code></pre>
+
+        <h3>3. 分录核销</h3>
+        <pre><code>
+# 核销应收账款
+receivable_lines = self.env['account.move.line'].search([
+    ('account_id.internal_type', '=', 'receivable'),
+    ('partner_id', '=', partner.id),
+    ('reconciled', '=', False)
+])
+receivable_lines.reconcile()
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>始终保持借贷平衡</li>
+            <li>正确设置科目和合作伙伴</li>
+            <li>及时进行对账核销</li>
+            <li>正确处理外币业务</li>
+            <li>定期检查未核销项目</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 借贷不平衡</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>金额计算错误</li>
+                    <li>舍入问题</li>
+                    <li>外币转换问题</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>使用_compute_balance检查余额</li>
+                    <li>检查货币转换设置</li>
+                    <li>调整舍入方式</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 核销失败</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>金额不匹配</li>
+                    <li>科目设置问题</li>
+                    <li>币种不一致</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查未核销金额</li>
+                    <li>验证科目设置</li>
+                    <li>确认币种一致性</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>分录创建后谨慎修改</li>
+            <li>注意外币转换的准确性</li>
+            <li>定期检查未核销项目</li>
+            <li>关注税务处理的正确性</li>
+        </ul>
+    </div>
+
+    <div class="performance">
+        <h2>性能优化</h2>
+        <ul>
+            <li>批量创建分录行
+                <pre><code>
+# 批量创建而不是循环创建
+lines_vals = []
+for data in batch_data:
+    lines_vals.append({
+        'move_id': move.id,
+        'account_id': data['account_id'],
+        'debit': data['debit'],
+        'credit': data['credit'],
+    })
+self.env['account.move.line'].create(lines_vals)
+                </code></pre>
+            </li>
+            <li>使用SQL索引
+                <pre><code>
+# 在init方法中创建索引
+def init(self):
+    super().init()
+    self._cr.execute("""
+        CREATE INDEX IF NOT EXISTS account_move_line_date_index
+        ON account_move_line (date, company_id)
+    """)
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加自定义字段
+                <pre><code>
+class AccountMoveLineExtended(models.Model):
+    _inherit = 'account.move.line'
+    
+    custom_field = fields.Char(string='Custom Field')
+    custom_amount = fields.Monetary(
+        string='Custom Amount',
+        currency_field='company_currency_id'
+    )
+                </code></pre>
+            </li>
+            <li>扩展计算逻辑
+                <pre><code>
+@api.depends('custom_amount', 'balance')
+def _compute_custom_total(self):
+    for line in self:
+        line.custom_total = line.custom_amount + line.balance
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+</body>
+</html> 

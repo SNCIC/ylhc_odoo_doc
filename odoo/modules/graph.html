@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模块依赖图解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模块依赖图(graph.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>graph.py</code>是Odoo框架中的一个重要模块，负责管理模块之间的依赖关系。它通过构建一个有向图来表示和处理模块间的依赖关系，确保模块按照正确的顺序加载和初始化。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>模块依赖关系管理</li>
+            <li>依赖图的构建和遍历</li>
+            <li>模块加载顺序的确定</li>
+            <li>循环依赖的检测和处理</li>
+        </ul>
+    </div>
+
+    <h2>主要组件详解</h2>
+    
+    <h3>1. Graph类</h3>
+    <div class="code-block">
+        <pre><code>class Graph(dict):
+    """模块依赖图的主类，继承自dict"""</code></pre>
+    </div>
+    <p>Graph类是模块的核心，它：</p>
+    <ul>
+        <li>维护模块名称到Node对象的映射</li>
+        <li>管理模块的添加和依赖关系的建立</li>
+        <li>提供图的遍历和更新功能</li>
+    </ul>
+
+    <h3>2. Node类</h3>
+    <div class="code-block">
+        <pre><code>class Node(object):
+    """表示依赖图中的一个模块节点"""</code></pre>
+    </div>
+    <p>Node类代表图中的一个模块节点，具有以下特性：</p>
+    <ul>
+        <li>单例模式实现（每个模块名只有一个Node实例）</li>
+        <li>维护模块的深度信息</li>
+        <li>管理子模块关系</li>
+        <li>处理模块的状态属性</li>
+    </ul>
+
+    <h2>核心功能详解</h2>
+    
+    <h3>1. 模块节点添加</h3>
+    <div class="code-block">
+        <pre><code>def add_node(self, name, info):
+    # 计算最大深度
+    # 确定父节点
+    # 添加新节点</code></pre>
+    </div>
+    <p>节点添加过程：</p>
+    <ul>
+        <li>分析依赖关系确定深度</li>
+        <li>找到合适的父节点</li>
+        <li>创建新节点或更新现有节点</li>
+    </ul>
+
+    <h3>2. 数据库同步更新</h3>
+    <div class="code-block">
+        <pre><code>def update_from_db(self, cr):
+    # 从数据库获取模块信息
+    # 更新节点状态</code></pre>
+    </div>
+    <p>数据库同步功能：</p>
+    <ul>
+        <li>获取模块的安装状态</li>
+        <li>更新模块的版本信息</li>
+        <li>同步演示数据状态</li>
+    </ul>
+
+    <h3>3. 模块批量添加</h3>
+    <div class="code-block">
+        <pre><code>def add_modules(self, cr, module_list, force=None):
+    # 处理模块列表
+    # 解析依赖关系
+    # 按顺序添加模块</code></pre>
+    </div>
+    <p>批量添加功能：</p>
+    <ul>
+        <li>验证模块的可安装性</li>
+        <li>处理模块间的依赖关系</li>
+        <li>确保正确的安装顺序</li>
+    </ul>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建依赖图示例</h3>
+    <div class="code-block">
+        <pre><code>def create_module_graph():
+    graph = Graph()
+    # 添加基础模块
+    graph.add_node('base', {'depends': []})
+    # 添加依赖模块
+    graph.add_node('sale', {'depends': ['base']})
+    return graph</code></pre>
+    </div>
+
+    <h3>更新模块状态示例</h3>
+    <div class="code-block">
+        <pre><code>def update_module_status(cr, graph):
+    # 从数据库更新状态
+    graph.update_from_db(cr)
+    # 遍历检查状态
+    for node in graph:
+        print(f"模块: {node.name}, 状态: {node.state}")</code></pre>
+    </div>
+
+    <h3>批量安装模块示例</h3>
+    <div class="code-block">
+        <pre><code>def install_modules(cr, modules):
+    graph = Graph()
+    graph.add_modules(cr, modules)
+    # 按依赖顺序安装
+    for node in graph:
+        print(f"正在安装: {node.name}")</code></pre>
+    </div>
+
+    <h2>依赖处理机制</h2>
+    
+    <h3>1. 深度计算</h3>
+    <div class="flow-diagram">
+        <p>模块深度的计算方式：</p>
+        <ul>
+            <li>基础模块深度为0</li>
+            <li>子模块深度为父模块深度+1</li>
+            <li>多个父模块时取最大深度</li>
+        </ul>
+    </div>
+
+    <h3>2. 依赖解析</h3>
+    <div class="flow-diagram">
+        <p>依赖关系的处理流程：</p>
+        <ul>
+            <li>解析manifest文件中的depends字段</li>
+            <li>构建依赖关系图</li>
+            <li>检测循环依赖</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>依赖管理</h3>
+        <ul>
+            <li>明确声明模块依赖</li>
+            <li>避免循环依赖</li>
+            <li>最小化依赖数量</li>
+        </ul>
+
+        <h3>模块组织</h3>
+        <ul>
+            <li>合理划分模块功能</li>
+            <li>保持模块独立性</li>
+            <li>遵循单一职责原则</li>
+        </ul>
+
+        <h3>性能优化</h3>
+        <ul>
+            <li>减少不必要的依赖</li>
+            <li>优化加载顺序</li>
+            <li>合理使用强制加载选项</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>依赖图构建是模块加载的关键步骤</li>
+            <li>正确的依赖关系对系统稳定性至关重要</li>
+            <li>需要注意处理循环依赖和版本兼容性问题</li>
+        </ul>
+    </div>
+</body>
+</html> 

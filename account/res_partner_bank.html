@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo银行账户管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo银行账户管理模块(ResPartnerBank)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_partner_bank.py</code>是Odoo框架中的银行账户管理模块，继承自<code>res.partner.bank</code>并混入了邮件功能。该模块提供了完整的银行账户管理功能，包括账户验证、二维码生成等高级特性。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>管理合作伙伴的银行账户信息，提供账户验证、安全控制和支付功能支持。
+    </div>
+    
+    <h2>主要字段定义</h2>
+    
+    <h3>基础字段</h3>
+    <ul>
+        <li><code>journal_id</code>: One2many字段，关联到账户日记账</li>
+        <li><code>has_iban_warning</code>: 布尔字段，IBAN警告标志</li>
+        <li><code>partner_country_name</code>: Char字段，合作伙伴国家名称</li>
+        <li><code>has_money_transfer_warning</code>: 布尔字段，转账警告标志</li>
+    </ul>
+
+    <h3>安全相关字段</h3>
+    <ul>
+        <li><code>allow_out_payment</code>: 布尔字段，允许对外支付</li>
+        <li><code>user_has_group_validate_bank_account</code>: 布尔字段，用户验证权限</li>
+        <li><code>lock_trust_fields</code>: 布尔字段，锁定信任字段</li>
+    </ul>
+
+    <h2>核心方法解析</h2>
+    
+    <h3>1. 账户验证方法</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('partner_id.country_id', 'sanitized_acc_number', 'allow_out_payment', 'acc_type')
+def _compute_display_account_warning(self):
+    for bank in self:
+        if bank.allow_out_payment or not bank.sanitized_acc_number or bank.acc_type != 'iban':
+            bank.has_iban_warning = False
+            bank.has_money_transfer_warning = False
+            continue
+        bank_country = bank.sanitized_acc_number[:2]
+        bank.has_iban_warning = bank.partner_id.country_id and bank_country != bank.partner_id.country_id.code</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>验证IBAN账号的合法性</li>
+        <li>检查账户国家与合作伙伴国家是否匹配</li>
+        <li>设置相应的警告标志</li>
+    </ul>
+
+    <h3>2. 二维码生成功能</h3>
+    <div class="code-block">
+        <pre><code>def _build_qr_code_vals(self, amount, free_communication, structured_communication, currency, debtor_partner, qr_method=None, silent_errors=True):
+    # 构建支付二维码所需的数据
+    # 支持多种二维码生成方法
+    # 处理错误并返回生成结果</code></pre>
+    </div>
+
+    <h3>3. 安全控制方法</h3>
+    <div class="code-block">
+        <pre><code>@api.constrains('allow_out_payment')
+def _check_allow_out_payment(self):
+    for bank in self:
+        if bank.allow_out_payment:
+            if not self.env.user.has_group('account.group_validate_bank_account'):
+                raise ValidationError(_('You do not have the right to trust or un-trust a bank account.'))</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 创建银行账户</h3>
+    <div class="code-block">
+        <pre><code># 创建新的银行账户
+bank_account = self.env['res.partner.bank'].create({
+    'acc_number': 'BE68539007547034',
+    'partner_id': partner.id,
+    'bank_id': bank.id,
+    'allow_out_payment': False
+})</code></pre>
+    </div>
+
+    <h3>2. 生成支付二维码</h3>
+    <div class="code-block">
+        <pre><code># 生成支付二维码
+qr_code = bank_account.build_qr_code_url(
+    amount=1000.0,
+    currency=self.env.ref('base.EUR'),
+    debtor_partner=self.env.user.partner_id,
+    free_communication='Invoice payment',
+    structured_communication=None
+)</code></pre>
+    </div>
+
+    <h2>安全特性</h2>
+    <div class="warning">
+        <strong>重要安全提示：</strong>
+        <ul>
+            <li>新建账户默认不允许对外支付</li>
+            <li>只有具有特定权限的用户才能修改信任设置</li>
+            <li>账户信息修改会被完整记录</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <ul>
+        <li>严格控制银行账户的验证权限</li>
+        <li>定期审查账户的信任状态</li>
+        <li>使用结构化通信进行支付</li>
+        <li>保持完整的修改记录</li>
+    </ul>
+
+    <h2>特殊功能</h2>
+    
+    <h3>1. 转账服务识别</h3>
+    <div class="code-block">
+        <pre><code>def _get_money_transfer_services(self):
+    return {
+        '967': 'Wise',
+        '977': 'Paynovate',
+        '974': 'PPS EU SA',
+    }</code></pre>
+    </div>
+
+    <h3>2. 账户跟踪</h3>
+    <div class="code-block">
+        <pre><code>def write(self, vals):
+    # 跟踪重要字段的变更
+    # 记录修改历史
+    # 发送通知</code></pre>
+    </div>
+
+    <div class="note">
+        <strong>技术说明：</strong>
+        <p>本模块是Odoo支付功能的基础，提供了完整的银行账户管理功能。通过与其他模块的集成，支持完整的支付流程和安全控制。</p>
+    </div>
+
+    <h2>常见问题解决</h2>
+    <ul>
+        <li>账户验证失败：检查IBAN格式和国家代码</li>
+        <li>权限不足：确认用户所属组别</li>
+        <li>二维码生成失败：检查必要参数是否完整</li>
+    </ul>
+</body>
+</html> 

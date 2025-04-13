@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo自动清理系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo自动清理系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_autovacuum.py</code>是Odoo框架中负责自动清理和维护数据库的核心模块。它提供了一个自动化机制来清理过期数据、优化数据库性能,并执行定期维护任务。</p>
+
+    <div class="note">
+        <strong>什么是自动清理?</strong>自动清理是一种系统维护机制,用于自动删除过期数据、清理临时文件、优化数据库性能等,以保持系统的健康运行。
+    </div>
+
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>数据清理</strong>：清理过期和临时数据</li>
+        <li><strong>性能优化</strong>：优化数据库性能</li>
+        <li><strong>自动维护</strong>：执行定期维护任务</li>
+        <li><strong>系统监控</strong>：监控系统资源使用</li>
+    </ol>
+
+    <h2>核心类结构</h2>
+    
+    <h3>AutoVacuum</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>主要方法</h4>
+            <ul>
+                <li>_run_vacuum_cleaner: 执行清理任务</li>
+                <li>power_on: 启动自动清理</li>
+                <li>power_off: 停止自动清理</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>清理任务类型</h2>
+    <table>
+        <tr>
+            <th>任务类型</th>
+            <th>说明</th>
+            <th>执行周期</th>
+        </tr>
+        <tr>
+            <td>数据清理</td>
+            <td>清理过期数据</td>
+            <td>每天</td>
+        </tr>
+        <tr>
+            <td>文件清理</td>
+            <td>清理临时文件</td>
+            <td>每周</td>
+        </tr>
+        <tr>
+            <td>会话清理</td>
+            <td>清理过期会话</td>
+            <td>每小时</td>
+        </tr>
+        <tr>
+            <td>缓存清理</td>
+            <td>清理系统缓存</td>
+            <td>每天</td>
+        </tr>
+    </table>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 定义清理任务</h3>
+    <div class="code-block">
+        <pre><code>
+class MyModel(models.Model):
+    _name = 'my.model'
+    
+    @api.autovacuum
+    def _clean_old_records(self):
+        # 清理90天前的记录
+        date_limit = fields.Datetime.now() - timedelta(days=90)
+        old_records = self.search([
+            ('create_date', '<', date_limit)
+        ])
+        old_records.unlink()
+        </code></pre>
+    </div>
+
+    <h3>2. 手动触发清理</h3>
+    <div class="code-block">
+        <pre><code>
+def manual_cleanup(self):
+    self.env['ir.autovacuum']._run_vacuum_cleaner()
+        </code></pre>
+    </div>
+
+    <h2>清理流程</h2>
+    <div class="workflow">
+        <ol>
+            <li>准备阶段
+                <ul>
+                    <li>检查系统状态</li>
+                    <li>获取清理配置</li>
+                </ul>
+            </li>
+            <li>清理执行
+                <ul>
+                    <li>收集清理任务</li>
+                    <li>按优先级执行</li>
+                </ul>
+            </li>
+            <li>结果处理
+                <ul>
+                    <li>记录清理日志</li>
+                    <li>更新系统状态</li>
+                </ul>
+            </li>
+            <li>后续处理
+                <ul>
+                    <li>发送通知</li>
+                    <li>更新统计信息</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <h2>性能优化</h2>
+    
+    <h3>执行优化</h3>
+    <ul>
+        <li>分批处理</li>
+        <li>错峰执行</li>
+        <li>并发控制</li>
+        <li>资源限制</li>
+    </ul>
+
+    <h3>调度优化</h3>
+    <ul>
+        <li>智能调度</li>
+        <li>负载均衡</li>
+        <li>优先级管理</li>
+        <li>失败重试</li>
+    </ul>
+
+    <h2>安全机制</h2>
+    
+    <h3>访问控制</h3>
+    <ul>
+        <li>仅管理员可执行</li>
+        <li>操作日志记录</li>
+        <li>清理范围限制</li>
+        <li>敏感数据保护</li>
+    </ul>
+
+    <h3>容错处理</h3>
+    <ul>
+        <li>事务管理</li>
+        <li>异常处理</li>
+        <li>状态恢复</li>
+        <li>清理回滚</li>
+    </ul>
+
+    <h2>常见问题</h2>
+    
+    <div class="faq">
+        <h3>Q: 清理任务未执行?</h3>
+        <p>检查以下方面：</p>
+        <ul>
+            <li>cron任务是否启用</li>
+            <li>系统负载是否过高</li>
+            <li>权限是否正确</li>
+            <li>日志是否有错误</li>
+        </ul>
+
+        <h3>Q: 清理性能问题?</h3>
+        <p>优化建议：</p>
+        <ul>
+            <li>调整批处理大小</li>
+            <li>优化清理策略</li>
+            <li>错峰执行任务</li>
+            <li>增加资源限制</li>
+        </ul>
+    </div>
+
+    <h2>Odoo 18中的改进</h2>
+    <ul>
+        <li>更智能的清理策略</li>
+        <li>改进的性能优化</li>
+        <li>新增清理类型</li>
+        <li>更好的错误处理</li>
+    </ul>
+
+    <h2>最佳实践</h2>
+    
+    <div class="best-practices">
+        <h3>1. 清理策略</h3>
+        <ul>
+            <li>合理设置清理周期</li>
+            <li>分批处理大数据</li>
+            <li>保留必要日志</li>
+            <li>定期检查结果</li>
+        </ul>
+
+        <h3>2. 性能考虑</h3>
+        <ul>
+            <li>避免高峰期执行</li>
+            <li>控制清理范围</li>
+            <li>优化查询语句</li>
+            <li>监控系统资源</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>开发建议：</strong>在开发自定义清理任务时,建议使用分批处理和事务管理,并做好日志记录,这样可以保证清理过程的可靠性和可追踪性。
+    </div>
+
+    <h2>核心代码分析</h2>
+    
+    <h3>1. 自动清理基类</h3>
+    <div class="code-block">
+        <pre><code>
+class AutoVacuum(models.AbstractModel):
+    _name = 'ir.autovacuum'
+    _description = 'Automatic Vacuum'
+
+    def _run_vacuum_cleaner(self):
+        """执行完整的数据库清理"""
+        if not self.env.is_admin():
+            raise AccessError()
+
+        for model in self.env.values():
+            cls = self.env.registry[model._name]
+            for attr, func in inspect.getmembers(cls, is_autovacuum):
+                try:
+                    func(model)
+                    self.env.cr.commit()
+                except Exception:
+                    _logger.exception("Failed %s.%s()", model, attr)
+                    self.env.cr.rollback()
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>使用抽象模型实现</li>
+        <li>仅管理员可执行</li>
+        <li>支持事务回滚</li>
+    </ul>
+
+    <h3>2. 装饰器实现</h3>
+    <div class="code-block">
+        <pre><code>
+def is_autovacuum(func):
+    """判断方法是否为自动清理方法"""
+    return callable(func) and getattr(func, '_autovacuum', False)
+
+def autovacuum(method):
+    """自动清理装饰器"""
+    method._autovacuum = True
+    return method
+
+@api.autovacuum
+def _gc_user_logs(self):
+    """示例:清理用户日志"""
+    days = self.env['ir.config_parameter'].get_param('user.logs.days', 90)
+    old_logs = self.search([
+        ('create_date', '<', fields.Datetime.now() - timedelta(days=days))
+    ])
+    old_logs.unlink()
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>使用装饰器标记清理方法</li>
+        <li>支持配置清理参数</li>
+        <li>自动提交事务</li>
+    </ul>
+
+    <h3>3. 清理任务执行</h3>
+    <div class="code-block">
+        <pre><code>
+def _gc_file_store(self):
+    """文件存储垃圾回收"""
+    # 在新事务中继续
+    cr = self._cr
+    cr.commit()
+
+    # 获取文件存储锁
+    cr.execute("SET LOCAL lock_timeout TO '10s'")
+    try:
+        cr.execute("LOCK ir_attachment IN SHARE MODE")
+    except psycopg2.errors.LockNotAvailable:
+        cr.rollback()
+        return False
+
+    # 执行清理
+    self._gc_file_store_unsafe()
+    
+    # 提交并释放锁
+    cr.commit()
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>使用数据库锁</li>
+        <li>安全的事务处理</li>
+        <li>超时机制</li>
+    </ul>
+
+    <h3>4. 性能优化实现</h3>
+    <div class="code-block">
+        <pre><code>
+def _gc_file_store_unsafe(self):
+    """执行实际的文件清理"""
+    # 获取检查列表
+    checklist = {}
+    for dirpath, _, filenames in os.walk(self._full_path('checklist')):
+        dirname = os.path.basename(dirpath)
+        for filename in filenames:
+            fname = "%s/%s" % (dirname, filename)
+            checklist[fname] = os.path.join(dirpath, filename)
+
+    # 分批处理清理列表
+    removed = 0
+    for names in self.env.cr.split_for_in_conditions(checklist):
+        # 确定要保留的文件
+        cr.execute("""
+            SELECT store_fname 
+            FROM ir_attachment 
+            WHERE store_fname IN %s
+        """, [names])
+        whitelist = set(row[0] for row in cr.fetchall())
+
+        # 删除未使用的文件
+        for fname in names:
+            filepath = checklist[fname]
+            if fname not in whitelist:
+                try:
+                    os.unlink(self._full_path(fname))
+                    removed += 1
+                except (OSError, IOError):
+                    _logger.info("Could not unlink %s",
+                               self._full_path(fname), exc_info=True)
+            # 清理检查列表
+            os.unlink(filepath)
+        </code></pre>
+    </div>
+    <p>关键点解析:</p>
+    <ul>
+        <li>分批处理大量数据</li>
+        <li>使用白名单机制</li>
+        <li>异常处理和日志</li>
+    </ul>
+</body>
+</html> 

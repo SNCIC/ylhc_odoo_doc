@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 摘要报告模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 摘要报告模块(digest)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>digest.py是Odoo 18中处理会计摘要报告的扩展模块。它继承了基础的digest.digest模型,主要用于生成和发送包含关键会计指标的摘要报告。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>收入指标计算</li>
+            <li>KPI数据收集</li>
+            <li>自动报告生成</li>
+            <li>邮件通知集成</li>
+        </ul>
+    </div>
+
+    <div class="main-fields">
+        <h2>主要字段</h2>
+        <pre><code>
+# KPI字段
+kpi_account_total_revenue = fields.Boolean('Revenue')
+kpi_account_total_revenue_value = fields.Monetary(
+    compute='_compute_kpi_account_total_revenue_value'
+)
+        </code></pre>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_compute_kpi_account_total_revenue_value</h3>
+            <pre><code>def _compute_kpi_account_total_revenue_value(self)</code></pre>
+            <p>计算总收入KPI值。</p>
+            <ul>
+                <li>功能:
+                    <ul>
+                        <li>检查用户权限</li>
+                        <li>获取计算参数</li>
+                        <li>计算收入总额</li>
+                        <li>按公司分组统计</li>
+                    </ul>
+                </li>
+            </ul>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 计算收入KPI
+digest = self.env['digest.digest'].browse(digest_id)
+digest._compute_kpi_account_total_revenue_value()
+print(f"总收入: {digest.kpi_account_total_revenue_value}")
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_compute_kpis_actions</h3>
+            <pre><code>def _compute_kpis_actions(self, company, user)</code></pre>
+            <p>计算KPI相关的动作链接。</p>
+            <div class="example">
+                <pre><code>
+# 获取KPI动作
+actions = digest._compute_kpis_actions(company, user)
+revenue_action = actions['kpi_account_total_revenue']
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>收入计算逻辑</h3>
+        <pre><code>
+def _compute_kpi_account_total_revenue_value(self):
+    if not self.env.user.has_group('account.group_account_invoice'):
+        raise AccessError(_("Do not have access, skip this data for user's digest email"))
+
+    start, end, companies = self._get_kpi_compute_parameters()
+
+    total_per_companies = dict(self.env['account.move.line'].sudo()._read_group(
+        groupby=['company_id'],
+        aggregates=['balance:sum'],
+        domain=[
+            ('company_id', 'in', companies.ids),
+            ('date', '>', start),
+            ('date', '<=', end),
+            ('account_id.internal_group', '=', 'income'),
+            ('parent_state', '=', 'posted'),
+        ],
+    ))
+
+    for record in self:
+        company = record.company_id or self.env.company
+        record.kpi_account_total_revenue_value = -total_per_companies.get(company, 0)
+        </code></pre>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 生成每日摘要</h3>
+        <pre><code>
+# 创建每日摘要配置
+daily_digest = self.env['digest.digest'].create({
+    'name': '每日财务摘要',
+    'periodicity': 'daily',
+    'kpi_account_total_revenue': True,
+})
+        </code></pre>
+
+        <h3>2. 自定义KPI计算</h3>
+        <pre><code>
+# 扩展KPI计算
+class CustomDigest(models.Model):
+    _inherit = 'digest.digest'
+    
+    def _compute_kpi_custom_revenue(self):
+        # 自定义收入计算逻辑
+        start, end, companies = self._get_kpi_compute_parameters()
+        # 计算自定义收入指标
+        </code></pre>
+
+        <h3>3. 发送摘要邮件</h3>
+        <pre><code>
+# 手动触发摘要发送
+digest = self.env['digest.digest'].browse(digest_id)
+digest.action_send()
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>合理设置计算周期</li>
+            <li>注意性能优化</li>
+            <li>正确处理权限</li>
+            <li>保持数据准确性</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 权限不足</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>用户缺少必要权限</li>
+                    <li>权限组设置错误</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查用户权限设置</li>
+                    <li>确保用户在正确的权限组中</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 数据不准确</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>计算参数错误</li>
+                    <li>数据同步延迟</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>验证计算参数</li>
+                    <li>检查数据同步状态</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>注意数据权限控制</li>
+            <li>合理设置计算频率</li>
+            <li>关注性能影响</li>
+            <li>保护敏感数据</li>
+        </ul>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加新的KPI指标
+                <pre><code>
+class DigestExtended(models.Model):
+    _inherit = 'digest.digest'
+    
+    kpi_custom_metric = fields.Boolean('Custom Metric')
+    kpi_custom_metric_value = fields.Monetary(
+        compute='_compute_kpi_custom_metric_value'
+    )
+                </code></pre>
+            </li>
+            <li>自定义计算逻辑
+                <pre><code>
+def _compute_kpi_custom_metric_value(self):
+    """自定义KPI计算方法"""
+    for record in self:
+        # 实现自定义计算逻辑
+        record.kpi_custom_metric_value = calculated_value
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="security">
+        <h2>安全考虑</h2>
+        <ul>
+            <li>权限检查
+                <pre><code>
+if not self.env.user.has_group('account.group_account_invoice'):
+    raise AccessError(_("Do not have access"))
+                </code></pre>
+            </li>
+            <li>数据访问控制
+                <pre><code>
+# 使用sudo()确保正确的数据访问
+self.env['account.move.line'].sudo()._read_group(...)
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+</body>
+</html> 

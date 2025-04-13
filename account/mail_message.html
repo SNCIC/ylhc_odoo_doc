@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 会计邮件系统模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 会计邮件系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>这些文件是Odoo 18中会计模块的邮件处理系统的核心组件，包括消息管理、邮件模板和跟踪值处理。它们共同构成了会计系统中的通信和审计功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>审计日志管理</li>
+            <li>邮件模板处理</li>
+            <li>消息跟踪</li>
+            <li>变更记录</li>
+            <li>安全控制</li>
+        </ul>
+    </div>
+
+    <h2>1. 消息管理 (mail_message.py)</h2>
+    <div class="code-explanation">
+        <h3>核心常量</h3>
+        <pre><code>
+bypass_token = object()
+DOMAINS = {
+    'account.move': lambda operator, value: [('company_id.check_account_audit_trail', operator, value)],
+    'account.account': lambda operator, value: [('company_ids.check_account_audit_trail', operator, value)],
+    'account.tax': lambda operator, value: [('company_id.check_account_audit_trail', operator, value)],
+    'res.partner': lambda operator, value: [
+        '|', ('company_id', '=', False), ('company_id.check_account_audit_trail', operator, value),
+        '|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0),
+    ],
+    'res.company': lambda operator, value: [('check_account_audit_trail', operator, value)],
+}
+        </code></pre>
+
+        <h3>主要字段</h3>
+        <ul>
+            <li><code>account_audit_log_preview</code>: 审计日志预览</li>
+            <li><code>account_audit_log_move_id</code>: 关联的会计分录</li>
+            <li><code>account_audit_log_partner_id</code>: 关联的业务伙伴</li>
+            <li><code>account_audit_log_account_id</code>: 关联的会计科目</li>
+            <li><code>account_audit_log_tax_id</code>: 关联的税种</li>
+            <li><code>account_audit_log_activated</code>: 审计日志是否激活</li>
+        </ul>
+
+        <h3>核心方法示例</h3>
+        <pre><code>
+# 计算审计日志预览
+def _compute_account_audit_log_preview(self):
+    audit_messages = self.filtered('account_audit_log_activated')
+    for message in audit_messages:
+        title = message.subject or message.preview
+        tracking_value_ids = message.sudo().tracking_value_ids._filter_has_field_access(self.env)
+        if not title and tracking_value_ids:
+            title = self.env._("Updated")
+        audit_log_preview = (title or '') + '\n'
+        audit_log_preview += "\n".join(
+            "%(old_value)s ⇨ %(new_value)s (%(field)s)" % {
+                'old_value': fmt_vals['oldValue']['value'],
+                'new_value': fmt_vals['newValue']['value'],
+                'field': fmt_vals['changedField'],
+            }
+            for fmt_vals in tracking_value_ids._tracking_value_format()
+        )
+        message.account_audit_log_preview = audit_log_preview
+        </code></pre>
+    </div>
+
+    <h2>2. 邮件模板 (mail_template.py)</h2>
+    <div class="code-explanation">
+        <h3>主要功能</h3>
+        <ul>
+            <li>管理会计相关的邮件模板</li>
+            <li>保护关键邮件模板</li>
+            <li>处理模板删除限制</li>
+        </ul>
+
+        <h3>核心代码示例</h3>
+        <pre><code>
+class MailTemplate(models.Model):
+    _inherit = 'mail.template'
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_except_master_mail_template(self):
+        master_xmlids = {
+            "account.email_template_edi_invoice",
+            "account.email_template_edi_credit_note",
+        }
+        removed_xml_ids = set(self.get_external_id().values())
+        if removed_xml_ids.intersection(master_xmlids):
+            raise UserError(_("不能删除此邮件模板，它在发票发送流程中使用。"))
+        </code></pre>
+    </div>
+
+    <h2>3. 跟踪值处理 (mail_tracking_value.py)</h2>
+    <div class="code-explanation">
+        <h3>主要功能</h3>
+        <ul>
+            <li>记录字段值变更</li>
+            <li>维护审计日志</li>
+            <li>保护跟踪记录</li>
+        </ul>
+
+        <h3>核心代码示例</h3>
+        <pre><code>
+class MailTrackingValues(models.Model):
+    _inherit = 'mail.tracking.value'
+
+    @api.ondelete(at_uninstall=True)
+    def _except_audit_log(self):
+        self.mail_message_id._except_audit_log()
+
+    def write(self, vals):
+        self._except_audit_log()
+        return super().write(vals)
+        </code></pre>
+    </div>
+
+    <h2>使用场景示例</h2>
+
+    <h3>1. 创建审计日志</h3>
+    <pre><code>
+def create_audit_log(env, move_id, description, changes):
+    # 创建审计日志消息
+    message_vals = {
+        'model': 'account.move',
+        'res_id': move_id,
+        'message_type': 'notification',
+        'subject': description,
+    }
+    
+    # 创建跟踪值
+    tracking_values = []
+    for field, (old_value, new_value) in changes.items():
+        tracking_values.append({
+            'field': field,
+            'old_value': old_value,
+            'new_value': new_value
+        })
+    
+    # 创建消息
+    message = env['mail.message'].create(message_vals)
+    
+    # 添加跟踪值
+    for tracking in tracking_values:
+        env['mail.tracking.value'].create({
+            'mail_message_id': message.id,
+            'field_name': tracking['field'],
+            'old_value': tracking['old_value'],
+            'new_value': tracking['new_value']
+        })
+    </code></pre>
+
+    <h3>2. 使用邮件模板</h3>
+    <pre><code>
+def send_invoice_email(env, invoice_id):
+    # 获取发票邮件模板
+    template = env.ref('account.email_template_edi_invoice')
+    
+    # 获取发票记录
+    invoice = env['account.move'].browse(invoice_id)
+    
+    # 发送邮件
+    template.send_mail(
+        invoice.id,
+        force_send=True,
+        raise_exception=True
+    )
+    </code></pre>
+
+    <h2>高级功能特性</h2>
+
+    <h3>1. 审计日志系统</h3>
+    <div class="feature-explanation">
+        <p>完整的审计跟踪功能：</p>
+        <ul>
+            <li>记录所有重要操作</li>
+            <li>跟踪字段值变更</li>
+            <li>保护审计记录</li>
+            <li>提供变更历史</li>
+        </ul>
+    </div>
+
+    <h3>2. 安全机制</h3>
+    <div class="feature-explanation">
+        <p>多层安全保护：</p>
+        <ul>
+            <li>审计日志保护</li>
+            <li>模板删除保护</li>
+            <li>跟踪记录保护</li>
+            <li>访问权限控制</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 审计日志管理</h3>
+        <ul>
+            <li>及时记录重要操作</li>
+            <li>保持日志完整性</li>
+            <li>定期检查审计记录</li>
+            <li>合理设置保留期限</li>
+        </ul>
+
+        <h3>2. 邮件模板使用</h3>
+        <ul>
+            <li>规范模板命名</li>
+            <li>维护模板版本</li>
+            <li>测试模板效果</li>
+            <li>注意模板安全</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>保护审计日志完整性</li>
+            <li>谨慎删除系统模板</li>
+            <li>注意数据安全性</li>
+            <li>维护日志存储空间</li>
+        </ul>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <h3>Q1: 如何保护审计日志？</h3>
+        <p>A1: 系统通过多重机制保护审计日志，包括删除保护、修改限制和访问控制。同时，重要的审计记录会被永久保存。</p>
+
+        <h3>Q2: 如何自定义邮件模板？</h3>
+        <p>A2: 可以通过继承现有模板或创建新模板来自定义，但要注意不要删除或修改系统核心模板。</p>
+
+        <h3>Q3: 如何查看变更历史？</h3>
+        <p>A3: 可以通过审计日志查看所有变更记录，包括修改时间、修改人、原值和新值等信息。</p>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>1. 自定义审计规则</h3>
+        <pre><code>
+def create_custom_audit_rule(env):
+    """创建自定义审计规则"""
+    return env['account.audit.rule'].create({
+        'name': '自定义审计规则',
+        'model_id': env.ref('account.model_account_move').id,
+        'fields_to_track': ['amount_total', 'state'],
+        'log_type': 'full',  # 完整日志
+        'active': True
+    })
+        </code></pre>
+
+        <h3>2. 扩展跟踪字段</h3>
+        <pre><code>
+def extend_tracking_fields(env):
+    """扩展需要跟踪的字段"""
+    return env['ir.model.fields'].create({
+        'name': 'custom_field',
+        'model_id': env.ref('account.model_account_move').id,
+        'ttype': 'char',
+        'track_visibility': 'always',
+        'track_sequence': 50
+    })
+        </code></pre>
+    </div>
+</body>
+</html> 

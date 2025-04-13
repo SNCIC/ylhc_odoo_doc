@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo CLI Command模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo命令行基础框架(Command)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>command.py</code>是Odoo命令行工具的核心基础模块，它定义了命令行工具的基本框架和注册机制。所有的CLI命令都继承自这个基类。</p>
+
+    <h2>核心组件</h2>
+    
+    <h3>1. Command基类</h3>
+    <div class="code-block">
+        <pre><code>class Command:
+    name = None
+    def __init_subclass__(cls):
+        cls.name = cls.name or cls.__name__.lower()
+        commands[cls.name] = cls</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>作为所有CLI命令的基类</li>
+        <li>自动注册子类到commands字典</li>
+        <li>提供命令名称的自动处理机制</li>
+    </ul>
+
+    <h3>2. Help命令</h3>
+    <div class="code-block">
+        <pre><code>class Help(Command):
+    """ Display the list of available commands """
+    def run(self, args):
+        # 显示所有可用命令的列表</code></pre>
+    </div>
+    <p>功能特点：</p>
+    <ul>
+        <li>显示所有已注册命令的列表</li>
+        <li>格式化输出命令说明</li>
+        <li>提供命令使用帮助</li>
+    </ul>
+
+    <h3>3. main函数</h3>
+    <div class="code-block">
+        <pre><code>def main():
+    args = sys.argv[1:]
+    # 处理命令行参数并执行相应命令</code></pre>
+    </div>
+    <p>主要职责：</p>
+    <ul>
+        <li>解析命令行参数</li>
+        <li>处理插件命令的发现</li>
+        <li>执行指定的命令</li>
+    </ul>
+
+    <h2>工作流程</h2>
+    <ol>
+        <li>命令注册：
+            <ul>
+                <li>通过继承Command类自动注册新命令</li>
+                <li>命令名称自动从类名推导或手动指定</li>
+            </ul>
+        </li>
+        <li>命令发现：
+            <ul>
+                <li>扫描addons路径查找额外命令</li>
+                <li>动态导入模块中的命令</li>
+            </ul>
+        </li>
+        <li>命令执行：
+            <ul>
+                <li>解析命令行参数</li>
+                <li>查找对应的命令类</li>
+                <li>实例化并执行命令</li>
+            </ul>
+        </li>
+    </ol>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 创建新命令</h3>
+        <pre><code>class MyCommand(Command):
+    name = "mycommand"
+    def run(self, args):
+        # 实现命令逻辑
+        pass</code></pre>
+
+        <h3>2. 使用Help命令</h3>
+        <pre><code>odoo-bin --help
+odoo-bin mycommand --help</code></pre>
+    </div>
+
+    <h2>插件系统</h2>
+    <div class="plugin-system">
+        <h3>命令发现机制</h3>
+        <ul>
+            <li>自动扫描addons目录</li>
+            <li>查找cli子目录</li>
+            <li>动态导入命令模块</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>为新命令提供清晰的文档字符串</li>
+            <li>遵循命令行参数的标准格式</li>
+            <li>实现help子命令支持</li>
+            <li>保持命令功能单一</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>提示：</strong>在开发新的CLI命令时，建议参考现有命令的实现方式，保持一致的代码风格和用户体验。
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>命令名称必须唯一</li>
+            <li>避免在命令执行时修改全局状态</li>
+            <li>正确处理命令行参数</li>
+            <li>提供适当的错误处理</li>
+        </ul>
+    </div>
+</body>
+</html> 

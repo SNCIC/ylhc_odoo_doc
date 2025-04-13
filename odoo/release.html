@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo发布版本管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo发布版本管理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>release.py</code>是Odoo框架中的一个核心模块，它定义了Odoo的版本信息和发布相关的常量。这个模块在整个Odoo系统中起着重要的版本控制和标识作用。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>发布管理模块提供了一套统一的版本管理机制，确保Odoo系统各个组件的版本一致性，并提供版本相关的元数据。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>版本级别定义</strong>：定义了不同的发布级别（alpha、beta、candidate、final）</li>
+        <li><strong>版本信息管理</strong>：提供详细的版本号和系列信息</li>
+        <li><strong>产品信息维护</strong>：维护产品名称、描述等基本信息</li>
+        <li><strong>服务配置支持</strong>：提供Windows服务名称生成支持</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <div class="code-block">
+        <h3>1. 版本级别定义</h3>
+        <pre><code>RELEASE_LEVELS = [ALPHA, BETA, RELEASE_CANDIDATE, FINAL] = ['alpha', 'beta', 'candidate', 'final']
+RELEASE_LEVELS_DISPLAY = {
+    ALPHA: ALPHA,
+    BETA: BETA,
+    RELEASE_CANDIDATE: 'rc',
+    FINAL: ''
+}</code></pre>
+        <p>这部分代码定义了Odoo的发布级别：</p>
+        <ul>
+            <li>alpha: 内部测试版本</li>
+            <li>beta: 公开测试版本</li>
+            <li>candidate: 发布候选版本</li>
+            <li>final: 正式发布版本</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>2. 版本信息结构</h3>
+        <pre><code>version_info = (18, 0, 0, FINAL, 0, '')
+version = '.'.join(str(s) for s in version_info[:2]) + RELEASE_LEVELS_DISPLAY[version_info[3]] + str(version_info[4] or '') + version_info[5]
+series = serie = major_version = '.'.join(str(s) for s in version_info[:2])</code></pre>
+        <p>版本信息采用元组格式：(主版本, 次版本, 修订版本, 发布级别, 序列号, 额外信息)</p>
+        <ul>
+            <li>主版本号(18): 表示Odoo 18</li>
+            <li>次版本号(0): 表示该主版本的第一个版本</li>
+            <li>修订版本(0): 表示该次版本的第一个修订版</li>
+            <li>发布级别(FINAL): 表示这是一个正式发布版本</li>
+            <li>序列号(0): 在同一发布级别中的序号</li>
+            <li>额外信息(''): 可选的额外版本信息</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>3. 产品信息定义</h3>
+        <pre><code>product_name = 'Odoo'
+description = 'Odoo Server'
+long_desc = '''Odoo is a complete ERP and CRM. The main features are accounting (analytic
+and financial), stock management, sales and purchases management, tasks
+automation, marketing campaigns, help desk, POS, etc. Technical features include
+a distributed server, an object database, a dynamic GUI,
+customizable reports, and XML-RPC interfaces.
+'''</code></pre>
+        <p>这部分定义了Odoo产品的基本信息：</p>
+        <ul>
+            <li>产品名称</li>
+            <li>简短描述</li>
+            <li>详细描述（包含主要功能和技术特性）</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>4. 分类和许可信息</h3>
+        <pre><code>classifiers = """Development Status :: 5 - Production/Stable
+License :: OSI Approved :: GNU Lesser General Public License v3
+
+Programming Language :: Python
+"""
+url = 'https://www.odoo.com'
+author = 'OpenERP S.A.'
+author_email = 'info@odoo.com'
+license = 'LGPL-3'</code></pre>
+        <p>定义了软件的分类信息和许可证信息：</p>
+        <ul>
+            <li>开发状态：生产/稳定版本</li>
+            <li>许可证：GNU LGPL v3</li>
+            <li>编程语言：Python</li>
+            <li>官方网站和联系信息</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h3>5. Windows服务配置</h3>
+        <pre><code>nt_service_name = "odoo-server-" + series.replace('~','-')</code></pre>
+        <p>为Windows服务定义服务名称：</p>
+        <ul>
+            <li>格式：odoo-server-[版本系列]</li>
+            <li>示例：odoo-server-18.0</li>
+        </ul>
+    </div>
+
+    <h2>使用实例</h2>
+    <div class="example">
+        <h3>1. 获取当前Odoo版本</h3>
+        <pre><code>from odoo import release
+
+print(f"当前Odoo版本: {release.version}")  # 输出: 18.0
+print(f"版本系列: {release.series}")      # 输出: 18.0
+print(f"产品名称: {release.product_name}") # 输出: Odoo</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>2. 检查版本兼容性</h3>
+        <pre><code>def check_version_compatibility(required_version):
+    major, minor = map(int, release.version.split('.')[:2])
+    req_major, req_minor = map(int, required_version.split('.')[:2])
+    
+    return (major > req_major) or (major == req_major and minor >= req_minor)
+
+# 使用示例
+is_compatible = check_version_compatibility('17.0')  # 返回 True</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>3. 获取Windows服务名称</h3>
+        <pre><code>def get_windows_service_name():
+    return release.nt_service_name  # 返回 'odoo-server-18.0'</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在模块中导入release模块时，建议只导入需要的特定属性，而不是整个模块</li>
+            <li>使用version_info元组进行版本比较，而不是字符串版本号</li>
+            <li>在开发自定义模块时，参考release模块的版本号来确保兼容性</li>
+            <li>在部署Windows服务时，使用nt_service_name确保服务名称的一致性</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>版本号格式必须严格遵循定义的格式，不要随意修改</li>
+            <li>在开发模块时，要注意检查目标Odoo版本的兼容性</li>
+            <li>不同版本的Odoo可能有不同的API和功能，需要注意版本差异</li>
+        </ul>
+    </div>
+</body>
+</html> 

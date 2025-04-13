@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Models系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Models系统深度解析</h1>
+    
+    <h2>概述</h2>
+    <p>Odoo的Models系统是整个框架的核心,它实现了对象关系映射(ORM)功能。models.py文件包含了所有Model类的基础实现,是整个Odoo框架的基石。</p>
+
+    <div class="note">
+        <strong>核心功能:</strong>
+        <ul>
+            <li>对象关系映射(ORM)</li>
+            <li>数据持久化</li>
+            <li>字段定义和管理</li>
+            <li>CRUD操作实现</li>
+            <li>数据验证和约束</li>
+            <li>继承机制</li>
+            <li>缓存系统</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    
+    <h3>1. BaseModel 类</h3>
+    <div class="code-block">
+        <pre><code>class BaseModel(metaclass=MetaModel):
+    """Base class for Odoo models."""
+    _auto = False
+    _register = False
+    _abstract = True
+    _transient = False</code></pre>
+    </div>
+    <p>BaseModel是所有Odoo模型的基类,它定义了:</p>
+    <ul>
+        <li>基础的ORM操作(create, write, unlink等)</li>
+        <li>字段访问和管理机制</li>
+        <li>记录集操作</li>
+        <li>缓存系统</li>
+    </ul>
+
+    <h3>2. Model 类</h3>
+    <div class="code-block">
+        <pre><code>class Model(AbstractModel):
+    """Main super-class for regular database-persisted Odoo models."""
+    _auto = True
+    _register = False
+    _abstract = False
+    _transient = False</code></pre>
+    </div>
+    <p>Model是常规数据库持久化模型的主要超类,用于创建标准业务对象。</p>
+
+    <h3>3. TransientModel 类</h3>
+    <div class="code-block">
+        <pre><code>class TransientModel(Model):
+    """Model for temporary records."""
+    _auto = True
+    _register = False
+    _abstract = False
+    _transient = True</code></pre>
+    </div>
+    <p>TransientModel用于临时记录,如向导(wizard)。这些记录会定期被清理。</p>
+
+    <h2>主要功能详解</h2>
+
+    <h3>1. 记录集操作</h3>
+    <div class="feature-section">
+        <h4>记录集方法</h4>
+        <ul>
+            <li><code>browse()</code>: 创建记录集</li>
+            <li><code>exists()</code>: 验证记录是否存在</li>
+            <li><code>filtered()</code>: 过滤记录集</li>
+            <li><code>mapped()</code>: 映射记录集字段</li>
+            <li><code>sorted()</code>: 排序记录集</li>
+        </ul>
+        <div class="code-example">
+            <pre><code># 记录集操作示例
+users = env['res.users'].browse([1, 2, 3])
+active_users = users.filtered(lambda u: u.active)
+names = users.mapped('name')
+sorted_users = users.sorted(lambda u: u.create_date)</code></pre>
+        </div>
+    </div>
+
+    <h3>2. CRUD操作</h3>
+    <div class="feature-section">
+        <h4>基本操作方法</h4>
+        <ul>
+            <li><code>create()</code>: 创建记录</li>
+            <li><code>write()</code>: 更新记录</li>
+            <li><code>unlink()</code>: 删除记录</li>
+            <li><code>read()</code>: 读取记录</li>
+        </ul>
+        <div class="code-example">
+            <pre><code># CRUD操作示例
+# 创建记录
+partner = env['res.partner'].create({
+    'name': '测试伙伴',
+    'email': 'test@example.com'
+})
+
+# 更新记录
+partner.write({
+    'phone': '123456789'
+})
+
+# 读取记录
+data = partner.read(['name', 'email', 'phone'])
+
+# 删除记录
+partner.unlink()</code></pre>
+        </div>
+    </div>
+
+    <h3>3. 继承机制</h3>
+    <div class="feature-section">
+        <h4>继承类型</h4>
+        <ul>
+            <li>传统继承 (_inherit)</li>
+            <li>委托继承 (_inherits)</li>
+            <li>原型继承 (copy)</li>
+        </ul>
+        <div class="code-example">
+            <pre><code># 传统继承示例
+class CustomPartner(models.Model):
+    _inherit = 'res.partner'
+    
+    custom_field = fields.Char('自定义字段')
+
+# 委托继承示例
+class Employee(models.Model):
+    _name = 'hr.employee'
+    _inherits = {'res.users': 'user_id'}
+    
+    user_id = fields.Many2one('res.users', required=True)</code></pre>
+        </div>
+    </div>
+
+    <h3>4. 缓存系统</h3>
+    <div class="feature-section">
+        <h4>缓存操作</h4>
+        <ul>
+            <li><code>invalidate_cache()</code>: 使缓存失效</li>
+            <li><code>modified()</code>: 标记字段已修改</li>
+            <li><code>recompute()</code>: 重新计算字段</li>
+        </ul>
+        <div class="code-example">
+            <pre><code># 缓存操作示例
+record.invalidate_cache(['field1', 'field2'])
+record.modified(['name'])
+self.recompute()</code></pre>
+        </div>
+    </div>
+
+    <h3>5. 安全机制</h3>
+    <div class="feature-section">
+        <h4>访问控制</h4>
+        <ul>
+            <li>记录规则 (ir.rule)</li>
+            <li>访问权限 (ir.model.access)</li>
+            <li>字段访问权限</li>
+        </ul>
+        <div class="code-example">
+            <pre><code># 访问控制示例
+@api.model
+def check_access_rights(self, operation, raise_exception=True):
+    if not self.env['ir.model.access'].check(self._name, operation):
+        if raise_exception:
+            raise AccessError(_("Operation not allowed"))
+        return False
+    return True</code></pre>
+        </div>
+    </div>
+
+    <h2>高级特性</h2>
+
+    <h3>1. 计算字段</h3>
+    <div class="feature-section">
+        <div class="code-example">
+            <pre><code>class Partner(models.Model):
+    _inherit = 'res.partner'
+    
+    total_invoiced = fields.Float(compute='_compute_total_invoiced')
+    
+    @api.depends('invoice_ids.amount_total')
+    def _compute_total_invoiced(self):
+        for partner in self:
+            partner.total_invoiced = sum(partner.invoice_ids.mapped('amount_total'))</code></pre>
+        </div>
+    </div>
+
+    <h3>2. 约束</h3>
+    <div class="feature-section">
+        <div class="code-example">
+            <pre><code>class Product(models.Model):
+    _name = 'product.product'
+    
+    @api.constrains('price')
+    def _check_price(self):
+        for record in self:
+            if record.price < 0:
+                raise ValidationError(_("价格不能为负数"))</code></pre>
+        </div>
+    </div>
+
+    <h3>3. 记录集操作</h3>
+    <div class="feature-section">
+        <div class="code-example">
+            <pre><code># 记录集操作示例
+products = env['product.product'].search([])
+in_stock = products.filtered(lambda p: p.qty_available > 0)
+names = products.mapped('name')
+by_category = products.grouped(lambda p: p.categ_id)
+sorted_products = products.sorted(lambda p: p.list_price)</code></pre>
+        </div>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 性能优化</h3>
+        <ul>
+            <li>使用search_read替代search+read</li>
+            <li>适当使用prefetch机制</li>
+            <li>避免循环中的数据库操作</li>
+        </ul>
+
+        <h3>2. 安全性</h3>
+        <ul>
+            <li>始终使用ORM方法而不是直接SQL</li>
+            <li>正确设置访问权限</li>
+            <li>使用sudo()时要谨慎</li>
+        </ul>
+
+        <h3>3. 代码组织</h3>
+        <ul>
+            <li>合理使用继承机制</li>
+            <li>保持方法的单一职责</li>
+            <li>适当添加注释和文档</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>本文档基于Odoo 18版本,某些特性可能随版本更新而变化。建议始终参考最新的官方文档。
+    </div>
+</body>
+</html> 

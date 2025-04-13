@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 安全执行模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 安全执行模块(safe_eval.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>safe_eval.py</code>是Odoo框架中的一个关键安全模块,提供了安全的Python代码执行环境。该模块主要用于解析和执行不受信任的代码,如域字符串、条件和表达式,同时防止恶意代码执行。</p>
+    
+    <div class="note">
+        <strong>重要说明：</strong>该模块是Odoo安全架构的核心组件之一,通过严格控制可执行的操作码和访问权限,确保系统安全性。
+    </div>
+    
+    <h2>核心功能</h2>
+    
+    <h3>1. 安全常量</h3>
+    <div class="code-block">
+        <pre><code># 允许的模块列表
+_ALLOWED_MODULES = ['_strptime', 'math', 'time']
+
+# 不安全的属性列表
+_UNSAFE_ATTRIBUTES = [
+    'f_builtins', 'f_code', 'f_globals', 'f_locals',
+    'func_code', 'func_globals',
+    'co_code', '_co_code_adaptive',
+    'mro',
+    'tb_frame',
+    'gi_code', 'gi_frame', 'g_yieldfrom'
+    'cr_await', 'cr_code', 'cr_frame',
+    'ag_await', 'ag_code', 'ag_frame',
+]</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>定义允许导入的安全模块</li>
+            <li>列出禁止访问的危险属性</li>
+            <li>控制代码执行环境</li>
+        </ul>
+    </div>
+
+    <h3>2. 操作码管理</h3>
+    <div class="code-block">
+        <pre><code># 黑名单操作码
+_BLACKLIST = set(to_opcodes([
+    'IMPORT_STAR', 'IMPORT_NAME', 'IMPORT_FROM',
+    'STORE_ATTR', 'DELETE_ATTR',
+    'STORE_GLOBAL', 'DELETE_GLOBAL',
+]))
+
+# 常量操作码
+_CONST_OPCODES = set(to_opcodes([
+    'POP_TOP', 'ROT_TWO', 'ROT_THREE', 'ROT_FOUR',
+    'DUP_TOP', 'DUP_TOP_TWO',
+    'LOAD_CONST',
+    'RETURN_VALUE',
+    'BUILD_LIST', 'BUILD_MAP', 'BUILD_TUPLE', 'BUILD_SET',
+    # ... 更多操作码
+]))</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>定义禁止使用的危险操作码</li>
+            <li>指定允许的常量操作码</li>
+            <li>控制代码执行权限</li>
+        </ul>
+    </div>
+
+    <h3>3. 安全执行函数</h3>
+    <div class="code-block">
+        <pre><code>def safe_eval(expr, globals_dict=None, locals_dict=None, mode="eval", nocopy=False, locals_builtins=False, filename=None):
+    """安全的Python表达式执行
+    
+    参数:
+        expr: 要执行的表达式
+        globals_dict: 全局变量字典
+        locals_dict: 局部变量字典
+        mode: 执行模式
+        nocopy: 是否不复制环境
+        locals_builtins: 是否在局部变量中包含内置函数
+        filename: 用于错误追踪的文件名
+    """</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>安全执行Python表达式</li>
+            <li>控制执行环境</li>
+            <li>防止恶意代码执行</li>
+            <li>提供错误追踪</li>
+        </ul>
+    </div>
+
+    <h3>4. 内置函数和模块</h3>
+    <div class="code-block">
+        <pre><code>_BUILTINS = {
+    '__import__': _import,
+    'True': True,
+    'False': False,
+    'None': None,
+    'bytes': bytes,
+    'str': str,
+    'bool': bool,
+    'int': int,
+    'float': float,
+    'enumerate': enumerate,
+    'dict': dict,
+    'list': list,
+    'tuple': tuple,
+    'map': map,
+    'abs': abs,
+    # ... 更多内置函数
+}</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>定义安全的内置函数集合</li>
+            <li>提供基本的数据类型和操作</li>
+            <li>限制危险函数的访问</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本表达式求值</h3>
+    <div class="code-block">
+        <pre><code># 安全执行简单表达式
+result = safe_eval("1 + 2")  # 返回 3
+
+# 使用变量
+context = {'x': 10, 'y': 20}
+result = safe_eval("x + y", globals_dict=context)  # 返回 30</code></pre>
+    </div>
+
+    <h3>2. 复杂表达式执行</h3>
+    <div class="code-block">
+        <pre><code># 列表推导式
+result = safe_eval("[x * 2 for x in range(5)]")
+# 返回 [0, 2, 4, 6, 8]
+
+# 字典操作
+data = {'name': 'John', 'age': 30}
+result = safe_eval("data.get('name', 'Unknown')", {'data': data})
+# 返回 'John'</code></pre>
+    </div>
+
+    <h3>3. 条件表达式</h3>
+    <div class="code-block">
+        <pre><code># 三元运算符
+context = {'age': 20}
+result = safe_eval("'Adult' if age >= 18 else 'Minor'", context)
+# 返回 'Adult'</code></pre>
+    </div>
+
+    <h2>安全特性</h2>
+    <div class="security">
+        <h3>1. 代码检查</h3>
+        <ul>
+            <li>操作码验证</li>
+            <li>属性访问控制</li>
+            <li>模块导入限制</li>
+            <li>变量作用域隔离</li>
+        </ul>
+
+        <h3>2. 执行环境控制</h3>
+        <ul>
+            <li>安全的内置函数集</li>
+            <li>受限的模块访问</li>
+            <li>环境变量保护</li>
+            <li>异常处理机制</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议</h3>
+        <ul>
+            <li>始终使用safe_eval而不是eval</li>
+            <li>限制表达式的复杂度</li>
+            <li>提供最小权限的执行环境</li>
+            <li>正确处理异常情况</li>
+            <li>避免执行用户输入的代码</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>不要执行未经验证的代码</li>
+            <li>注意内存使用限制</li>
+            <li>避免递归和循环操作</li>
+            <li>谨慎处理文件操作</li>
+            <li>注意性能影响</li>
+        </ul>
+    </div>
+
+    <h2>高级用法</h2>
+    <div class="advanced">
+        <h3>1. 自定义执行环境</h3>
+        <pre><code># 创建受限环境
+safe_globals = {
+    'math': wrap_module(math, ['sin', 'cos', 'tan']),
+    'custom_func': lambda x: x * 2
+}
+result = safe_eval("math.sin(3.14) + custom_func(5)", safe_globals)</code></pre>
+
+        <h3>2. 错误处理</h3>
+        <pre><code>try:
+    result = safe_eval(user_input)
+except ValueError as e:
+    print(f"Invalid expression: {e}")
+except NameError as e:
+    print(f"Undefined variable: {e}")
+except Exception as e:
+    print(f"Execution error: {e}")</code></pre>
+    </div>
+
+    <h2>性能考虑</h2>
+    <div class="performance">
+        <h3>优化建议</h3>
+        <ul>
+            <li>缓存编译后的代码对象</li>
+            <li>限制表达式的复杂度</li>
+            <li>避免重复验证相同的表达式</li>
+            <li>合理使用nocopy参数</li>
+            <li>控制执行环境大小</li>
+        </ul>
+    </div>
+
+    <h2>调试技巧</h2>
+    <div class="debugging">
+        <h3>常见问题解决</h3>
+        <ul>
+            <li>检查操作码限制</li>
+            <li>验证变量作用域</li>
+            <li>测试表达式安全性</li>
+            <li>监控资源使用</li>
+            <li>分析执行日志</li>
+        </ul>
+    </div>
+</body>
+</html> 

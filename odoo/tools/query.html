@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 查询构建器模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 查询构建器模块(query.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>query.py</code>是Odoo框架中的一个核心模块,提供了一个强大的SQL查询构建器。该模块允许以面向对象的方式构建复杂的SQL查询,同时保证查询的安全性和性能。</p>
+    
+    <div class="note">
+        <strong>重要说明：</strong>这个模块主要用于Odoo的ORM系统内部,为高级查询提供支持。它实现了一个简单但功能强大的查询对象,用于管理表别名、JOIN子句、WHERE条件等。
+    </div>
+    
+    <h2>核心类</h2>
+    
+    <h3>1. Query类</h3>
+    <div class="code-block">
+        <pre><code>class Query:
+    def __init__(self, env, alias: str, table: (SQL | None) = None):
+        self._env = env
+        self._tables = {alias: table if table is not None else SQL.identifier(alias)}
+        self._joins = {}
+        self._where_clauses = []
+        self.groupby = None
+        self.having = None
+        self._order = None
+        self.limit = None
+        self.offset = None
+        self._ids = None</code></pre>
+        
+        <h4>主要属性</h4>
+        <ul>
+            <li><code>_env</code>: 数据库环境</li>
+            <li><code>_tables</code>: 表和别名的映射</li>
+            <li><code>_joins</code>: JOIN子句信息</li>
+            <li><code>_where_clauses</code>: WHERE条件列表</li>
+            <li><code>groupby</code>: GROUP BY子句</li>
+            <li><code>having</code>: HAVING子句</li>
+            <li><code>_order</code>: ORDER BY子句</li>
+            <li><code>limit</code>: LIMIT子句</li>
+            <li><code>offset</code>: OFFSET子句</li>
+        </ul>
+
+        <h4>主要方法</h4>
+        <ul>
+            <li><code>add_table(alias, table)</code>: 添加表到FROM子句</li>
+            <li><code>add_join(kind, alias, table, condition)</code>: 添加JOIN子句</li>
+            <li><code>add_where(where_clause, where_params)</code>: 添加WHERE条件</li>
+            <li><code>select(*args)</code>: 生成SELECT查询</li>
+            <li><code>subselect(*args)</code>: 生成子查询</li>
+        </ul>
+    </div>
+
+    <h3>2. Inter类</h3>
+    <div class="code-block">
+        <pre><code>class Inter:
+    def __init__(self, leaves: Iterable[Leaf] = (), optimal=False):
+        self.leaves = sorted(leaves, key=lambda leaf: leaf.key)
+        self.key = tuple(leaf.key for leaf in self.leaves)</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>表示命名集合的交集</li>
+            <li>用于构建复杂的条件组合</li>
+            <li>支持优化合并操作</li>
+        </ul>
+    </div>
+
+    <h3>3. Leaf类</h3>
+    <div class="code-block">
+        <pre><code>class Leaf:
+    def __init__(self, leaf_id: LeafIdType, ref: str | int | None = None, negative: bool = False):
+        self.id = leaf_id
+        self.ref = ref or str(leaf_id)
+        self.negative = bool(negative)
+        self.key = (leaf_id, self.negative)</code></pre>
+        
+        <p>功能说明：</p>
+        <ul>
+            <li>表示单个命名集合或其补集</li>
+            <li>支持集合运算(并、交、补)</li>
+            <li>维护集合间的关系(子集、超集、不相交)</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本查询构建</h3>
+    <div class="code-block">
+        <pre><code># 创建基本查询
+query = Query(env, 'res_partner')
+query.add_where('res_partner.active = %s', [True])
+sql = query.select('id', 'name', 'email')
+
+# 执行查询
+results = env.cr.execute(sql)</code></pre>
+    </div>
+
+    <h3>2. 复杂JOIN查询</h3>
+    <div class="code-block">
+        <pre><code># 创建带JOIN的查询
+query = Query(env, 'sale_order', 'so')
+query.join('so', 'partner_id', 'res_partner', 'id', 'customer')
+query.add_where('so.state = %s', ['draft'])
+sql = query.select('so.id', 'so.name', 'customer.name')</code></pre>
+    </div>
+
+    <h3>3. 子查询示例</h3>
+    <div class="code-block">
+        <pre><code># 创建子查询
+subquery = Query(env, 'account_move_line', 'aml')
+subquery.add_where('aml.move_id = am.id')
+sql = query.select('COALESCE(SUM(aml.debit - aml.credit), 0)')</code></pre>
+    </div>
+
+    <h2>高级特性</h2>
+    
+    <h3>1. 查询优化</h3>
+    <div class="optimization">
+        <ul>
+            <li>自动优化JOIN顺序</li>
+            <li>智能合并WHERE条件</li>
+            <li>缓存查询结果(通过_ids属性)</li>
+            <li>支持子查询优化</li>
+        </ul>
+    </div>
+
+    <h3>2. 安全特性</h3>
+    <div class="security">
+        <ul>
+            <li>参数化查询防止SQL注入</li>
+            <li>表名和字段名自动转义</li>
+            <li>强类型检查</li>
+            <li>安全的条件组合</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>查询构建建议</h3>
+        <ul>
+            <li>使用参数化查询而不是字符串拼接</li>
+            <li>适当使用表别名提高可读性</li>
+            <li>合理使用子查询优化性能</li>
+            <li>注意JOIN的顺序和条件</li>
+            <li>使用适当的索引支持查询</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>避免构建过于复杂的查询</li>
+            <li>注意内存使用(特别是大结果集)</li>
+            <li>正确处理NULL值</li>
+            <li>考虑查询性能影响</li>
+            <li>注意数据库兼容性</li>
+        </ul>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance">
+        <h3>查询优化建议</h3>
+        <ul>
+            <li>使用适当的索引</li>
+            <li>限制结果集大小</li>
+            <li>优化JOIN顺序</li>
+            <li>使用子查询替代复杂JOIN</li>
+            <li>合理使用WHERE条件</li>
+        </ul>
+    </div>
+</body>
+</html> 

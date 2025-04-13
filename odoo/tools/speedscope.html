@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo性能分析工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo性能分析工具(Speedscope)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>speedscope.py</code>是Odoo框架中的性能分析工具模块,用于生成与speedscope.app兼容的性能分析数据。它可以帮助开发者分析和可视化代码执行过程中的性能瓶颈。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>收集和处理性能分析数据</li>
+            <li>生成符合speedscope格式的性能报告</li>
+            <li>支持多种性能分析视图</li>
+            <li>提供上下文信息追踪</li>
+        </ul>
+    </div>
+
+    <h2>主要类和方法</h2>
+    
+    <h3>Speedscope 类</h3>
+    <div class="code-block">
+        <h4>核心属性</h4>
+        <ul>
+            <li><code>name</code>: 性能分析报告名称</li>
+            <li><code>init_stack_trace</code>: 初始堆栈跟踪</li>
+            <li><code>profiles_raw</code>: 原始性能数据</li>
+            <li><code>frames_indexes</code>: 帧索引字典</li>
+            <li><code>profiles</code>: 处理后的性能分析数据</li>
+        </ul>
+
+        <h4>主要方法</h4>
+        <dl>
+            <dt><code>add(key, profile)</code></dt>
+            <dd>
+                <p>添加性能分析数据。</p>
+                <p>参数说明:</p>
+                <ul>
+                    <li><code>key</code>: 性能数据标识符</li>
+                    <li><code>profile</code>: 性能分析数据</li>
+                </ul>
+            </dd>
+
+            <dt><code>add_output(names, complete=True, display_name=None, use_context=True, **params)</code></dt>
+            <dd>
+                <p>添加输出配置,生成不同视图的性能数据。支持:</p>
+                <ul>
+                    <li>完整视图(complete=True)</li>
+                    <li>自定义显示名称</li>
+                    <li>上下文信息控制</li>
+                </ul>
+            </dd>
+
+            <dt><code>make()</code></dt>
+            <dd>
+                <p>生成最终的性能分析报告,包含:</p>
+                <ul>
+                    <li>基本信息(名称、模式等)</li>
+                    <li>共享帧数据</li>
+                    <li>性能分析配置</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <h2>数据处理流程</h2>
+    <div class="flow-diagram">
+        <h3>性能数据处理步骤</h3>
+        <ol>
+            <li>收集原始性能数据</li>
+            <li>转换堆栈信息</li>
+            <li>处理上下文数据</li>
+            <li>生成帧索引</li>
+            <li>构建最终报告</li>
+        </ol>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <pre><code>
+# 创建性能分析器实例
+profiler = Speedscope(name="API性能分析")
+
+# 添加性能数据
+profiler.add("api_call", [{
+    'stack': [('main', 'main.py', 1), ('api_method', 'api.py', 10)],
+    'start': 0.0,
+    'time': 0.5
+}])
+
+# 添加输出配置
+profiler.add_output(["api_call"], display_name="API调用分析")
+
+# 生成报告
+report = profiler.make()
+        </code></pre>
+    </div>
+
+    <h2>性能分析视图</h2>
+    <div class="view-types">
+        <h3>支持的视图类型</h3>
+        <ul>
+            <li><strong>Combined视图</strong>: 合并所有性能数据</li>
+            <li><strong>No Context视图</strong>: 不包含上下文信息</li>
+            <li><strong>No Gap视图</strong>: 移除执行间隔</li>
+            <li><strong>Density视图</strong>: 显示执行密度</li>
+        </ul>
+    </div>
+
+    <h2>上下文追踪</h2>
+    <div class="code-block">
+        <h3>上下文信息处理</h3>
+        <p>模块支持详细的上下文信息追踪:</p>
+        <ul>
+            <li>执行环境信息</li>
+            <li>调用堆栈数据</li>
+            <li>SQL查询记录</li>
+            <li>时间戳信息</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>使用提示：</strong>
+        <ul>
+            <li>性能分析会带来一定的性能开销,建议仅在开发环境使用</li>
+            <li>大量性能数据可能会占用较多内存</li>
+            <li>确保正确配置上下文信息以获得有意义的分析结果</li>
+            <li>注意处理长时间运行的性能分析数据</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>针对特定功能或API进行有针对性的性能分析</li>
+            <li>合理使用不同的视图类型分析性能问题</li>
+            <li>定期进行性能分析以及早发现问题</li>
+            <li>结合日志分析提高问题定位效率</li>
+        </ul>
+    </div>
+
+    <h2>与其他工具集成</h2>
+    <div class="integration">
+        <h3>支持的集成方式</h3>
+        <ul>
+            <li>可以导出兼容speedscope.app的数据格式</li>
+            <li>支持与Python性能分析工具配合使用</li>
+            <li>可以集成到CI/CD流程中</li>
+            <li>支持自定义数据导出格式</li>
+        </ul>
+    </div>
+</body>
+</html> 

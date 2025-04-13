@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo货币管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo货币管理系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_currency.py</code>是Odoo框架中的货币管理核心模块，提供了货币信息管理、汇率计算、金额格式化等功能。该模块是财务管理的基础组件。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>货币基本信息管理</li>
+            <li>汇率管理和计算</li>
+            <li>金额格式化</li>
+            <li>货币转换</li>
+            <li>金额大写转换</li>
+        </ul>
+    </div>
+
+    <h2>核心组件分析</h2>
+
+    <h3>1. Currency模型</h3>
+    <div class="code-block">
+        <pre><code>class Currency(models.Model):
+    _name = "res.currency"
+    _description = "Currency"
+    _rec_names_search = ['name', 'full_name']
+    _order = 'active desc, name'</code></pre>
+    </div>
+
+    <h3>2. 主要字段</h3>
+    <div class="fields">
+        <h4>基本信息字段</h4>
+        <ul>
+            <li><code>name</code>: 货币代码（ISO 4217）</li>
+            <li><code>full_name</code>: 货币全名</li>
+            <li><code>symbol</code>: 货币符号</li>
+            <li><code>rate</code>: 当前汇率</li>
+            <li><code>rounding</code>: 舍入精度</li>
+            <li><code>decimal_places</code>: 小数位数</li>
+            <li><code>active</code>: 是否激活</li>
+            <li><code>position</code>: 符号位置（前置/后置）</li>
+        </ul>
+
+        <h4>本地化字段</h4>
+        <ul>
+            <li><code>currency_unit_label</code>: 货币单位标签</li>
+            <li><code>currency_subunit_label</code>: 货币子单位标签</li>
+        </ul>
+    </div>
+
+    <h2>重要功能实现</h2>
+
+    <h3>1. 汇率计算</h3>
+    <div class="code-example">
+        <pre><code>def _get_rates(self, company, date):
+    if not self.ids:
+        return {}
+    # 构建查询
+    currency_query = self._where_calc([('id', 'in', self.ids)])
+    # 获取汇率
+    rate_query = self.env['res.currency.rate']._search([
+        ('name', '<=', date),
+        ('company_id', 'in', (False, company.root_id.id)),
+        ('currency_id', '=', currency_id)
+    ], order='company_id.id, name DESC', limit=1)</code></pre>
+    </div>
+
+    <h3>2. 金额格式化</h3>
+    <div class="code-example">
+        <pre><code>def format(self, amount):
+    """格式化金额，处理符号位置和舍入"""
+    self.ensure_one()
+    return tools.format_amount(self.env, amount + 0.0, self)</code></pre>
+    </div>
+
+    <h3>3. 金额转换</h3>
+    <div class="code-example">
+        <pre><code>def _convert(self, from_amount, to_currency, company=None, date=None, round=True):
+    """货币金额转换"""
+    if from_amount:
+        to_amount = from_amount * self._get_conversion_rate(
+            self, to_currency, company, date
+        )
+    else:
+        return 0.0
+    return to_currency.round(to_amount) if round else to_amount</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 创建新货币</h3>
+    <div class="code-block">
+        <pre><code>self.env['res.currency'].create({
+    'name': 'CNY',
+    'full_name': '人民币',
+    'symbol': '¥',
+    'rounding': 0.01,
+    'position': 'before',
+    'currency_unit_label': '元',
+    'currency_subunit_label': '角'
+})</code></pre>
+    </div>
+
+    <h3>2. 设置汇率</h3>
+    <div class="code-block">
+        <pre><code>self.env['res.currency.rate'].create({
+    'name': fields.Date.today(),
+    'rate': 6.3745,
+    'currency_id': currency_cny.id,
+    'company_id': company.id
+})</code></pre>
+    </div>
+
+    <h3>3. 货币转换</h3>
+    <div class="code-block">
+        <pre><code># CNY转换为USD
+amount_usd = currency_cny._convert(
+    1000.0,           # 金额
+    currency_usd,     # 目标货币
+    company,          # 公司
+    fields.Date.today() # 日期
+)</code></pre>
+    </div>
+
+    <h2>重要特性</h2>
+    <div class="features">
+        <h3>1. 自动汇率计算</h3>
+        <p>系统会自动查找最近的有效汇率：</p>
+        <pre><code>@api.depends_context('company', 'date')
+def _compute_current_rate(self):
+    date = self._context.get('date') or fields.Date.context_today(self)
+    company = self.env.company
+    # 获取汇率
+    currency_rates = self._get_rates(company, date)</code></pre>
+
+        <h3>2. 金额大写转换</h3>
+        <p>支持将数字金额转换为大写文字：</p>
+        <pre><code>def amount_to_text(self, amount):
+    self.ensure_one()
+    def _num2words(number, lang):
+        try:
+            return num2words(number, lang=lang).title()
+        except NotImplementedError:
+            return num2words(number, lang='en').title()</code></pre>
+
+        <h3>3. 精确计算</h3>
+        <p>提供精确的金额比较和舍入功能：</p>
+        <pre><code>def compare_amounts(self, amount1, amount2):
+    """比较两个金额"""
+    return tools.float_compare(
+        amount1,
+        amount2,
+        precision_rounding=self.rounding
+    )</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>使用标准的ISO货币代码</li>
+            <li>定期更新汇率信息</li>
+            <li>注意金额计算的精度控制</li>
+            <li>合理设置货币的舍入规则</li>
+            <li>正确处理货币符号的位置</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <div class="qa-item">
+            <h3>Q: 如何处理历史汇率？</h3>
+            <p>A: 使用res.currency.rate模型存储不同日期的汇率，系统会自动查找最近的有效汇率。</p>
+        </div>
+        
+        <div class="qa-item">
+            <h3>Q: 如何确保金额计算的精确性？</h3>
+            <p>A: 使用rounding字段定义精确度，并使用compare_amounts和is_zero方法进行比较。</p>
+        </div>
+        
+        <div class="qa-item">
+            <h3>Q: 如何处理多公司环境下的汇率？</h3>
+            <p>A: 每个公司可以维护自己的汇率记录，使用company_id字段区分。</p>
+        </div>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance">
+        <ul>
+            <li>使用缓存减少汇率查询负担</li>
+            <li>批量处理货币转换</li>
+            <li>合理设置汇率记录的索引</li>
+            <li>优化金额格式化的性能</li>
+        </ul>
+    </div>
+
+    <h2>扩展建议</h2>
+    <div class="extensions">
+        <h3>1. 汇率管理增强</h3>
+        <ul>
+            <li>添加自动汇率更新</li>
+            <li>支持多种汇率来源</li>
+            <li>增加汇率预警机制</li>
+        </ul>
+
+        <h3>2. 计算功能增强</h3>
+        <ul>
+            <li>支持更多的金额格式化选项</li>
+            <li>添加货币统计功能</li>
+            <li>增加汇率趋势分析</li>
+        </ul>
+
+        <h3>3. 安全性增强</h3>
+        <ul>
+            <li>添加汇率变更审计</li>
+            <li>实现汇率权限控制</li>
+            <li>增加异常汇率检测</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warnings">
+        <ul>
+            <li>始终使用正确的ISO货币代码</li>
+            <li>注意汇率的时效性</li>
+            <li>谨慎处理舍入精度</li>
+            <li>正确设置公司默认货币</li>
+            <li>定期备份汇率数据</li>
+        </ul>
+    </div>
+</body>
+</html> 

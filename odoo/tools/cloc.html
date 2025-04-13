@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo代码行数统计工具(CLOC)解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo代码行数统计工具(CLOC)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>cloc.py</code>是Odoo框架中的一个代码统计工具，用于分析和统计代码行数。这个工具可以帮助开发者了解项目的代码规模，并提供详细的代码分析报告。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>CLOC（Count Lines of Code）是一个用于统计代码行数的工具，它能够区分代码行、注释行和空白行，帮助开发者了解代码的实际规模。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>多文件类型支持</strong>：支持.py、.js、.xml、.css、.scss等文件格式</li>
+        <li><strong>智能代码分析</strong>：能够识别和排除注释、空行等非代码内容</li>
+        <li><strong>模块级统计</strong>：可以按模块统计代码行数</li>
+        <li><strong>自定义排除规则</strong>：支持通过配置排除特定文件或目录</li>
+    </ol>
+
+    <h2>关键常量</h2>
+    <div class="code-block">
+        <pre><code>VERSION = 1
+DEFAULT_EXCLUDE = [
+    "__manifest__.py",
+    "__openerp__.py",
+    "tests/**/*",
+    "static/lib/**/*",
+    "static/tests/**/*",
+    "migrations/**/*",
+    "upgrades/**/*",
+]
+STANDARD_MODULES = ['web', 'web_enterprise', 'theme_common', 'base']
+MAX_FILE_SIZE = 25 * 2**20  # 25 MB
+MAX_LINE_SIZE = 100000
+VALID_EXTENSION = ['.py', '.js', '.xml', '.css', '.scss']</code></pre>
+    </div>
+
+    <h2>主要类：Cloc</h2>
+    <h3>初始化方法</h3>
+    <div class="code-block">
+        <pre><code>def __init__(self):
+    self.modules = {}      # 存储模块统计信息
+    self.code = {}         # 存储代码行数
+    self.total = {}        # 存储总行数
+    self.errors = {}       # 存储错误信息
+    self.excluded = {}     # 存储被排除的文件
+    self.max_width = 70    # 报告格式化宽度</code></pre>
+    </div>
+
+    <h3>文件解析方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>功能描述</th>
+            <th>支持的文件类型</th>
+        </tr>
+        <tr>
+            <td>parse_xml</td>
+            <td>解析XML文件，移除注释</td>
+            <td>.xml</td>
+        </tr>
+        <tr>
+            <td>parse_py</td>
+            <td>解析Python文件，使用AST分析</td>
+            <td>.py</td>
+        </tr>
+        <tr>
+            <td>parse_js</td>
+            <td>解析JavaScript文件</td>
+            <td>.js</td>
+        </tr>
+        <tr>
+            <td>parse_scss</td>
+            <td>解析SCSS样式文件</td>
+            <td>.scss</td>
+        </tr>
+        <tr>
+            <td>parse_css</td>
+            <td>解析CSS样式文件</td>
+            <td>.css</td>
+        </tr>
+    </table>
+
+    <h3>统计方法</h3>
+    <div class="flow-diagram">
+        <h4>代码统计流程</h4>
+        <ol>
+            <li>count_path：统计指定路径下的代码</li>
+            <li>count_modules：统计已安装模块的代码</li>
+            <li>count_customization：统计自定义代码</li>
+            <li>count_env：统计环境中的所有代码</li>
+            <li>count_database：统计数据库中的所有代码</li>
+        </ol>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <pre><code># 创建Cloc实例
+cloc = Cloc()
+
+# 统计特定路径
+cloc.count_path('/path/to/module')
+
+# 统计数据库中的所有代码
+cloc.count_database('my_database')
+
+# 生成报告
+cloc.report(verbose=True)</code></pre>
+    </div>
+
+    <h2>报告输出示例</h2>
+    <div class="code-block">
+        <pre><code>Odoo cloc    Line   Other    Code
+--------------------------------
+module_name   1000     200     800
+    file1.py   500     100     400
+    file2.js   300      50     250
+    file3.xml  200      50     150
+--------------------------------
+Total        1000     200     800</code></pre>
+    </div>
+
+    <h2>特殊功能</h2>
+    <h3>自定义排除</h3>
+    <p>通过模块的manifest文件可以定义额外的排除规则：</p>
+    <div class="code-block">
+        <pre><code>{
+    'name': 'My Module',
+    'cloc_exclude': [
+        'custom_folder/**/*',
+        '*.min.js',
+    ]
+}</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <ul>
+        <li>文件大小限制：通过MAX_FILE_SIZE限制处理的文件大小</li>
+        <li>行大小限制：通过MAX_LINE_SIZE限制单行长度</li>
+        <li>智能缓存：使用字典存储中间结果</li>
+        <li>高效解析：使用正则表达式和AST进行代码分析</li>
+    </ul>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>定期运行代码统计，监控代码规模变化</li>
+            <li>使用cloc_exclude排除不需要统计的文件</li>
+            <li>关注代码和注释的比例</li>
+            <li>使用verbose模式获取详细报告</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>大文件处理：超过25MB的文件会被跳过</li>
+            <li>编码问题：确保文件使用正确的编码格式</li>
+            <li>性能考虑：大型项目统计可能需要较长时间</li>
+            <li>排除规则：注意通配符的正确使用</li>
+        </ul>
+    </div>
+</body>
+</html> 

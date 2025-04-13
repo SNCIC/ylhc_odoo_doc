@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo定时任务系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo定时任务系统(ir.cron)深度解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_cron.py</code>是Odoo框架中的定时任务管理模块,负责处理所有需要定期执行的自动化任务。该模块提供了一个完整的任务调度系统,支持复杂的定时策略和错误处理机制。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>定时任务的调度和执行</li>
+            <li>任务执行状态管理</li>
+            <li>失败重试机制</li>
+            <li>多进程安全控制</li>
+            <li>任务进度追踪</li>
+        </ul>
+    </div>
+
+    <h2>关键常量定义</h2>
+    <div class="code-block">
+        <pre><code>MAX_FAIL_TIME = timedelta(hours=5)  # 最大失败时间
+MAX_BATCH_PER_CRON_JOB = 10  # 每个cron作业的最大批处理数
+CONSECUTIVE_TIMEOUT_FOR_FAILURE = 3  # 连续超时次数视为失败
+MIN_FAILURE_COUNT_BEFORE_DEACTIVATION = 5  # 停用前的最小失败次数
+MIN_DELTA_BEFORE_DEACTIVATION = timedelta(days=7)  # 停用前的最小时间间隔</code></pre>
+    </div>
+
+    <h2>核心类解析</h2>
+    <h3>ir_cron (Model)</h3>
+    <div class="code-block">
+        <pre><code>class ir_cron(models.Model):
+    _name = "ir.cron"
+    _order = 'cron_name'
+    _description = 'Scheduled Actions'</code></pre>
+    </div>
+
+    <h3>字段定义</h3>
+    <div class="fields">
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>ir_actions_server_id</td>
+                <td>Many2one</td>
+                <td>关联的服务器动作</td>
+            </tr>
+            <tr>
+                <td>cron_name</td>
+                <td>Char</td>
+                <td>任务名称</td>
+            </tr>
+            <tr>
+                <td>user_id</td>
+                <td>Many2one</td>
+                <td>执行用户</td>
+            </tr>
+            <tr>
+                <td>active</td>
+                <td>Boolean</td>
+                <td>是否激活</td>
+            </tr>
+            <tr>
+                <td>interval_number</td>
+                <td>Integer</td>
+                <td>间隔数值</td>
+            </tr>
+            <tr>
+                <td>interval_type</td>
+                <td>Selection</td>
+                <td>间隔类型(分钟/小时/天/周/月)</td>
+            </tr>
+            <tr>
+                <td>nextcall</td>
+                <td>Datetime</td>
+                <td>下次执行时间</td>
+            </tr>
+            <tr>
+                <td>lastcall</td>
+                <td>Datetime</td>
+                <td>上次执行时间</td>
+            </tr>
+            <tr>
+                <td>priority</td>
+                <td>Integer</td>
+                <td>优先级(0-10)</td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>主要方法详解</h2>
+    
+    <h3>1. _process_jobs 方法</h3>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>处理数据库中所有准备就绪的定时任务。这是定时任务系统的核心方法。</p>
+        <h5>执行流程：</h5>
+        <ol>
+            <li>检查数据库版本</li>
+            <li>获取所有就绪的任务</li>
+            <li>检查模块状态</li>
+            <li>逐个获取和执行任务</li>
+            <li>处理执行结果</li>
+        </ol>
+        <h5>使用示例：</h5>
+        <pre><code>@classmethod
+def _process_jobs(cls, db_name):
+    with db.cursor() as cron_cr:
+        jobs = cls._get_all_ready_jobs(cron_cr)
+        for job_id in jobs:
+            job = cls._acquire_one_job(cron_cr, job_id)
+            if job:
+                cls._process_job(db, cron_cr, job)</code></pre>
+    </div>
+
+    <h3>2. _trigger 方法</h3>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>触发定时任务在指定时间执行。</p>
+        <h5>参数说明：</h5>
+        <ul>
+            <li><code>at</code>: 执行时间(可选)</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code># 立即触发任务
+cron_job.sudo()._trigger()
+
+# 指定时间触发
+from datetime import datetime, timedelta
+next_run = datetime.now() + timedelta(hours=1)
+cron_job.sudo()._trigger(at=next_run)</code></pre>
+    </div>
+
+    <h2>实际应用场景</h2>
+    
+    <h3>1. 创建定时任务</h3>
+    <div class="example">
+        <pre><code>def create_daily_backup_job(self):
+    self.env['ir.cron'].sudo().create({
+        'name': '每日数据库备份',
+        'model_id': self.env['ir.model'].search([('model', '=', 'db.backup')]).id,
+        'state': 'code',
+        'code': 'model.backup_database()',
+        'interval_number': 1,
+        'interval_type': 'days',
+        'numbercall': -1,
+        'doall': False,
+        'active': True
+    })</code></pre>
+    </div>
+
+    <h3>2. 定时任务进度管理</h3>
+    <div class="example">
+        <pre><code>def process_orders(self):
+    orders = self.env['sale.order'].search([('state', '=', 'draft')])
+    total = len(orders)
+    for i, order in enumerate(orders, 1):
+        self._notify_progress(done=i, remaining=total-i)
+        order.action_confirm()</code></pre>
+    </div>
+
+    <h2>错误处理机制</h2>
+    <div class="error-handling">
+        <h3>主要特点：</h3>
+        <ul>
+            <li>自动重试机制</li>
+            <li>失败计数器</li>
+            <li>自动停用保护</li>
+            <li>错误通知系统</li>
+        </ul>
+        <pre><code>def _update_failure_count(self, job, status):
+    if status == CompletionStatus.FAILED:
+        failure_count = job['failure_count'] + 1
+        if failure_count >= MIN_FAILURE_COUNT_BEFORE_DEACTIVATION:
+            # 自动停用任务
+            active = False
+            self._notify_admin("任务已被停用...")</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <h3>优化策略：</h3>
+        <ul>
+            <li>任务锁定机制避免重复执行</li>
+            <li>批量处理限制</li>
+            <li>优先级队列</li>
+            <li>进度追踪减少资源占用</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议：</h3>
+        <ol>
+            <li>合理设置执行间隔</li>
+            <li>添加适当的错误处理</li>
+            <li>使用进度通知功能</li>
+            <li>设置合理的优先级</li>
+            <li>注意任务间的依赖关系</li>
+        </ol>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>避免创建过多的定时任务</li>
+            <li>注意任务执行时间不要过长</li>
+            <li>合理处理任务失败情况</li>
+            <li>定期检查任务执行日志</li>
+        </ul>
+    </div>
+
+    <h2>调试技巧</h2>
+    <div class="debugging">
+        <h3>常用调试方法：</h3>
+        <ol>
+            <li>查看cron日志</li>
+            <li>检查任务状态</li>
+            <li>手动触发测试</li>
+            <li>监控执行时间</li>
+        </ol>
+        <pre><code># 手动触发测试
+def test_cron_job(self):
+    cron = self.env.ref('my_module.my_cron_job')
+    cron.method_direct_trigger()</code></pre>
+    </div>
+</body>
+</html> 

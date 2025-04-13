@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 嵌入式动作模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 嵌入式动作(ir.embedded.actions)模块详解</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_embedded_actions.py</code>是Odoo 18中的一个新特性模块，它提供了在视图中嵌入其他动作的功能。这个模块允许开发者在一个视图中嵌入其他视图或动作，从而创建更复杂和灵活的用户界面。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>允许在视图中嵌入其他动作</li>
+            <li>支持用户特定的嵌入式动作</li>
+            <li>提供动作可见性控制</li>
+            <li>支持上下文和域过滤</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    <h3>IrEmbeddedActions类</h3>
+    <div class="code-block">
+        <pre><code>class IrEmbeddedActions(models.Model):
+    _name = 'ir.embedded.actions'
+    _description = 'Embedded Actions'
+    _order = 'sequence, id'</code></pre>
+    </div>
+
+    <h3>主要字段说明</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>嵌入式动作名称（支持翻译）</td>
+        </tr>
+        <tr>
+            <td>sequence</td>
+            <td>Integer</td>
+            <td>序列号，用于排序</td>
+        </tr>
+        <tr>
+            <td>parent_action_id</td>
+            <td>Many2one</td>
+            <td>父级动作（必填）</td>
+        </tr>
+        <tr>
+            <td>parent_res_id</td>
+            <td>Integer</td>
+            <td>活动父级记录ID</td>
+        </tr>
+        <tr>
+            <td>parent_res_model</td>
+            <td>Char</td>
+            <td>活动父级模型（必填）</td>
+        </tr>
+        <tr>
+            <td>action_id</td>
+            <td>Many2one</td>
+            <td>要嵌入的动作</td>
+        </tr>
+        <tr>
+            <td>python_method</td>
+            <td>Char</td>
+            <td>返回动作的Python方法</td>
+        </tr>
+    </table>
+
+    <h2>主要功能实现</h2>
+    
+    <h3>1. 动作创建与替换</h3>
+    <div class="code-example">
+        <h4>示例代码：</h4>
+        <pre><code>def create_or_replace(self, vals):
+    # 检查是否存在匹配的过滤器
+    matching_filters = [f for f in current_filters
+                        if f['name'].lower() == vals['name'].lower()
+                        if (f['user_id'] and f['user_id'][0]) == vals.get('user_id')]
+    
+    # 如果存在匹配的过滤器，更新它
+    if matching_filters:
+        matching_filter = self.browse(matching_filters[0]['id'])
+        matching_filter.write(vals)
+        return matching_filter
+
+    # 否则创建新的
+    return self.create(vals)</code></pre>
+    </div>
+
+    <h3>2. 可见性计算</h3>
+    <div class="code-example">
+        <h4>示例代码：</h4>
+        <pre><code>def _compute_is_visible(self):
+    active_id = self.env.context.get("active_id", False)
+    if not active_id:
+        self.is_visible = False
+        return
+    
+    domain_id = [("id", "=", active_id)]
+    for parent_res_model, records in self.grouped('parent_res_model').items():
+        active_model_record = self.env[parent_res_model].search(domain_id, order='id')
+        for record in records:
+            action_groups = record.groups_ids
+            if not action_groups or (action_groups & self.env.user.groups_id):
+                domain_model = literal_eval(record.domain)
+                record.is_visible = (
+                    record.parent_res_id in (False, self.env.context.get('active_id', False))
+                    and record.user_id.id in (False, self.env.uid)
+                    and active_model_record.filtered_domain(domain_model)
+                )
+            else:
+                record.is_visible = False</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本嵌入式动作定义</h3>
+    <pre><code>&lt;record id="action_embedded_example" model="ir.embedded.actions"&gt;
+    &lt;field name="name"&gt;嵌入式动作示例&lt;/field&gt;
+    &lt;field name="parent_action_id" ref="base.action_partner_form"/&gt;
+    &lt;field name="parent_res_model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="action_id" ref="action_to_embed"/&gt;
+    &lt;field name="domain"&gt;[('type', '=', 'contact')]&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+
+    <h3>2. Python方法动作</h3>
+    <pre><code>def get_embedded_action(self):
+    return {
+        'name': '动态嵌入式动作',
+        'type': 'ir.actions.act_window',
+        'res_model': 'res.partner',
+        'view_mode': 'list,form',
+        'domain': [('parent_id', '=', self.id)]
+    }
+
+# XML定义
+&lt;record id="action_embedded_dynamic" model="ir.embedded.actions"&gt;
+    &lt;field name="name"&gt;动态嵌入式动作&lt;/field&gt;
+    &lt;field name="parent_action_id" ref="base.action_partner_form"/&gt;
+    &lt;field name="parent_res_model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="python_method"&gt;get_embedded_action&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 动作定义</h3>
+        <ul>
+            <li>总是设置合适的sequence值以控制显示顺序</li>
+            <li>使用有意义的名称，便于维护</li>
+            <li>适当设置domain和context限制范围</li>
+        </ul>
+
+        <h3>2. 安全考虑</h3>
+        <ul>
+            <li>使用groups_ids控制访问权限</li>
+            <li>注意parent_res_id的使用，避免数据泄露</li>
+            <li>谨慎使用python_method，确保代码安全</li>
+        </ul>
+
+        <h3>3. 性能优化</h3>
+        <ul>
+            <li>合理使用domain过滤数据</li>
+            <li>避免复杂的python_method计算</li>
+            <li>适当使用缓存机制</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <h3>Q1: 为什么我的嵌入式动作不显示？</h3>
+        <p>可能的原因：</p>
+        <ul>
+            <li>检查is_visible计算条件</li>
+            <li>验证用户权限组设置</li>
+            <li>确认domain过滤条件是否正确</li>
+        </ul>
+
+        <h3>Q2: 如何动态更新嵌入式动作？</h3>
+        <p>可以通过以下方式：</p>
+        <ul>
+            <li>使用python_method返回动态动作</li>
+            <li>在context中传递动态参数</li>
+            <li>使用compute字段动态计算domain</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意：</strong>嵌入式动作是Odoo 18的新特性，在升级时需要特别注意兼容性问题。
+    </div>
+</body>
+</html> 

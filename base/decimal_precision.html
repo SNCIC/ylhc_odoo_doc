@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo小数精度管理解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo小数精度管理解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>decimal_precision.py</code>是Odoo框架中的一个关键模块，它主要负责管理和控制整个系统中各种数值字段的小数精度。这个模块对金融计算、库存量计算等需要精确数值的场景至关重要。</p>
+    
+    <div class="note">
+        <strong>什么是小数精度？</strong>小数精度指的是小数点后保留的位数。比如，价格字段可能需要保留2位小数（如12.34），而重量字段可能需要保留3位小数（如1.234）。在Odoo中，不同类型的数值可以设置不同的精度要求。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>全局精度控制</strong>：为整个Odoo系统提供统一的小数精度管理</li>
+        <li><strong>按用途分类</strong>：允许为不同类型的数值（如价格、重量、百分比等）设置不同的精度</li>
+        <li><strong>运行时可配置</strong>：管理员可以在不修改代码的情况下调整精度设置</li>
+        <li><strong>性能优化</strong>：通过缓存机制提高查询性能</li>
+        <li><strong>兼容性保障</strong>：提供向后兼容的API</li>
+    </ol>
+    
+    <h2>核心模型结构</h2>
+    <p>这个模块定义了一个名为<code>decimal.precision</code>的模型，它包含以下关键字段：</p>
+    
+    <table>
+        <tr>
+            <th>字段</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>用途标识，如'Product Price'、'Account'等</td>
+        </tr>
+        <tr>
+            <td>digits</td>
+            <td>Integer</td>
+            <td>小数位数，默认为2</td>
+        </tr>
+    </table>
+    
+    <h2>工作原理</h2>
+    <p>Odoo的小数精度系统工作原理如下：</p>
+    
+    <ol>
+        <li>在数据库中存储各种用途的精度配置</li>
+        <li>提供API让字段定义时引用这些精度配置</li>
+        <li>当字段值被格式化显示或进行计算时，应用对应的精度</li>
+        <li>通过缓存机制优化性能，避免频繁查询数据库</li>
+    </ol>
+    
+    <h3>关键方法：precision_get</h3>
+    <p>这是获取特定用途精度的核心方法：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+@tools.ormcache('application')
+def precision_get(self, application):
+    self.flush_model(['name', 'digits'])
+    self.env.cr.execute('select digits from decimal_precision where name=%s', (application,))
+    res = self.env.cr.fetchone()
+    return res[0] if res else 2</code></pre>
+    </div>
+    
+    <p>这个方法的特点：</p>
+    <ul>
+        <li>使用<code>@tools.ormcache</code>装饰器进行缓存，提高性能</li>
+        <li>直接执行SQL查询获取精度，而不是使用ORM API，进一步优化性能</li>
+        <li>如果没有找到配置，默认返回2位小数</li>
+    </ul>
+    
+    <h3>缓存管理</h3>
+    <p>为了确保精度变更立即生效，模块在记录创建、修改或删除时会清除缓存：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    res = super(DecimalPrecision, self).create(vals_list)
+    self.env.registry.clear_cache()
+    return res
+
+def write(self, data):
+    res = super(DecimalPrecision, self).write(data)
+    self.env.registry.clear_cache()
+    return res
+
+def unlink(self):
+    res = super(DecimalPrecision, self).unlink()
+    self.env.registry.clear_cache()
+    return res</code></pre>
+    </div>
+    
+    <h3>精度减少警告</h3>
+    <p>当管理员试图减少精度（减少小数位数）时，系统会显示警告：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.onchange('digits')
+def _onchange_digits_warning(self):
+    if self.digits < self._origin.digits:
+        return {
+            'warning': {
+                'title': _("Warning for %s", self.name),
+                'message': _(
+                    "The precision has been reduced for %s.\n"
+                    "Note that existing data WON'T be updated by this change.\n\n"
+                    "As decimal precisions impact the whole system, this may cause critical issues.\n"
+                    "E.g. reducing the precision could disturb your financial balance.\n\n"
+                    "Therefore, changing decimal precisions in a running database is not recommended.",
+                    self.name,
+                )
+            }
+        }</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>警告：</strong>减少小数精度可能会导致严重问题，例如财务余额不平衡。这是因为现有数据不会自动更新以适应新的精度。在生产环境中更改精度需谨慎。
+    </div>
+    
+    <h2>使用场景</h2>
+    
+    <div class="usage-scenarios">
+        <div class="scenario-card">
+            <h4>产品价格</h4>
+            <p>控制产品价格显示的小数位数，通常为2位。</p>
+            <p>用途标识：<code>Product Price</code></p>
+        </div>
+        
+        <div class="scenario-card">
+            <h4>库存数量</h4>
+            <p>控制库存数量的精度，可能需要3位或更多，特别是对于按重量管理的产品。</p>
+            <p>用途标识：<code>Product Unit of Measure</code></p>
+        </div>
+        
+        <div class="scenario-card">
+            <h4>财务金额</h4>
+            <p>控制会计凭证、发票等财务金额的精度，通常为2位。</p>
+            <p>用途标识：<code>Account</code></p>
+        </div>
+        
+        <div class="scenario-card">
+            <h4>折扣百分比</h4>
+            <p>控制折扣等百分比字段的精度，通常为2位。</p>
+            <p>用途标识：<code>Discount</code></p>
+        </div>
+    </div>
+    
+    <h2>在字段中应用精度</h2>
+    <p>在定义Float字段时，可以通过digits参数引用小数精度：</p>
+    
+    <div class="example-box">
+        <h4>示例：定义价格字段</h4>
+        <div class="code-block">
+            <pre><code>class Product(models.Model):
+    _name = 'product.product'
+    
+    # 使用'Product Price'精度
+    list_price = fields.Float('销售价格', digits='Product Price')
+    
+    # 使用'Product Unit of Measure'精度
+    weight = fields.Float('重量', digits='Product Unit of Measure')</code></pre>
+        </div>
+    </div>
+    
+    <h3>向后兼容性</h3>
+    <p>Odoo保留了旧版API的兼容性，但推荐使用新的风格：</p>
+    
+    <div class="code-block">
+        <pre><code># 旧风格（不推荐但仍支持）
+price = fields.Float('价格', digits=dp.get_precision('Product Price'))
+
+# 新风格（推荐）
+price = fields.Float('价格', digits='Product Price')</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>注意：</strong>旧风格API会在日志中产生警告，建议在新代码中使用新风格。
+    </div>
+    
+    <h2>常见的精度设置</h2>
+    <p>Odoo标准安装中包含的常见精度设置：</p>
+    
+    <table>
+        <tr>
+            <th>用途标识</th>
+            <th>默认位数</th>
+            <th>应用场景</th>
+        </tr>
+        <tr>
+            <td>Product Price</td>
+            <td>2</td>
+            <td>产品价格、成本价等</td>
+        </tr>
+        <tr>
+            <td>Product Unit of Measure</td>
+            <td>3</td>
+            <td>产品数量、重量等</td>
+        </tr>
+        <tr>
+            <td>Account</td>
+            <td>2</td>
+            <td>会计金额、税额等</td>
+        </tr>
+        <tr>
+            <td>Discount</td>
+            <td>2</td>
+            <td>折扣率、加价率等</td>
+        </tr>
+        <tr>
+            <td>Stock Weight</td>
+            <td>3</td>
+            <td>库存重量计算</td>
+        </tr>
+    </table>
+    
+    <h2>开发者使用指南</h2>
+    
+    <h3>创建新的精度设置</h3>
+    <p>如果您的模块需要特定的精度设置，可以在模块安装时创建：</p>
+    
+    <div class="code-block">
+        <pre><code># 在您模块的__init__.py中
+from . import models
+
+# 在models/__init__.py中
+from . import my_model
+
+# 在models/my_model.py中
+from odoo import api, fields, models
+
+# 在您模块的data/decimal_precision_data.xml中
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;odoo&gt;
+    &lt;data noupdate="1"&gt;
+        &lt;record id="decimal_precision_my_precision" model="decimal.precision"&gt;
+            &lt;field name="name"&gt;My Custom Precision&lt;/field&gt;
+            &lt;field name="digits"&gt;4&lt;/field&gt;
+        &lt;/record&gt;
+    &lt;/data&gt;
+&lt;/odoo&gt;
+
+# 然后在__manifest__.py中引用这个XML文件
+{
+    'name': 'My Module',
+    # ...
+    'data': [
+        'data/decimal_precision_data.xml',
+        # ...
+    ],
+    # ...
+}</code></pre>
+    </div>
+    
+    <h3>使用自定义精度</h3>
+    <p>在您的模型中使用刚刚创建的精度：</p>
+    
+    <div class="code-block">
+        <pre><code>class MyModel(models.Model):
+    _name = 'my.model'
+    _description = '我的模型'
+    
+    my_value = fields.Float('我的数值', digits='My Custom Precision')</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的变化</h2>
+    <p>在Odoo 18中，小数精度系统主要变化包括：</p>
+    <ul>
+        <li>优化了性能，提高了缓存效率</li>
+        <li>改进了精度变更的警告机制</li>
+        <li>继续支持但不推荐使用旧的API风格</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>Decimal Precision模块是Odoo中处理数值精度的基础设施，它提供了：</p>
+    <ul>
+        <li>全局一致的小数精度管理</li>
+        <li>可配置且易于扩展的精度设置</li>
+        <li>高性能的缓存机制</li>
+        <li>防止意外精度减少的安全机制</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在定义浮点数字段时，始终考虑使用适当的精度设置，特别是涉及金融计算的场景。这不仅保证了数据的准确性，也确保了全系统的一致性。
+    </div>
+</body>
+</html> 

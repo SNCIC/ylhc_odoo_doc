@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo货币管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo货币管理模块(ResCurrency)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_currency.py</code>是Odoo框架中的货币管理模块，继承自基础的<code>res.currency</code>模型。该模块主要处理货币相关的所有操作，包括汇率计算、货币转换等功能。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>管理系统中的货币信息，处理货币转换，维护汇率，以及提供货币相关的计算功能。
+    </div>
+    
+    <h2>主要字段定义</h2>
+    <ul>
+        <li><code>display_rounding_warning</code>: 布尔字段，显示舍入警告</li>
+        <li><code>fiscal_country_codes</code>: Char字段，财务国家代码</li>
+    </ul>
+
+    <h2>核心方法解析</h2>
+    
+    <h3>1. _get_fiscal_country_codes方法</h3>
+    <div class="code-block">
+        <pre><code>def _get_fiscal_country_codes(self):
+    return ','.join(self.env.companies.mapped('account_fiscal_country_id.code'))</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>获取所有公司的财务国家代码</li>
+        <li>将代码以逗号分隔连接成字符串</li>
+    </ul>
+
+    <h3>2. _compute_display_rounding_warning方法</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('rounding')
+def _compute_display_rounding_warning(self):
+    for record in self:
+        record.display_rounding_warning = record.id \
+                                          and record._origin.rounding != record.rounding \
+                                          and record._origin._has_accounting_entries()</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>监控货币舍入精度的变化</li>
+        <li>当存在会计分录且精度发生变化时显示警告</li>
+    </ul>
+
+    <h3>3. 货币表管理方法</h3>
+    <div class="code-block">
+        <pre><code>def _get_simple_currency_table(self, companies):
+    if self._check_currency_table_monocurrency(companies):
+        return self._get_monocurrency_currency_table_sql(companies)
+    self._create_currency_table(companies, [('period', None, fields.Date.today())])
+    return SQL('account_currency_table')</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>创建和管理货币转换表</li>
+        <li>支持单一货币和多货币场景</li>
+        <li>处理不同期间的汇率</li>
+    </ul>
+
+    <h2>货币转换功能</h2>
+    
+    <h3>1. 汇率表创建</h3>
+    <div class="code-block">
+        <pre><code>def _create_currency_table(self, companies, date_periods, use_cta_rates=False):
+    # 创建临时表存储汇率信息
+    # 支持历史汇率、当前汇率和平均汇率
+    # 处理不同公司和不同期间的汇率</code></pre>
+    </div>
+
+    <h3>2. 汇率计算方法</h3>
+    <div class="code-block">
+        <pre><code>def _get_table_builder_current(self, period_key, main_company, other_companies, date_to, main_company_unit_factor):
+    # 构建当前汇率查询
+    # 处理不同公司间的汇率转换
+    # 计算相对于主公司货币的转换率</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 基础货币操作</h3>
+    <div class="code-block">
+        <pre><code># 检查货币是否有会计分录
+currency = self.env['res.currency'].browse(currency_id)
+has_entries = currency._has_accounting_entries()
+
+# 获取货币转换表
+currency_table = currency._get_simple_currency_table(self.env.companies)</code></pre>
+    </div>
+
+    <h3>2. 汇率表创建</h3>
+    <div class="code-block">
+        <pre><code># 创建指定期间的汇率表
+currency = self.env['res.currency'].browse(currency_id)
+date_periods = [
+    ('Q1', '2024-01-01', '2024-03-31'),
+    ('Q2', '2024-04-01', '2024-06-30')
+]
+currency._create_currency_table(self.env.companies, date_periods)</code></pre>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>修改货币精度可能影响现有会计分录</li>
+            <li>汇率表的创建会影响系统性能，应适时清理临时表</li>
+            <li>多公司环境下需要特别注意汇率的一致性</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <ul>
+        <li>定期更新货币汇率</li>
+        <li>使用适当的货币精度</li>
+        <li>在关键业务处理前确保汇率正确</li>
+        <li>定期检查和维护货币转换表</li>
+    </ul>
+
+    <h2>性能优化</h2>
+    <ul>
+        <li>使用临时表提高汇率计算效率</li>
+        <li>适时清理不再使用的汇率记录</li>
+        <li>合理设置汇率更新频率</li>
+    </ul>
+
+    <div class="note">
+        <strong>技术说明：</strong>
+        <p>本模块是Odoo多币种功能的核心，提供了完整的货币管理和转换功能。正确配置和使用这些功能对于国际业务的准确核算至关重要。</p>
+    </div>
+</body>
+</html> 

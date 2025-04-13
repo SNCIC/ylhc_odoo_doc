@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo账期锁定例外处理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo账期锁定例外处理模块(account_lock_exception)详解</h1>
+    
+    <h2>模块概述</h2>
+    <p>account_lock_exception.py是Odoo中处理会计期间锁定例外的模块。它允许在特定情况下，对已锁定的会计期间进行例外操作，同时保持严格的审计跟踪。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>账期锁定例外是一种特殊机制，允许在特定条件下，对已锁定的会计期间进行操作。这种机制通常用于处理特殊情况，如审计调整或错误更正。</p>
+    </div>
+
+    <h2>核心类：AccountLockException</h2>
+    <div class="class-description">
+        <h3>类定义及字段</h3>
+        <pre><code>class AccountLockException(models.Model):
+    _name = "account.lock_exception"
+    _description = "Account Lock Exception"</code></pre>
+        
+        <h4>主要字段</h4>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>active</td>
+                <td>Boolean</td>
+                <td>是否激活</td>
+            </tr>
+            <tr>
+                <td>state</td>
+                <td>Selection</td>
+                <td>状态(active/revoked/expired)</td>
+            </tr>
+            <tr>
+                <td>company_id</td>
+                <td>Many2one</td>
+                <td>公司</td>
+            </tr>
+            <tr>
+                <td>user_id</td>
+                <td>Many2one</td>
+                <td>用户</td>
+            </tr>
+            <tr>
+                <td>reason</td>
+                <td>Char</td>
+                <td>原因说明</td>
+            </tr>
+            <tr>
+                <td>end_datetime</td>
+                <td>Datetime</td>
+                <td>结束时间</td>
+            </tr>
+            <tr>
+                <td>lock_date_field</td>
+                <td>Selection</td>
+                <td>锁定日期字段</td>
+            </tr>
+            <tr>
+                <td>lock_date</td>
+                <td>Date</td>
+                <td>锁定日期</td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>核心功能解析</h2>
+    
+    <h3>1. 状态计算(_compute_state方法)</h3>
+    <div class="function-analysis">
+        <pre><code>@api.depends('active', 'end_datetime')
+def _compute_state(self):
+    for record in self:
+        if not record.active:
+            record.state = 'revoked'
+        elif record.end_datetime and record.end_datetime < self.env.cr.now():
+            record.state = 'expired'
+        else:
+            record.state = 'active'</code></pre>
+        
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>根据active和end_datetime字段计算例外状态</li>
+            <li>支持三种状态：已撤销、已过期、生效中</li>
+            <li>自动根据时间判断是否过期</li>
+        </ul>
+
+        <p><strong>使用示例：</strong></p>
+        <pre><code># 创建一个临时的锁定例外
+exception = env['account.lock_exception'].create({
+    'reason': '审计调整',
+    'end_datetime': fields.Datetime.now() + timedelta(days=7),
+    'lock_date_field': 'fiscalyear_lock_date',
+    'lock_date': fields.Date.today()
+})</code></pre>
+    </div>
+
+    <h3>2. 锁定日期计算(_compute_lock_dates方法)</h3>
+    <div class="function-analysis">
+        <pre><code>@api.depends('lock_date_field', 'lock_date')
+def _compute_lock_dates(self):
+    for exception in self:
+        for field in SOFT_LOCK_DATE_FIELDS:
+            if field == exception.lock_date_field:
+                exception[field] = exception.lock_date
+            else:
+                exception[field] = date.max</code></pre>
+
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>计算不同类型的锁定日期</li>
+            <li>支持多种锁定类型：财年、税务、销售、采购</li>
+            <li>非当前锁定类型的日期设置为最大值</li>
+        </ul>
+    </div>
+
+    <h2>业务场景应用</h2>
+    <div class="business-scenarios">
+        <h3>1. 创建临时解锁期间</h3>
+        <pre><code># 创建一个为期7天的财年锁定例外
+env['account.lock_exception'].create({
+    'reason': '年终审计调整',
+    'end_datetime': fields.Datetime.now() + timedelta(days=7),
+    'lock_date_field': 'fiscalyear_lock_date',
+    'lock_date': fields.Date.today(),
+    'user_id': env.user.id
+})</code></pre>
+
+        <h3>2. 撤销锁定例外</h3>
+        <pre><code># 撤销特定的锁定例外
+exception = env['account.lock_exception'].browse(exception_id)
+exception.action_revoke()</code></pre>
+
+        <h3>3. 查询有效的例外</h3>
+        <pre><code># 查询当前生效的锁定例外
+active_exceptions = env['account.lock_exception'].search([
+    ('state', '=', 'active'),
+    ('company_id', '=', company_id)
+])</code></pre>
+    </div>
+
+    <h2>技术实现细节</h2>
+    <div class="technical-details">
+        <h3>数据库优化</h3>
+        <pre><code>def init(self):
+    super().init()
+    create_index(
+        self.env.cr,
+        indexname='account_lock_exception_company_id_end_datetime_idx',
+        tablename=self._table,
+        expressions=['company_id', 'user_id', 'end_datetime'],
+        where="active = TRUE"
+    )</code></pre>
+        <ul>
+            <li>创建复合索引提高查询效率</li>
+            <li>使用条件索引优化活动记录查询</li>
+            <li>合理设计索引字段组合</li>
+        </ul>
+
+        <h3>安全控制</h3>
+        <ul>
+            <li>只有会计经理才能创建例外</li>
+            <li>记录所有例外操作的审计日志</li>
+            <li>自动检查例外的有效期</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>设置合理的例外期限</li>
+            <li>详细记录例外原因</li>
+            <li>定期清理过期例外</li>
+            <li>严格控制例外权限</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>创建例外前确认必要性</li>
+            <li>及时撤销不再需要的例外</li>
+            <li>定期审查例外使用情况</li>
+            <li>保持完整的审计记录</li>
+        </ul>
+    </div>
+
+    <h2>审计跟踪</h2>
+    <div class="audit-trail">
+        <h3>例外记录跟踪</h3>
+        <pre><code>def _get_audit_trail_during_exception_domain(self):
+    self.ensure_one()
+    common_message_domain = [
+        ('date', '>=', self.create_date),
+    ]
+    if self.user_id:
+        common_message_domain.append(('create_uid', '=', self.user_id.id))
+    if self.end_datetime:
+        common_message_domain.append(('date', '<=', self.end_datetime))</code></pre>
+        
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>记录例外期间的所有操作</li>
+            <li>跟踪特定用户的操作</li>
+            <li>限定时间范围内的记录</li>
+        </ul>
+    </div>
+</body>
+</html> 

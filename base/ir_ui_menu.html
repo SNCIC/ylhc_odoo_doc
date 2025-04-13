@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo菜单系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo菜单系统(ir.ui.menu)详解</h1>
+    
+    <h2>1. 模块概述</h2>
+    <p><code>ir.ui.menu</code>是Odoo系统中最基础的模块之一,负责管理整个系统的菜单结构。它定义了菜单项的层级关系、访问权限、显示逻辑等核心功能。</p>
+
+    <h2>2. 核心特性</h2>
+    <div class="feature-list">
+        <h3>2.1 基本属性</h3>
+        <ul>
+            <li><code>name</code>: 菜单名称,支持多语言</li>
+            <li><code>sequence</code>: 排序序号,默认为10</li>
+            <li><code>active</code>: 是否激活</li>
+            <li><code>parent_id</code>: 父级菜单</li>
+            <li><code>child_ids</code>: 子菜单列表</li>
+            <li><code>groups_id</code>: 访问权限组</li>
+            <li><code>web_icon</code>: 菜单图标</li>
+            <li><code>action</code>: 关联动作</li>
+        </ul>
+
+        <h3>2.2 主要功能</h3>
+        <ul>
+            <li>菜单树形结构管理</li>
+            <li>基于用户组的访问控制</li>
+            <li>动态菜单加载和过滤</li>
+            <li>菜单图标管理</li>
+        </ul>
+    </div>
+
+    <h2>3. 核心方法解析</h2>
+    
+    <h3>3.1 菜单可见性控制</h3>
+    <pre><code>
+def _visible_menu_ids(self, debug=False):
+    """返回当前用户可见的菜单ID列表
+    
+    主要逻辑:
+    1. 获取所有菜单
+    2. 过滤用户组权限
+    3. 检查关联动作权限
+    4. 返回可见菜单ID集合
+    """
+    </code></pre>
+    
+    <div class="note">
+        <strong>实现说明:</strong>
+        <p>该方法通过以下步骤确定菜单可见性:</p>
+        <ol>
+            <li>检查用户所属组权限</li>
+            <li>验证关联动作的模型访问权限</li>
+            <li>处理菜单继承关系</li>
+            <li>缓存结果提高性能</li>
+        </ol>
+    </div>
+
+    <h3>3.2 菜单数据加载</h3>
+    <pre><code>
+def load_menus(self, debug):
+    """加载所有菜单数据
+    
+    返回包含完整菜单树的字典结构
+    """
+    </code></pre>
+
+    <div class="example">
+        <h4>使用示例:</h4>
+        <pre><code>
+# 创建顶级菜单
+menu_root = env['ir.ui.menu'].create({
+    'name': '主菜单',
+    'sequence': 1,
+})
+
+# 创建子菜单
+menu_child = env['ir.ui.menu'].create({
+    'name': '子菜单',
+    'parent_id': menu_root.id,
+    'action': 'ir.actions.act_window_id', 
+})
+
+# 设置菜单权限组
+menu_child.write({
+    'groups_id': [(4, group_id)]
+})
+        </code></pre>
+    </div>
+
+    <h2>4. 重要字段说明</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>菜单显示名称,必填且支持翻译</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活菜单,默认True</td>
+        </tr>
+        <tr>
+            <td>sequence</td>
+            <td>Integer</td>
+            <td>排序序号,默认10</td>
+        </tr>
+        <tr>
+            <td>parent_id</td>
+            <td>Many2one</td>
+            <td>父级菜单引用</td>
+        </tr>
+        <tr>
+            <td>child_ids</td>
+            <td>One2many</td>
+            <td>子菜单列表</td>
+        </tr>
+        <tr>
+            <td>groups_id</td>
+            <td>Many2many</td>
+            <td>可访问该菜单的用户组</td>
+        </tr>
+        <tr>
+            <td>action</td>
+            <td>Reference</td>
+            <td>点击菜单触发的动作</td>
+        </tr>
+    </table>
+
+    <h2>5. 常见使用场景</h2>
+    
+    <h3>5.1 创建新的应用菜单</h3>
+    <pre><code>
+# 创建应用根菜单
+app_menu = env['ir.ui.menu'].create({
+    'name': '我的应用',
+    'web_icon': 'module_name,static/description/icon.png',
+    'sequence': 10,
+})
+
+# 添加子菜单
+sub_menu = env['ir.ui.menu'].create({
+    'name': '配置',
+    'parent_id': app_menu.id,
+    'action': 'ir.actions.act_window,%d' % action_id,
+    'sequence': 10,
+})
+    </code></pre>
+
+    <h3>5.2 设置菜单权限</h3>
+    <pre><code>
+# 限制菜单只对特定用户组可见
+menu.write({
+    'groups_id': [(6, 0, [group_id])]
+})
+
+# 移除菜单权限限制
+menu.write({
+    'groups_id': [(5, 0, 0)]
+})
+    </code></pre>
+
+    <h2>6. 注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>菜单创建时必须指定name字段</li>
+            <li>不能创建循环引用的父子菜单关系</li>
+            <li>删除菜单时会同时删除其子菜单</li>
+            <li>菜单的action字段必须指向有效的动作记录</li>
+            <li>web_icon字段格式必须正确(module,path)</li>
+        </ul>
+    </div>
+
+    <h2>7. 最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>合理使用sequence字段控制菜单顺序</li>
+            <li>适当分组管理菜单权限</li>
+            <li>保持菜单层级结构清晰</li>
+            <li>为重要菜单添加图标提升用户体验</li>
+            <li>正确设置菜单动作提高系统可用性</li>
+        </ol>
+    </div>
+
+</body>
+</html> 

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo图像处理工具模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo图像处理工具模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>image.py</code>是Odoo框架中的图像处理工具模块，提供了一系列用于处理和优化图像的功能。该模块基于PIL（Python Imaging Library）构建，支持多种图像格式和处理操作。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>图像格式转换和优化</li>
+            <li>图像尺寸调整和裁剪</li>
+            <li>图像颜色处理</li>
+            <li>EXIF方向修正</li>
+            <li>图像编码和解码</li>
+        </ul>
+    </div>
+
+    <h2>核心组件解析</h2>
+    
+    <h3>1. 常量定义</h3>
+    <div class="code-block">
+        <pre><code>FILETYPE_BASE64_MAGICWORD = {
+    b'/': 'jpg',
+    b'R': 'gif',
+    b'i': 'png',
+    b'P': 'svg+xml',
+    b'U': 'webp',
+}
+
+IMAGE_MAX_RESOLUTION = 50e6  # 最大分辨率限制</code></pre>
+    </div>
+
+    <h3>2. ImageProcess 类</h3>
+    <p>这是模块的核心类，提供了所有图像处理功能：</p>
+    
+    <h4>2.1 初始化方法</h4>
+    <div class="code-block">
+        <pre><code>def __init__(self, source, verify_resolution=True):
+    """
+    初始化图像处理对象
+    :param source: 原始图像二进制数据
+    :param verify_resolution: 是否验证图像分辨率
+    """</code></pre>
+    </div>
+
+    <h4>2.2 主要方法</h4>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>功能描述</th>
+            <th>参数说明</th>
+        </tr>
+        <tr>
+            <td>image_quality</td>
+            <td>设置图像质量和输出格式</td>
+            <td>quality: 质量值(1-95)<br>output_format: 输出格式</td>
+        </tr>
+        <tr>
+            <td>resize</td>
+            <td>调整图像尺寸</td>
+            <td>max_width: 最大宽度<br>max_height: 最大高度<br>expand: 是否允许放大</td>
+        </tr>
+        <tr>
+            <td>crop_resize</td>
+            <td>裁剪并调整尺寸</td>
+            <td>max_width: 目标宽度<br>max_height: 目标高度<br>center_x/y: 裁剪中心点</td>
+        </tr>
+        <tr>
+            <td>colorize</td>
+            <td>为透明背景添加颜色</td>
+            <td>color: RGB颜色值</td>
+        </tr>
+    </table>
+
+    <h3>3. 辅助函数</h3>
+    
+    <h4>3.1 image_process</h4>
+    <div class="code-block">
+        <pre><code>def image_process(source, size=(0, 0), verify_resolution=False, quality=0,
+                  expand=False, crop=None, colorize=False, output_format=''):
+    """
+    综合图像处理函数，整合了所有常用的图像处理操作
+    """</code></pre>
+    </div>
+
+    <h4>3.2 颜色处理函数</h4>
+    <div class="code-block">
+        <pre><code>def average_dominant_color(colors, mitigate=175, max_margin=140):
+    """
+    计算图像的主导色
+    """</code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>基本图像处理</h3>
+    <div class="code-block">
+        <pre><code># 创建图像处理实例
+from odoo.tools.image import ImageProcess
+
+# 调整图像大小
+image_processor = ImageProcess(image_data)
+resized_image = image_processor.resize(max_width=800, max_height=600)
+
+# 裁剪并调整大小
+cropped_image = image_processor.crop_resize(max_width=500, max_height=500,
+                                          center_x=0.5, center_y=0.5)
+
+# 添加背景色
+colorized_image = image_processor.colorize(color=(255, 0, 0))  # 红色背景</code></pre>
+    </div>
+
+    <h3>综合处理示例</h3>
+    <div class="code-block">
+        <pre><code># 使用image_process函数进行综合处理
+from odoo.tools.image import image_process
+
+# 处理图像
+processed_image = image_process(
+    source=original_image,
+    size=(800, 600),
+    quality=90,
+    crop='center',
+    output_format='PNG'
+)</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <h3>优化建议</h3>
+        <ul>
+            <li>对于大量图像处理，建议使用异步处理</li>
+            <li>合理设置quality参数，在文件大小和质量之间找到平衡</li>
+            <li>使用适当的图像格式：
+                <ul>
+                    <li>照片类图像优先使用JPEG</li>
+                    <li>需要透明度的图像使用PNG</li>
+                    <li>动画使用GIF或WEBP</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>图像分辨率限制：默认最大50M像素</li>
+            <li>GIF动画处理限制：部分操作不支持GIF动画</li>
+            <li>内存使用：处理大图像时注意内存占用</li>
+            <li>格式兼容：确保输入图像格式受支持</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>开发建议</h3>
+        <ul>
+            <li>总是验证输入图像的有效性</li>
+            <li>使用try-except处理可能的图像处理异常</li>
+            <li>对于Web应用，实现渐进式图像加载</li>
+            <li>合理使用缓存机制存储处理后的图像</li>
+        </ul>
+    </div>
+</body>
+</html> 

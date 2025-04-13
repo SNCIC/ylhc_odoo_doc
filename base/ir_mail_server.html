@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件服务器模块(ir.mail.server)详解</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件服务器模块(ir.mail.server)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p><code>ir.mail.server</code>模块是Odoo的邮件服务器管理模块,负责处理所有外发邮件的配置和发送。它提供了以下主要功能:</p>
+        <ul>
+            <li>配置和管理SMTP邮件服务器</li>
+            <li>支持多个邮件服务器配置</li>
+            <li>处理邮件发送逻辑</li>
+            <li>提供邮件发送安全性验证</li>
+            <li>支持SSL/TLS加密连接</li>
+        </ul>
+    </div>
+
+    <div class="key-classes">
+        <h2>核心类解析</h2>
+        
+        <h3>1. SMTPConnection类</h3>
+        <p>这是对Python标准库smtplib.SMTP的包装类,提供了统一的SMTP连接接口:</p>
+        <pre><code>class SMTPConnection:
+    def __init__(self, server, port, encryption, context=None):
+        if encryption == 'ssl':
+            self.__obj__ = smtplib.SMTP_SSL(server, port, timeout=SMTP_TIMEOUT, context=context)
+        else:
+            self.__obj__ = smtplib.SMTP(server, port, timeout=SMTP_TIMEOUT)</code></pre>
+        
+        <h3>2. IrMailServer类</h3>
+        <p>这是邮件服务器的主要模型类,继承自models.Model:</p>
+        <pre><code>class IrMailServer(models.Model):
+    _name = "ir.mail.server"
+    _description = 'Mail Server'
+    _order = 'sequence, id'</code></pre>
+
+        <h4>主要字段</h4>
+        <ul>
+            <li>name: 服务器名称</li>
+            <li>smtp_host: SMTP服务器地址</li>
+            <li>smtp_port: SMTP端口</li>
+            <li>smtp_user: SMTP用户名</li>
+            <li>smtp_pass: SMTP密码</li>
+            <li>smtp_encryption: 加密方式(none/starttls/ssl)</li>
+            <li>sequence: 优先级序号</li>
+        </ul>
+    </div>
+
+    <div class="key-methods">
+        <h2>核心方法解析</h2>
+
+        <h3>1. 连接管理</h3>
+        <div class="method-detail">
+            <h4>connect方法</h4>
+            <p>建立SMTP服务器连接的核心方法:</p>
+            <pre><code>def connect(self, host=None, port=None, user=None, password=None, encryption=None,
+                smtp_from=None, ssl_certificate=None, ssl_private_key=None, smtp_debug=False, 
+                mail_server_id=None, allow_archived=False):</code></pre>
+            <p>参数说明:</p>
+            <ul>
+                <li>host: SMTP服务器地址</li>
+                <li>port: 端口号</li>
+                <li>user: 用户名</li>
+                <li>password: 密码</li>
+                <li>encryption: 加密方式</li>
+                <li>smtp_from: 发件人地址</li>
+                <li>ssl_certificate: SSL证书</li>
+                <li>ssl_private_key: SSL私钥</li>
+            </ul>
+        </div>
+
+        <h3>2. 邮件发送</h3>
+        <div class="method-detail">
+            <h4>send_email方法</h4>
+            <p>发送邮件的核心方法:</p>
+            <pre><code>def send_email(self, message, mail_server_id=None, smtp_server=None, smtp_port=None,
+                       smtp_user=None, smtp_password=None, smtp_encryption=None,
+                       smtp_ssl_certificate=None, smtp_ssl_private_key=None,
+                       smtp_debug=False, smtp_session=None):</code></pre>
+        </div>
+
+        <h3>3. 邮件构建</h3>
+        <div class="method-detail">
+            <h4>build_email方法</h4>
+            <p>构建邮件内容的方法:</p>
+            <pre><code>def build_email(self, email_from, email_to, subject, body, email_cc=None, email_bcc=None, 
+                       reply_to=False, attachments=None, message_id=None, references=None, 
+                       object_id=False, subtype='plain', headers=None,
+                       body_alternative=None, subtype_alternative='plain'):</code></pre>
+        </div>
+    </div>
+
+    <div class="usage-examples">
+        <h2>使用示例</h2>
+
+        <h3>1. 配置邮件服务器</h3>
+        <pre><code># 创建一个新的邮件服务器配置
+mail_server = env['ir.mail.server'].create({
+    'name': 'Company SMTP Server',
+    'smtp_host': 'smtp.company.com',
+    'smtp_port': 587,
+    'smtp_user': 'notifications@company.com',
+    'smtp_pass': 'secret_password',
+    'smtp_encryption': 'starttls',
+    'sequence': 10,
+})</code></pre>
+
+        <h3>2. 发送邮件</h3>
+        <pre><code># 构建并发送一封邮件
+mail_server = env['ir.mail.server'].sudo()
+msg = mail_server.build_email(
+    email_from='sender@company.com',
+    email_to=['recipient@example.com'],
+    subject='Test Email',
+    body='This is a test email',
+    subtype='plain'
+)
+mail_server.send_email(msg)</code></pre>
+
+        <h3>3. 测试连接</h3>
+        <pre><code># 测试邮件服务器连接
+try:
+    mail_server.test_smtp_connection()
+    print("Connection successful!")
+except Exception as e:
+    print("Connection failed:", str(e))</code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>始终使用SSL/TLS加密保护邮件传输安全</li>
+            <li>为不同用途配置多个邮件服务器并设置合适的优先级</li>
+            <li>使用专用的系统邮件账号发送自动通知邮件</li>
+            <li>定期测试邮件服务器连接状态</li>
+            <li>正确配置SPF和DKIM以提高邮件可达性</li>
+            <li>使用try-except正确处理发送异常</li>
+        </ul>
+    </div>
+
+    <div class="troubleshooting">
+        <h2>常见问题解决</h2>
+        <dl>
+            <dt>问题1: 连接超时</dt>
+            <dd>
+                <ul>
+                    <li>检查SMTP服务器地址和端口是否正确</li>
+                    <li>确认网络连接是否正常</li>
+                    <li>检查防火墙设置</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 认证失败</dt>
+            <dd>
+                <ul>
+                    <li>验证用户名密码是否正确</li>
+                    <li>确认账号是否启用了SMTP访问</li>
+                    <li>检查是否需要应用专用密码</li>
+                </ul>
+            </dd>
+
+            <dt>问题3: SSL证书错误</dt>
+            <dd>
+                <ul>
+                    <li>确认SSL证书是否有效</li>
+                    <li>检查证书路径配置</li>
+                    <li>验证服务器SSL配置</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+</body>
+</html> 

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo服务器启动工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo服务器启动工具(Server)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>server.py</code>是Odoo框架中的核心文件，负责启动和管理Odoo服务器。这是默认的命令行工具，处理服务器的初始化、配置和运行。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>管理Odoo服务器的启动过程，处理配置，初始化数据库，并启动Web服务。
+    </div>
+    
+    <h2>主要功能模块</h2>
+    
+    <h3>1. 安全检查</h3>
+    <div class="security-checks">
+        <pre><code>def check_root_user():
+    """检查是否以root用户运行（POSIX系统）"""
+    
+def check_postgres_user():
+    """检查是否使用postgres用户运行数据库"""</code></pre>
+    </div>
+    
+    <h3>2. 配置管理</h3>
+    <div class="configuration">
+        <pre><code>def report_configuration():
+    """记录服务器版本和配置信息"""</code></pre>
+    </div>
+
+    <h3>3. PID文件管理</h3>
+    <div class="pid-management">
+        <pre><code>def setup_pid_file():
+    """创建PID文件"""
+    
+def rm_pid_file(main_pid):
+    """删除PID文件"""</code></pre>
+    </div>
+
+    <h2>翻译功能</h2>
+    <div class="translation">
+        <h3>导出翻译</h3>
+        <pre><code>def export_translation():
+    """导出翻译文件"""</code></pre>
+        
+        <h3>导入翻译</h3>
+        <pre><code>def import_translation():
+    """导入翻译文件"""</code></pre>
+    </div>
+
+    <h2>主要流程</h2>
+    <div class="main-process">
+        <h3>main函数流程：</h3>
+        <ol>
+            <li>检查用户权限</li>
+            <li>解析配置</li>
+            <li>检查PostgreSQL用户</li>
+            <li>报告配置</li>
+            <li>设置CSV字段大小限制</li>
+            <li>处理数据库预加载</li>
+            <li>处理翻译导入/导出</li>
+            <li>设置PID文件</li>
+            <li>启动服务器</li>
+        </ol>
+    </div>
+
+    <h2>配置选项</h2>
+    <div class="configuration-options">
+        <h3>主要配置项：</h3>
+        <ul>
+            <li>数据库配置
+                <ul>
+                    <li>db_host</li>
+                    <li>db_port</li>
+                    <li>db_user</li>
+                    <li>db_password</li>
+                </ul>
+            </li>
+            <li>服务器配置
+                <ul>
+                    <li>pidfile</li>
+                    <li>addons_path</li>
+                    <li>upgrade_path</li>
+                </ul>
+            </li>
+            <li>翻译配置
+                <ul>
+                    <li>translate_out</li>
+                    <li>translate_in</li>
+                    <li>overwrite_existing_translations</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 基本启动</h3>
+        <pre><code>python odoo-bin</code></pre>
+        
+        <h3>2. 指定配置文件</h3>
+        <pre><code>python odoo-bin -c myconfig.conf</code></pre>
+        
+        <h3>3. 导出翻译</h3>
+        <pre><code>python odoo-bin -d mydb --i18n-export=zh_CN.po</code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="security">
+        <h3>主要安全检查：</h3>
+        <ul>
+            <li>root用户检查</li>
+            <li>postgres用户检查</li>
+            <li>数据库访问权限</li>
+            <li>文件权限管理</li>
+        </ul>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="performance">
+        <h3>优化措施：</h3>
+        <ul>
+            <li>CSV字段大小限制调整</li>
+            <li>数据库连接池管理</li>
+            <li>模块预加载</li>
+            <li>缓存管理</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>使用专用系统用户运行</li>
+            <li>配置适当的文件权限</li>
+            <li>使用配置文件管理设置</li>
+            <li>定期备份数据库</li>
+        </ul>
+    </div>
+
+    <h2>常见问题</h2>
+    <div class="faq">
+        <dl>
+            <dt>Q: 如何处理权限问题？</dt>
+            <dd>A: 避免使用root用户运行，确保正确的文件权限设置。</dd>
+            
+            <dt>Q: 如何优化性能？</dt>
+            <dd>A: 调整worker数量，配置缓存，使用数据库索引。</dd>
+            
+            <dt>Q: 如何管理多个实例？</dt>
+            <dd>A: 使用不同的配置文件和端口，确保PID文件唯一。</dd>
+        </dl>
+    </div>
+
+    <h2>开发者注意事项</h2>
+    <div class="developer-notes">
+        <h3>重要提示：</h3>
+        <ul>
+            <li>Python版本兼容性检查</li>
+            <li>数据库连接管理</li>
+            <li>模块加载顺序</li>
+            <li>错误处理和日志记录</li>
+        </ul>
+    </div>
+
+    <h2>扩展功能</h2>
+    <div class="extensions">
+        <h3>可能的扩展：</h3>
+        <ul>
+            <li>自动备份功能</li>
+            <li>性能监控</li>
+            <li>负载均衡</li>
+            <li>集群管理</li>
+        </ul>
+    </div>
+</body>
+</html> 

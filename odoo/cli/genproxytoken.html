@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo CLI 代理令牌生成工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo代理令牌生成工具(GenProxyToken)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>genproxytoken.py</code>是Odoo框架中的代理令牌生成工具，用于生成和设置代理访问令牌。这个工具在设置反向代理和API访问时非常重要。</p>
+
+    <h2>核心功能</h2>
+    
+    <h3>1. 令牌生成</h3>
+    <div class="token-generation">
+        <pre><code>def generate_token(self, length=16):
+    token = secrets.token_hex(int(length / 2))
+    split_size = int(length / 4)
+    return '-'.join(textwrap.wrap(token, split_size))</code></pre>
+        <p>功能说明：</p>
+        <ul>
+            <li>生成指定长度的安全随机令牌</li>
+            <li>使用secrets模块确保加密安全</li>
+            <li>将令牌分段以提高可读性</li>
+        </ul>
+    </div>
+
+    <h3>2. 令牌处理</h3>
+    <div class="token-processing">
+        <h4>主要步骤：</h4>
+        <ol>
+            <li>生成随机令牌</li>
+            <li>使用PBKDF2-SHA512进行哈希处理</li>
+            <li>保存到配置文件</li>
+        </ol>
+        <pre><code>token = self.generate_token(length=args.token_length)
+config['proxy_access_token'] = pbkdf2_sha512.hash(token)
+config.save()</code></pre>
+    </div>
+
+    <h2>命令行参数</h2>
+    <div class="parameters">
+        <ul>
+            <li><code>-c, --config</code>: 指定配置文件路径</li>
+            <li><code>--token-length</code>: 指定令牌长度（默认16）</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="examples">
+        <h3>1. 生成默认长度令牌</h3>
+        <pre><code>odoo-bin genproxytoken</code></pre>
+
+        <h3>2. 指定令牌长度</h3>
+        <pre><code>odoo-bin genproxytoken --token-length 32</code></pre>
+
+        <h3>3. 使用自定义配置文件</h3>
+        <pre><code>odoo-bin genproxytoken -c /path/to/custom.conf</code></pre>
+    </div>
+
+    <h2>安全特性</h2>
+    <div class="security-features">
+        <h3>1. 加密安全</h3>
+        <ul>
+            <li>使用secrets模块生成加密安全的随机数</li>
+            <li>使用PBKDF2-SHA512进行密码哈希</li>
+            <li>支持自定义令牌长度</li>
+        </ul>
+
+        <h3>2. 配置安全</h3>
+        <ul>
+            <li>令牌以哈希形式存储</li>
+            <li>支持自定义配置文件路径</li>
+            <li>自动保存配置更改</li>
+        </ul>
+    </div>
+
+    <h2>工作流程</h2>
+    <div class="workflow">
+        <ol>
+            <li>解析命令行参数</li>
+            <li>生成随机令牌</li>
+            <li>对令牌进行哈希处理</li>
+            <li>更新配置文件</li>
+            <li>输出原始令牌</li>
+        </ol>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>使用足够长的令牌长度（建议至少16字符）</li>
+            <li>安全保存生成的令牌</li>
+            <li>定期更新令牌</li>
+            <li>使用HTTPS保护API通信</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>令牌生成后只显示一次</li>
+            <li>配置文件需要有写入权限</li>
+            <li>令牌更新会影响现有的API访问</li>
+            <li>保护好配置文件的访问权限</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>提示：</strong>生成的令牌将只显示一次，请确保安全保存。配置文件中只保存令牌的哈希值，无法恢复原始令牌。
+    </div>
+
+    <h2>技术细节</h2>
+    <div class="technical-details">
+        <h3>1. 令牌格式</h3>
+        <p>生成的令牌格式示例：</p>
+        <pre><code>a1b2-c3d4-e5f6-g7h8</code></pre>
+
+        <h3>2. 哈希算法</h3>
+        <p>使用PBKDF2-SHA512算法进行哈希处理：</p>
+        <pre><code>pbkdf2_sha512.hash(token)</code></pre>
+    </div>
+
+    <h2>应用场景</h2>
+    <div class="use-cases">
+        <ul>
+            <li>设置反向代理认证</li>
+            <li>配置API访问控制</li>
+            <li>实现服务器间安全通信</li>
+            <li>管理多实例部署</li>
+        </ul>
+    </div>
+</body>
+</html> 

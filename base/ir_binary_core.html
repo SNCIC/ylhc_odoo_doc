@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo二进制文件处理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo二进制文件处理系统(ir.binary)深度解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_binary.py</code>是Odoo框架中的一个核心模块,它主要负责处理二进制文件的流式传输,特别是在Web控制器中处理文件下载和图片显示的场景。这个模块提供了一套完整的文件流处理机制。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>文件流式传输</li>
+            <li>图片处理和优化</li>
+            <li>文件访问权限控制</li>
+            <li>MIME类型自动检测</li>
+            <li>文件下载名称处理</li>
+        </ul>
+    </div>
+
+    <h2>核心类解析</h2>
+    <h3>IrBinary (AbstractModel)</h3>
+    <div class="code-block">
+        <pre><code>class IrBinary(models.AbstractModel):
+    _name = 'ir.binary'
+    _description = "File streaming helper model for controllers"</code></pre>
+    </div>
+
+    <h3>主要方法详解</h3>
+    
+    <h4>1. _find_record 方法</h4>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>查找并返回记录,支持通过xmlid或model+id的方式。主要用于/web/content和/web/image控制器。</p>
+        <h5>参数说明：</h5>
+        <ul>
+            <li><code>xmlid</code>: 记录的XML ID</li>
+            <li><code>res_model</code>: 模型名称(默认为ir.attachment)</li>
+            <li><code>res_id</code>: 记录ID</li>
+            <li><code>access_token</code>: 访问令牌</li>
+            <li><code>field</code>: 字段名称</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code>record = env['ir.binary']._find_record(
+    xmlid='module.record_xmlid',
+    res_model='my.model',
+    res_id=1,
+    access_token='abc123'
+)</code></pre>
+    </div>
+
+    <h4>2. _get_stream_from 方法</h4>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>从记录的二进制字段创建数据流。这是处理文件下载的核心方法。</p>
+        <h5>参数说明：</h5>
+        <ul>
+            <li><code>record</code>: 记录对象</li>
+            <li><code>field_name</code>: 二进制字段名(默认'raw')</li>
+            <li><code>filename</code>: 下载时的文件名</li>
+            <li><code>mimetype</code>: 文件MIME类型</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code>stream = env['ir.binary']._get_stream_from(
+    record=my_record,
+    field_name='document',
+    filename='report.pdf',
+    mimetype='application/pdf'
+)</code></pre>
+    </div>
+
+    <h4>3. _get_image_stream_from 方法</h4>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>专门用于处理图片流的方法,支持图片处理和优化。</p>
+        <h5>特殊功能：</h5>
+        <ul>
+            <li>图片尺寸调整</li>
+            <li>图片裁剪</li>
+            <li>质量压缩</li>
+            <li>占位图处理</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code>image_stream = env['ir.binary']._get_image_stream_from(
+    record=product,
+    field_name='image_1920',
+    width=500,
+    height=500,
+    crop=True,
+    quality=90
+)</code></pre>
+    </div>
+
+    <h2>实际应用场景</h2>
+    
+    <h3>1. 文件下载实现</h3>
+    <div class="example">
+        <pre><code>class MyController(http.Controller):
+    @http.route('/download/file/<int:record_id>', auth='public')
+    def download_file(self, record_id):
+        record = request.env['my.model'].browse(record_id)
+        stream = request.env['ir.binary']._get_stream_from(
+            record,
+            field_name='attachment',
+            filename='document.pdf'
+        )
+        return stream.get_response()</code></pre>
+    </div>
+
+    <h3>2. 图片处理实现</h3>
+    <div class="example">
+        <pre><code>class ProductImageController(http.Controller):
+    @http.route('/product/image/<int:product_id>', auth='public')
+    def get_product_image(self, product_id, width=0, height=0):
+        product = request.env['product.product'].browse(product_id)
+        stream = request.env['ir.binary']._get_image_stream_from(
+            product,
+            field_name='image_1920',
+            width=int(width),
+            height=int(height)
+        )
+        return stream.get_response()</code></pre>
+    </div>
+
+    <h2>性能优化设计</h2>
+    <div class="optimization">
+        <h3>主要优化策略：</h3>
+        <ul>
+            <li>流式传输：避免一次性加载大文件到内存</li>
+            <li>MIME类型缓存：通过文件头快速判断</li>
+            <li>图片处理缓存：通过ETag机制避免重复处理</li>
+            <li>权限检查优化：分层次的权限验证</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议：</h3>
+        <ol>
+            <li>总是使用流式传输处理大文件</li>
+            <li>合理设置图片尺寸和质量参数</li>
+            <li>正确处理文件名和MIME类型</li>
+            <li>注意处理文件不存在的情况</li>
+            <li>合理使用占位图功能</li>
+        </ol>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>文件流传输过程中要注意内存使用</li>
+            <li>大文件处理时要考虑超时设置</li>
+            <li>图片处理参数要根据实际需求设置</li>
+            <li>注意处理特殊字符的文件名</li>
+        </ul>
+    </div>
+</body>
+</html> 

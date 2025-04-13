@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo源码映射生成器解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo源码映射生成器(SourceMapGenerator)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>sourcemap_generator.py</code>是Odoo框架中的一个重要工具模块,用于生成JavaScript和CSS文件的源码映射(source map)。源码映射使得在浏览器中调试压缩/编译后的代码时,可以映射回原始源代码。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>生成源码映射文件,帮助调试压缩/编译后的前端代码</li>
+            <li>支持行级映射,可以精确定位源码位置</li>
+            <li>支持文件开头和结尾的偏移处理</li>
+            <li>使用Base64 VLQ编码优化映射数据大小</li>
+        </ul>
+    </div>
+
+    <h2>主要类和方法</h2>
+    
+    <h3>SourceMapGenerator 类</h3>
+    <div class="code-block">
+        <h4>核心属性</h4>
+        <ul>
+            <li><code>_file</code>: 生成的文件名</li>
+            <li><code>_source_root</code>: 源文件根目录</li>
+            <li><code>_sources</code>: 源文件映射字典</li>
+            <li><code>_mappings</code>: 源码映射列表</li>
+            <li><code>_sources_contents</code>: 源文件内容字典</li>
+            <li><code>_version</code>: 源码映射版本号(固定为3)</li>
+            <li><code>_cache</code>: 映射缓存字典</li>
+        </ul>
+
+        <h4>主要方法</h4>
+        <dl>
+            <dt><code>add_source(source_name, source_content, last_index, start_offset=0)</code></dt>
+            <dd>
+                <p>添加一个新的源文件到映射中。该方法实现了源码的行级映射。</p>
+                <p>参数说明:</p>
+                <ul>
+                    <li><code>source_name</code>: 源文件名</li>
+                    <li><code>source_content</code>: 源文件内容</li>
+                    <li><code>last_index</code>: 开始映射的行号</li>
+                    <li><code>start_offset</code>: 起始偏移行数</li>
+                </ul>
+            </dd>
+
+            <dt><code>to_json()</code></dt>
+            <dd>
+                <p>生成源码映射的JSON格式数据。返回的数据结构包含:</p>
+                <ul>
+                    <li>version: 源码映射版本</li>
+                    <li>sources: 源文件列表</li>
+                    <li>mappings: 编码后的映射数据</li>
+                    <li>sourcesContent: 源文件内容列表</li>
+                </ul>
+            </dd>
+
+            <dt><code>get_content()</code></dt>
+            <dd>
+                <p>生成最终的源码映射内容,添加XSSI防护前缀。返回UTF-8编码的字节串。</p>
+            </dd>
+
+            <dt><code>_serialize_mappings()</code></dt>
+            <dd>
+                <p>将映射数据序列化为Base64 VLQ格式。这是一个内部方法,用于优化映射数据的大小。</p>
+            </dd>
+        </dl>
+    </div>
+
+    <h3>Base64 VLQ编码</h3>
+    <div class="code-block">
+        <p>模块实现了Base64 VLQ(Variable-length quantity)编码,用于优化源码映射数据的大小。主要包含:</p>
+        <ul>
+            <li><code>base64vlq_encode(*values)</code>: 将数值编码为Base64 VLQ格式</li>
+            <li>使用LRU缓存优化编码性能</li>
+            <li>支持负数编码</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <pre><code>
+# 创建源码映射生成器
+generator = SourceMapGenerator(source_root="/src")
+
+# 添加源文件
+generator.add_source(
+    "app.js",
+    "function hello() { console.log('Hello'); }",
+    last_index=0
+)
+
+# 添加带偏移的源文件
+generator.add_source(
+    "utils.js",
+    "function helper() { return true; }",
+    last_index=1,
+    start_offset=2
+)
+
+# 生成源码映射
+mapping = generator.to_json()
+
+# 获取最终内容
+content = generator.get_content()
+        </code></pre>
+    </div>
+
+    <h2>工作原理</h2>
+    <div class="flow-diagram">
+        <h3>源码映射生成流程</h3>
+        <ol>
+            <li>初始化映射生成器,设置基础配置</li>
+            <li>通过add_source方法添加源文件,建立行级映射关系</li>
+            <li>序列化映射数据,使用Base64 VLQ编码优化大小</li>
+            <li>生成最终的JSON格式映射文件</li>
+            <li>添加XSSI防护,输出最终内容</li>
+        </ol>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>使用提示：</strong>
+        <ul>
+            <li>源码映射文件可能会很大,建议在生产环境中谨慎使用</li>
+            <li>使用start_offset时需要注意计算准确,避免映射错误</li>
+            <li>缓存机制可以提高性能,但也会占用更多内存</li>
+            <li>确保源文件路径配置正确,否则可能导致调试困难</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>在开发环境中使用源码映射,方便调试</li>
+            <li>生产环境可以选择性开启,权衡调试便利性和性能</li>
+            <li>合理使用缓存机制,避免内存占用过大</li>
+            <li>保持源文件结构清晰,便于维护映射关系</li>
+        </ul>
+    </div>
+</body>
+</html> 

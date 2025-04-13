@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo版本解析工具模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo版本解析工具模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>parse_version.py</code>是Odoo框架中的版本解析工具模块，提供了将版本字符串转换为可比较的格式的功能。这个模块基于setuptools包的版本解析功能，但进行了定制化处理以适应Odoo的需求。</p>
+
+    <div class="note">
+        <strong>重要说明：</strong>这个模块主要用于处理模块版本号的比较，确保版本号的正确排序和比较。
+    </div>
+
+    <h2>核心功能</h2>
+
+    <h3>1. 版本解析</h3>
+    <div class="code-block">
+        <h4>parse_version 函数</h4>
+        <pre><code>def parse_version(s: str) -> tuple[str, ...]:</code></pre>
+        <p>将版本字符串转换为可进行时间顺序比较的键。主要功能：</p>
+        <ul>
+            <li>处理多种版本格式</li>
+            <li>支持预发布版本</li>
+            <li>处理补丁级别</li>
+            <li>标准化版本比较</li>
+        </ul>
+        <p>版本号处理规则：</p>
+        <ul>
+            <li>数字部分补零至8位，用于数字比较</li>
+            <li>删除点号，保留破折号</li>
+            <li>在alpha段之间或破折号之间删除尾随零</li>
+            <li>字母部分转换为小写</li>
+            <li>预发布版本（如alpha、beta）排在正式版本之前</li>
+        </ul>
+        <p>使用示例：</p>
+        <pre><code>
+# 基本版本比较
+v1 = parse_version('2.4.0')
+v2 = parse_version('2.4.1')
+print(v1 < v2)  # True
+
+# 预发布版本比较
+v1 = parse_version('5.0.0-alpha')
+v2 = parse_version('5.0.0')
+print(v1 < v2)  # True
+
+# 复杂版本比较
+versions = [
+    '0',
+    '4.2',
+    '4.2.3.4',
+    '5.0.0-alpha',
+    '5.0.0-rc1',
+    '5.0.0-rc1.1',
+    '5.0.0_rc2',
+    '5.0.0'
+]
+sorted_versions = sorted(versions, key=parse_version)
+        </code></pre>
+    </div>
+
+    <h3>2. 版本组件解析</h3>
+    <div class="code-block">
+        <h4>_parse_version_parts 函数</h4>
+        <pre><code>def _parse_version_parts(s):</code></pre>
+        <p>内部函数，用于解析版本字符串的各个部分。主要功能：</p>
+        <ul>
+            <li>分割版本字符串为组件</li>
+            <li>标准化各个组件</li>
+            <li>处理特殊版本标识符</li>
+        </ul>
+        <p>版本标识符映射：</p>
+        <ul>
+            <li>'pre' → 'c'</li>
+            <li>'preview' → 'c'</li>
+            <li>'-' → 'final-'</li>
+            <li>'_' → 'final-'</li>
+            <li>'rc' → 'c'</li>
+            <li>'dev' → '@'</li>
+            <li>'saas' → ''</li>
+            <li>'~' → ''</li>
+        </ul>
+    </div>
+
+    <h2>版本比较规则</h2>
+    <div class="version-rules">
+        <h3>版本号排序规则</h3>
+        <ol>
+            <li>主版本号按数字大小排序</li>
+            <li>次版本号按数字大小排序</li>
+            <li>修订号按数字大小排序</li>
+            <li>预发布版本排序：
+                <ul>
+                    <li>dev（开发版）</li>
+                    <li>alpha（内测版）</li>
+                    <li>beta（公测版）</li>
+                    <li>rc（候选发布版）</li>
+                    <li>final（正式版）</li>
+                </ul>
+            </li>
+            <li>补丁级别按数字排序</li>
+        </ol>
+
+        <h3>示例版本排序</h3>
+        <pre><code>
+排序前：
+    5.0.0-alpha
+    5.0.0-rc1
+    5.0.0
+    5.0.0-1
+    4.2.3.4
+    4.2
+    0
+
+排序后：
+    0
+    4.2
+    4.2.3.4
+    5.0.0-alpha
+    5.0.0-rc1
+    5.0.0
+    5.0.0-1
+        </code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议</h3>
+        <ul>
+            <li>在比较模块版本时始终使用parse_version函数</li>
+            <li>使用标准的版本号格式（major.minor.patch）</li>
+            <li>预发布版本使用标准的标识符（alpha、beta、rc）</li>
+            <li>避免使用非标准的版本号格式</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>警告：</strong>
+        <ul>
+            <li>某些特殊的版本号格式可能导致解析结果不符合预期</li>
+            <li>版本号中的某些特殊字符会被替换或忽略</li>
+            <li>空版本号会被处理为'0.1'</li>
+        </ul>
+    </div>
+
+    <h2>版本号格式建议</h2>
+    <div class="version-format">
+        <h3>推荐的版本号格式</h3>
+        <ul>
+            <li>正式版本：X.Y.Z（例如：1.0.0, 2.4.1）</li>
+            <li>预发布版本：X.Y.Z-alpha|beta|rc.N（例如：2.0.0-beta.1）</li>
+            <li>开发版本：X.Y.Z-dev（例如：2.0.0-dev）</li>
+        </ul>
+
+        <h3>不推荐的版本号格式</h3>
+        <ul>
+            <li>使用下划线：2.0_alpha</li>
+            <li>使用非标准标识符：2.0.preview1</li>
+            <li>不规则的格式：2.0.alpha1.beta2</li>
+        </ul>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo集合表达式模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo集合表达式模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>set_expression.py</code>是Odoo框架中的集合表达式处理模块，提供了一套完整的集合运算和表达式处理功能。该模块主要用于处理权限组、规则集等需要复杂集合运算的场景。</p>
+    
+    <div class="note">
+        <strong>主要功能：</strong>
+        <ul>
+            <li>集合定义和管理</li>
+            <li>集合运算（并集、交集、补集）</li>
+            <li>集合表达式解析</li>
+            <li>集合关系判断</li>
+            <li>权限组组合处理</li>
+        </ul>
+    </div>
+
+    <h2>核心类</h2>
+
+    <h3>1. SetDefinitions类</h3>
+    <div class="code-block">
+        <h4>功能描述：</h4>
+        <p>集合定义的容器类，用于管理和创建集合表达式。主要功能：</p>
+        <ul>
+            <li>管理集合定义</li>
+            <li>创建集合表达式</li>
+            <li>处理集合之间的关系</li>
+        </ul>
+        <h4>示例代码：</h4>
+        <pre><code>definitions = {
+    1: {"ref": "N", "supersets": [2]},  # 自然数
+    2: {"ref": "Z", "supersets": [3]},  # 整数
+    3: {"ref": "Q", "supersets": [4]},  # 有理数
+    4: {"ref": "R", "supersets": [6]},  # 实数
+    5: {"ref": "I", "supersets": [6], "disjoints": [4]},  # 虚数
+    6: {"ref": "C"},  # 复数
+}
+sets = SetDefinitions(definitions)</code></pre>
+    </div>
+
+    <h3>2. SetExpression类</h3>
+    <div class="code-block">
+        <h4>功能描述：</h4>
+        <p>集合表达式的抽象基类，定义了集合操作的接口。主要方法：</p>
+        <ul>
+            <li>is_empty(): 判断是否为空集</li>
+            <li>is_universal(): 判断是否为全集</li>
+            <li>matches(): 判断元素是否属于集合</li>
+            <li>集合运算操作符重载</li>
+        </ul>
+        <pre><code>class SetExpression(ABC):
+    @abstractmethod
+    def is_empty(self) -> bool:
+        """ 判断是否为空集 """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def is_universal(self) -> bool:
+        """ 判断是否为全集 """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def matches(self, user_group_ids: Iterable[int]) -> bool:
+        """ 判断给定的组ID是否匹配该表达式 """
+        raise NotImplementedError()</code></pre>
+    </div>
+
+    <h3>3. Union类</h3>
+    <div class="code-block">
+        <h4>功能描述：</h4>
+        <p>实现集合的并集运算。特点：</p>
+        <ul>
+            <li>支持多个集合的并集运算</li>
+            <li>优化并集计算</li>
+            <li>提供集合运算符重载</li>
+        </ul>
+        <pre><code>class Union(SetExpression):
+    def __init__(self, inters: Iterable[Inter] = (), optimal=False):
+        if inters and not optimal:
+            inters = self.__combine((), inters)
+        self.__inters = sorted(inters, key=lambda inter: inter.key)
+        self.__key = str(tuple(inter.key for inter in self.__inters))
+        self.__hash = hash(self.__key)</code></pre>
+    </div>
+
+    <h3>4. Inter类</h3>
+    <div class="code-block">
+        <h4>功能描述：</h4>
+        <p>实现集合的交集运算。特点：</p>
+        <ul>
+            <li>支持多个集合的交集运算</li>
+            <li>优化交集计算</li>
+            <li>处理空集和全集的特殊情况</li>
+        </ul>
+    </div>
+
+    <h2>实际应用场景</h2>
+
+    <h3>1. 权限组管理</h3>
+    <div class="example">
+        <pre><code># 定义权限组
+group_definitions = {
+    1: {"ref": "user", "supersets": [2]},
+    2: {"ref": "manager", "supersets": [3]},
+    3: {"ref": "admin"},
+}
+groups = SetDefinitions(group_definitions)
+
+# 解析权限表达式
+expression = groups.parse("user,!admin")  # 属于user组但不属于admin组
+if expression.matches(user_groups):
+    # 用户具有权限
+    pass</code></pre>
+    </div>
+
+    <h3>2. 复杂规则集</h3>
+    <div class="example">
+        <pre><code># 定义规则集
+rule_definitions = {
+    1: {"ref": "internal", "disjoints": [2]},
+    2: {"ref": "portal"},
+    3: {"ref": "public", "disjoints": [1]},
+}
+rules = SetDefinitions(rule_definitions)
+
+# 创建复杂规则组合
+internal_or_portal = rules.parse("internal,portal")
+not_public = ~rules.parse("public")</code></pre>
+    </div>
+
+    <h2>高级用法</h2>
+
+    <h3>1. 集合运算</h3>
+    <div class="advanced">
+        <pre><code># 并集运算
+union = set1 | set2
+
+# 交集运算
+intersection = set1 & set2
+
+# 补集运算
+complement = ~set1
+
+# 复杂组合
+complex_set = (set1 & set2) | (~set3 & set4)</code></pre>
+    </div>
+
+    <h3>2. 集合关系判断</h3>
+    <div class="advanced">
+        <pre><code># 子集判断
+is_subset = set1 <= set2
+
+# 真子集判断
+is_proper_subset = set1 < set2
+
+# 相等性判断
+is_equal = set1 == set2
+
+# 空集判断
+is_empty = set1.is_empty()</code></pre>
+    </div>
+
+    <h2>性能优化</h2>
+    <div class="optimization">
+        <h3>1. 表达式优化</h3>
+        <ul>
+            <li>使用optimal参数优化集合运算</li>
+            <li>避免不必要的集合转换</li>
+            <li>利用缓存机制</li>
+        </ul>
+
+        <h3>2. 内存优化</h3>
+        <ul>
+            <li>使用__slots__减少内存使用</li>
+            <li>避免重复创建相同的集合</li>
+            <li>及时释放不需要的集合</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <h3>使用限制</h3>
+        <ul>
+            <li>避免过于复杂的集合表达式</li>
+            <li>注意处理循环依赖</li>
+            <li>合理设置集合关系</li>
+        </ul>
+
+        <h3>性能考虑</h3>
+        <ul>
+            <li>大量集合运算可能影响性能</li>
+            <li>避免频繁创建临时集合</li>
+            <li>注意内存使用</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>1. 集合定义</h3>
+        <pre><code># 推荐做法：清晰的集合层次
+definitions = {
+    1: {"ref": "base_user", "supersets": [2]},
+    2: {"ref": "manager", "supersets": [3]},
+    3: {"ref": "admin"}
+}
+
+# 避免这样做：混乱的关系
+definitions = {
+    1: {"ref": "user", "supersets": [2, 3]},
+    2: {"ref": "manager", "supersets": [1]},  # 循环依赖
+    3: {"ref": "admin", "supersets": [1]}     # 混乱的层次
+}</code></pre>
+
+        <h3>2. 表达式使用</h3>
+        <pre><code># 推荐做法：简单清晰的表达式
+access_rule = groups.parse("base.group_user,!base.group_system")
+
+# 避免这样做：过于复杂的表达式
+access_rule = groups.parse("base.group_user,!base.group_system,base.group_portal,!base.group_public,base.group_manager")</code></pre>
+    </div>
+
+</body>
+</html> 

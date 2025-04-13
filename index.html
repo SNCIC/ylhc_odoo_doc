@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 代码文档</title>
+    <link rel="stylesheet" href="css/docs.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h2 class="sidebar-title">目录</h2>
+            <ul class="directory-tree">
+                <li class="directory-group">
+                    <div class="directory-group-title">系统框架 (odoo)</div>
+                    <ul class="directory-group-content">
+                        <li><a href="#" data-content="odoo/api.html">api</a></li>
+                        <li><a href="#" data-content="odoo/exceptions.html">exceptions</a></li>
+                        <li><a href="#" data-content="odoo/fields.html">fields</a></li>
+                        <li><a href="#" data-content="odoo/http.html">http</a></li>
+                        <li><a href="#" data-content="odoo/loglevels.html">loglevels</a></li>
+                        <li><a href="#" data-content="odoo/models.html">models</a></li>
+                        <li><a href="#" data-content="odoo/netsvc.html">netsvc</a></li>
+                        <li><a href="#" data-content="odoo/release.html">release</a></li>
+                        <li><a href="#" data-content="odoo/sql_db.html">sql_db</a></li>
+                        <li class="directory-group">
+                            <div class="directory-group-title">命令行 (cli)</div>
+                            <ul class="directory-group-content" style="display: none;">
+                                <li><a href="#" data-content="odoo/cli/cloc.html">cloc</a></li>
+                                <li><a href="#" data-content="odoo/cli/command.html">command</a></li>
+                                <li><a href="#" data-content="odoo/cli/db.html">db</a></li>
+                                <li><a href="#" data-content="odoo/cli/deploy.html">deploy</a></li>
+                                <li><a href="#" data-content="odoo/cli/genproxytoken.html">genproxytoken</a></li>
+                                <li><a href="#" data-content="odoo/cli/neutralize.html">neutralize</a></li>
+                                <li><a href="#" data-content="odoo/cli/obfuscate.html">obfuscate</a></li>
+                                <li><a href="#" data-content="odoo/cli/populate.html">populate</a></li>
+                                <li><a href="#" data-content="odoo/cli/scaffold.html">scaffold</a></li>
+                                <li><a href="#" data-content="odoo/cli/server.html">server</a></li>
+                                <li><a href="#" data-content="odoo/cli/shell.html">shell</a></li>
+                                <li><a href="#" data-content="odoo/cli/start.html">start</a></li>
+                                <li><a href="#" data-content="odoo/cli/tsconfig.html">tsconfig</a></li>
+                                <li><a href="#" data-content="odoo/cli/upgrade_code.html">upgrade_code</a></li>
+                            </ul>
+                        </li>
+                        <li class="directory-group">
+                            <div class="directory-group-title">模块 (modules)</div>
+                            <ul class="directory-group-content" style="display: none;">
+                                <li><a href="#" data-content="odoo/modules/db.html">db</a></li>
+                                <li><a href="#" data-content="odoo/modules/graph.html">graph</a></li>
+                                <li><a href="#" data-content="odoo/modules/loading.html">loading</a></li>
+                                <li><a href="#" data-content="odoo/modules/migration.html">migration</a></li>
+                                <li><a href="#" data-content="odoo/modules/module.html">module</a></li>
+                                <li><a href="#" data-content="odoo/modules/neutralize.html">neutralize</a></li>
+                                <li><a href="#" data-content="odoo/modules/registry.html">registry</a></li>
+                            </ul>
+                        </li>
+                        <li class="directory-group">
+                            <div class="directory-group-title">服务 (service)</div>
+                            <ul class="directory-group-content" style="display: none;">
+                                <li><a href="#" data-content="odoo/service/common.html">common</a></li>
+                                <li><a href="#" data-content="odoo/service/db.html">db</a></li>
+                                <li><a href="#" data-content="odoo/service/model.html">model</a></li>
+                                <li><a href="#" data-content="odoo/service/security.html">security</a></li>
+                                <li><a href="#" data-content="odoo/service/server.html">server</a></li>
+                            </ul>
+                        </li>
+                        <li class="directory-group">
+                            <div class="directory-group-title">工具 (tools)</div>
+                            <ul class="directory-group-content" style="display: none;">
+                                <li><a href="#" data-content="odoo/tools/appdirs.html">appdirs</a></li>
+                                <li><a href="#" data-content="odoo/tools/barcode.html">barcode</a></li>
+                                <li><a href="#" data-content="odoo/tools/cache.html">cache</a></li>
+                                <li><a href="#" data-content="odoo/tools/cloc.html">cloc</a></li>
+                                <li><a href="#" data-content="odoo/tools/config.html">config</a></li>
+                                <li><a href="#" data-content="odoo/tools/constants.html">constants</a></li>
+                                <li><a href="#" data-content="odoo/tools/convert.html">convert</a></li>
+                                <li><a href="#" data-content="odoo/tools/date_utils.html">date_utils</a></li>
+                                <li><a href="#" data-content="odoo/tools/float_utils.html">float_utils</a></li>
+                                <li><a href="#" data-content="odoo/tools/func.html">func</a></li>
+                                <li><a href="#" data-content="odoo/tools/i18n.html">i18n</a></li>
+                                <li><a href="#" data-content="odoo/tools/image.html">image</a></li>
+                                <li><a href="#" data-content="odoo/tools/js_transpiler.html">js_transpiler</a></li>
+                                <li><a href="#" data-content="odoo/tools/json.html">json</a></li>
+                                <li><a href="#" data-content="odoo/tools/lru.html">lru</a></li>
+                                <li><a href="#" data-content="odoo/tools/mail.html">mail</a></li>
+                                <li><a href="#" data-content="odoo/tools/mimetypes.html">mimetypes</a></li>
+                                <li><a href="#" data-content="odoo/tools/misc.html">misc</a></li>
+                                <li><a href="#" data-content="odoo/tools/osutil.html">osutil</a></li>
+                                <li><a href="#" data-content="odoo/tools/parse_version.html">parse_version</a></li>
+                                <li><a href="#" data-content="odoo/tools/populate.html">populate</a></li>
+                                <li><a href="#" data-content="odoo/tools/profiler.html">profiler</a></li>
+                                <li><a href="#" data-content="odoo/tools/pycompat.html">pycompat</a></li>
+                                <li><a href="#" data-content="odoo/tools/query.html">query</a></li>
+                                <li><a href="#" data-content="odoo/tools/rendering_tools.html">rendering_tools</a></li>
+                                <li><a href="#" data-content="odoo/tools/safe_eval.html">safe_eval</a></li>
+                                <li><a href="#" data-content="odoo/tools/set_expression.html">set_expression</a></li>
+                                <li><a href="#" data-content="odoo/tools/sourcemap_generator.html">sourcemap_generator</a></li>
+                                <li><a href="#" data-content="odoo/tools/speedscope.html">speedscope</a></li>
+                                <li><a href="#" data-content="odoo/tools/sql.html">sql</a></li>
+                                <li><a href="#" data-content="odoo/tools/template_inheritance.html">template_inheritance</a></li>
+                                <li><a href="#" data-content="odoo/tools/test_reports.html">test_reports</a></li>
+                                <li><a href="#" data-content="odoo/tools/translate.html">translate</a></li>
+                                <li><a href="#" data-content="odoo/tools/view_validation.html">view_validation</a></li>
+                                <li><a href="#" data-content="odoo/tools/which.html">which</a></li>
+                                <li><a href="#" data-content="odoo/tools/win32.html">win32</a></li>
+                                <li><a href="#" data-content="odoo/tools/xml_utils.html">xml_utils</a></li>
+                                <li><a href="#" data-content="odoo/tools/zeep.html">zeep</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="directory-group">
+                    <div class="directory-group-title">基础模块 (base)</div>
+                    <ul class="directory-group-content">
+                        <li><a href="#" data-content="base/assetsbundle.html">assetsbundle</a></li>
+                        <li><a href="#" data-content="base/avatar_mixin.html">avatar_mixin</a></li>
+                        <li><a href="#" data-content="base/decimal_precision.html">decimal_precision</a></li>
+                        <li><a href="#" data-content="base/image_mixin.html">image_mixin</a></li>
+                        <li><a href="#" data-content="base/ir_actions.html">ir_actions</a></li>
+                        <li><a href="#" data-content="base/ir_actions_report.html">ir_actions_report</a></li>
+                        <li><a href="#" data-content="base/ir_asset.html">ir_asset</a></li>
+                        <li><a href="#" data-content="base/ir_attachment.html">ir_attachment</a></li>
+                        <li><a href="#" data-content="base/ir_autovacuum.html">ir_autovacuum</a></li>
+                        <li><a href="#" data-content="base/ir_binary_core.html">ir_binary</a></li>
+                        <li><a href="#" data-content="base/ir_config_parameter_core.html">ir_config_parameter</a></li>
+                        <li><a href="#" data-content="base/ir_cron_core.html">ir_cron</a></li>
+                        <li><a href="#" data-content="base/ir_default.html">ir_default</a></li>
+                        <li><a href="#" data-content="base/ir_demo_core.html">ir_demo</a></li>
+                        <li><a href="#" data-content="base/ir_embedded_actions.html">ir_embedded_actions</a></li>
+                        <li><a href="#" data-content="base/ir_exports.html">ir_exports</a></li>
+                        <li><a href="#" data-content="base/ir_fields.html">ir_fields</a></li>
+                        <li><a href="#" data-content="base/ir_filters.html">ir_filters</a></li>
+                        <li><a href="#" data-content="base/ir_http.html">ir_http</a></li>
+                        <li><a href="#" data-content="base/ir_logging.html">ir_logging</a></li>
+                        <li><a href="#" data-content="base/ir_mail_server.html">ir_mail_server</a></li>
+                        <li><a href="#" data-content="base/ir_model.html">ir_model</a></li>
+                        <li><a href="#" data-content="base/ir_module.html">ir_module</a></li>
+                        <li><a href="#" data-content="base/ir_profile.html">ir_profile</a></li>
+                        <li><a href="#" data-content="base/ir_qweb.html">ir_qweb</a></li>
+                        <li><a href="#" data-content="base/ir_qweb_fields.html">ir_qweb_fields</a></li>
+                        <li><a href="#" data-content="base/ir_rule.html">ir_rule</a></li>
+                        <li><a href="#" data-content="base/ir_sequence.html">ir_sequence</a></li>
+                        <li><a href="#" data-content="base/ir_ui_menu.html">ir_ui_menu</a></li>
+                        <li><a href="#" data-content="base/ir_ui_view.html">ir_ui_view</a></li>
+                        <li><a href="#" data-content="base/report_paperformat.html">report_paperformat</a></li>
+                        <li><a href="#" data-content="base/report_layout.html">report_layout</a></li>
+                        <li><a href="#" data-content="base/res_bank.html">res_bank</a></li>
+                        <li><a href="#" data-content="base/res_company.html">res_company</a></li>
+                        <li><a href="#" data-content="base/res_config.html">res_config</a></li>
+                        <li><a href="#" data-content="base/res_currency.html">res_currency</a></li>
+                        <li><a href="#" data-content="base/res_device.html">res_device</a></li>
+                        <li><a href="#" data-content="base/res_lang.html">res_lang</a></li>
+                        <li><a href="#" data-content="base/res_partner.html">res_partner</a></li>
+                        <li><a href="#" data-content="base/res_users.html">res_users</a></li>
+                        <li><a href="#" data-content="base/res_users_settings.html">res_users_settings</a></li>
+                        <li><a href="#" data-content="base/res_users_deletion.html">res_users_deletion</a></li>
+                    </ul>
+                </li>
+                <li class="directory-group">
+                    <div class="directory-group-title">会计模块 (account)</div>
+                    <ul class="directory-group-content">
+                        <li><a href="#" data-content="account/account_account.html">account_account</a></li>
+                        <li><a href="#" data-content="account/account_account_tag.html">account_account_tag</a></li>
+                        <li><a href="#" data-content="account/account_analytic_account.html">account_analytic_account</a></li>
+                        <li><a href="#" data-content="account/account_analytic_distribution_model.html">account_analytic_distribution_model</a></li>
+                        <li><a href="#" data-content="account/account_analytic_line.html">account_analytic_line</a></li>
+                        <li><a href="#" data-content="account/account_analytic_plan.html">account_analytic_plan</a></li>
+                        <li><a href="#" data-content="account/account_bank_statement.html">account_bank_statement</a></li>
+                        <li><a href="#" data-content="account/account_bank_statement_line.html">account_bank_statement_line</a></li>
+                        <li><a href="#" data-content="account/account_cash_rounding.html">account_cash_rounding</a></li>
+                        <li><a href="#" data-content="account/account_code_mapping.html">account_code_mapping</a></li>
+                        <li><a href="#" data-content="account/account_full_reconcile.html">account_full_reconcile</a></li>
+                        <li><a href="#" data-content="account/account_incoterms.html">account_incoterms</a></li>
+                        <li><a href="#" data-content="account/account_journal.html">account_journal</a></li>
+                        <li><a href="#" data-content="account/account_journal_dashboard.html">account_journal_dashboard</a></li>
+                        <li><a href="#" data-content="account/account_lock_exception.html">account_lock_exception</a></li>
+                        <li><a href="#" data-content="account/account_move.html">account_move</a></li>
+                        <li><a href="#" data-content="account/account_move_line.html">account_move_line</a></li>
+                        <li><a href="#" data-content="account/account_move_line_tax_details.html">account_move_line_tax_details</a></li>
+                        <li><a href="#" data-content="account/account_move_send.html">account_move_send</a></li>
+                        <li><a href="#" data-content="account/account_partial_reconcile.html">account_partial_reconcile</a></li>
+                        <li><a href="#" data-content="account/account_payment.html">account_payment</a></li>
+                        <li><a href="#" data-content="account/account_payment_method.html">account_payment_method</a></li>
+                        <li><a href="#" data-content="account/account_payment_term.html">account_payment_term</a></li>
+                        <li><a href="#" data-content="account/account_reconcile_model.html">account_reconcile_model</a></li>
+                        <li><a href="#" data-content="account/account_report.html">account_report</a></li>
+                        <li><a href="#" data-content="account/account_root.html">account_root</a></li>
+                        <li><a href="#" data-content="account/account_tax.html">account_tax</a></li>
+                        <li><a href="#" data-content="account/chart_template.html">chart_template</a></li>
+                        <li><a href="#" data-content="account/company.html">company</a></li>
+                        <li><a href="#" data-content="account/decimal_precision.html">decimal_precision</a></li>
+                        <li><a href="#" data-content="account/digest.html">digest</a></li>
+                        <li><a href="#" data-content="account/exceptions.html">exceptions</a></li>
+                        <li><a href="#" data-content="account/ir_actions_report.html">ir_actions_report</a></li>
+                        <li><a href="#" data-content="account/ir_attachment.html">ir_attachment</a></li>
+                        <li><a href="#" data-content="account/ir_module.html">ir_module</a></li>
+                        <li><a href="#" data-content="account/ir_ui_menu.html">ir_ui_menu</a></li>
+                        <li><a href="#" data-content="account/mail_message.html">mail_message</a></li>
+                        <li><a href="#" data-content="account/mail_template.html">mail_template</a></li>
+                        <li><a href="#" data-content="account/mail_tracking_value.html">mail_tracking_value</a></li>
+                        <li><a href="#" data-content="account/merge_partner_automatic.html">merge_partner_automatic</a></li>
+                        <li><a href="#" data-content="account/onboarding.html">onboarding</a></li>
+                        <li><a href="#" data-content="account/partner.html">partner</a></li>
+                        <li><a href="#" data-content="account/product.html">product</a></li>
+                        <li><a href="#" data-content="account/res_config_settings.html">res_config_settings</a></li>
+                        <li><a href="#" data-content="account/res_currency.html">res_currency</a></li>
+                        <li><a href="#" data-content="account/res_partner_bank.html">res_partner_bank</a></li>
+                        <li><a href="#" data-content="account/res_users.html">res_users</a></li>
+                        <li><a href="#" data-content="account/sequence_mixin.html">sequence_mixin</a></li>
+                        <li><a href="#" data-content="account/template_generic_coa.html">template_generic_coa</a></li>
+                        <li><a href="#" data-content="account/uom_uom.html">uom_uom</a></li>
+                    </ul>
+                </li>
+                <!-- 可以添加更多分组 -->
+            </ul>
+        </div>
+        <div class="content" id="content">
+            <h1>Odoo 18 代码文档</h1>
+            <p>欢迎使用 Odoo 18 代码文档系统。请从左侧目录选择要查看的文件。</p>
+            
+            <h2>最近更新</h2>
+            <ul>
+                <li>添加 api 模块文档 - Odoo API系统</li>
+                <li>添加 report_layout 模块文档 - 报表布局管理系统</li>
+                <li>添加 res_bank 模块文档 - 银行管理系统</li>
+                <li>添加 res_company 模块文档 - 公司管理系统</li>
+                <li>添加 res_config 模块文档 - 配置管理系统</li>
+                <li>添加 res_currency 模块文档 - 货币管理系统</li>
+                <li>添加 res_device 模块文档 - 设备管理系统</li>
+                <li>添加 res_users 模块文档 - 用户管理系统</li>
+                <li>添加 res_users_settings 模块文档 - 用户设置管理系统</li>
+                <li>添加 res_users_deletion 模块文档 - 用户删除管理系统</li>
+                <li>添加 ir_rule 模块文档 - 记录级访问控制系统</li>
+                <li>添加 ir_sequence 模块文档 - 序列号生成系统</li>
+                <li>添加 report_paperformat 模块文档 - 报表纸张格式配置系统</li>
+                <li>添加 ir_mail_server 模块文档 - 邮件服务器管理系统</li>
+                <li>添加 ir_model 模块文档 - 模型管理系统</li>
+                <li>添加 ir_module 模块文档 - 模块管理系统</li>
+                <li>添加 ir_profile 模块文档 - 性能分析系统</li>
+                <li>添加 ir_qweb_fields 模块文档 - QWeb字段渲染系统</li>
+                <li>添加 ir_binary 模块文档 - 二进制文件处理系统</li>
+                <li>添加 ir_config_parameter 模块文档 - 系统参数配置</li>
+                <li>添加 ir_cron 模块文档 - 定时任务系统</li>
+            </ul>
+
+            <h2>文档说明</h2>
+            <p>本文档系统提供了Odoo 18核心模块的详细解析,包括:</p>
+            <ul>
+                <li>模块功能说明</li>
+                <li>核心类和方法解析</li>
+                <li>实际应用场景</li>
+                <li>最佳实践指南</li>
+                <li>性能优化建议</li>
+            </ul>
+            <h2>版权信息</h2>
+            <p>原创作者：源力汇创 祁老师</p>
+            <p>微信: qi_guowen</p>
+            <p>电话: 15503511979</p>
+            <p>欢迎联系作者，免费咨询</p>
+            <p>版权所有，转载请注明出处</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 处理目录组点击事件
+            document.querySelectorAll('.directory-group-title').forEach(title => {
+                title.addEventListener('click', function() {
+                    const parentGroup = this.parentElement;
+                    parentGroup.classList.toggle('active');
+                    const content = this.nextElementSibling;
+                    content.style.display = parentGroup.classList.contains('active') ? 'block' : 'none';
+                });
+            });
+
+            // 处理文件链接点击事件
+            document.querySelectorAll('.directory-tree a[data-content]').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // 移除所有active类
+                    document.querySelectorAll('.directory-tree a').forEach(a => {
+                        a.classList.remove('active');
+                    });
+                    
+                    // 为当前点击的链接添加active类
+                    this.classList.add('active');
+                    
+                    const contentPath = this.getAttribute('data-content');
+                    
+                    // 使用 fetch 加载内容
+                    fetch(contentPath)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('网络响应不正常');
+                            }
+                            return response.text();
+                        })
+                        .then(html => {
+                            // 提取主要内容部分
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(html, 'text/html');
+                            const mainContent = doc.querySelector('body').innerHTML;
+                            
+                            // 更新内容区域
+                            document.getElementById('content').innerHTML = mainContent;
+                            
+                            // 重新应用样式
+                            const styleLink = document.createElement('link');
+                            styleLink.rel = 'stylesheet';
+                            styleLink.href = 'css/docs.css';
+                            document.head.appendChild(styleLink);
+
+                            // 滚动到顶部
+                            document.getElementById('content').scrollTop = 0;
+                        })
+                        .catch(error => {
+                            console.error('加载内容时出错:', error);
+                            document.getElementById('content').innerHTML = `
+                                <div class="error">
+                                    <h2>加载内容时出错</h2>
+                                    <p>出现此问题请联系作者免费咨询：源力汇创 祁老师</p>
+                                    <p>微信: qi_guowen</p>
+                                    <p>电话: 15503511979</p>
+                                </div>
+                            `;
+                        });
+                });
+            });
+        });
+    </script>
+</body>
+</html> 

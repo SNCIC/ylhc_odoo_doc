@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo报表测试工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo报表测试工具(Test Reports)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>test_reports.py</code>是Odoo框架中的报表测试工具模块,提供了一系列用于测试报表生成和验证的辅助函数。该模块主要用于开发和测试阶段,确保报表功能的正确性。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>报表生成测试</li>
+            <li>报表内容验证</li>
+            <li>报表向导操作模拟</li>
+            <li>报表错误检测</li>
+        </ul>
+    </div>
+
+    <h2>主要函数</h2>
+    
+    <h3>try_report</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>尝试生成报表并验证其内容。</p>
+        <pre><code>def try_report(cr, uid, rname, ids, data=None, context=None, our_module=None, report_type=None)</code></pre>
+        <p>参数说明:</p>
+        <ul>
+            <li><code>cr</code>: 数据库游标</li>
+            <li><code>uid</code>: 用户ID</li>
+            <li><code>rname</code>: 报表名称</li>
+            <li><code>ids</code>: 记录ID列表</li>
+            <li><code>data</code>: 额外数据</li>
+            <li><code>context</code>: 上下文</li>
+            <li><code>our_module</code>: 模块名称</li>
+            <li><code>report_type</code>: 报表类型</li>
+        </ul>
+    </div>
+
+    <h3>try_report_action</h3>
+    <div class="code-block">
+        <h4>功能说明</h4>
+        <p>测试报表动作并跟踪其执行过程。</p>
+        <pre><code>def try_report_action(cr, uid, action_id, active_model=None, active_ids=None,
+                wiz_data=None, wiz_buttons=None, context=None, our_module=None)</code></pre>
+        <p>参数说明:</p>
+        <ul>
+            <li><code>action_id</code>: 动作ID或XML ID</li>
+            <li><code>active_model</code>: 活动模型</li>
+            <li><code>active_ids</code>: 活动记录ID列表</li>
+            <li><code>wiz_data</code>: 向导数据</li>
+            <li><code>wiz_buttons</code>: 向导按钮列表</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <h3>基本报表测试</h3>
+        <pre><code>
+# 测试简单报表生成
+success = try_report(cr, uid, 'sale.report_saleorder', [1, 2, 3])
+
+# 测试带参数的报表
+data = {'form': {'date_from': '2024-01-01', 'date_to': '2024-12-31'}}
+success = try_report(cr, uid, 'account.report_journal', [], data=data)
+
+# 测试报表动作
+try_report_action(cr, uid, 'sale.action_report_saleorder',
+    active_model='sale.order',
+    active_ids=[1, 2, 3],
+    wiz_buttons=['打印']
+)
+        </code></pre>
+    </div>
+
+    <h2>报表验证</h2>
+    <div class="validation">
+        <h3>验证项目</h3>
+        <ul>
+            <li>报表生成是否成功</li>
+            <li>PDF格式是否正确</li>
+            <li>报表内容是否完整</li>
+            <li>表达式解析是否正确</li>
+        </ul>
+    </div>
+
+    <h2>错误处理</h2>
+    <div class="error-handling">
+        <h3>常见错误类型</h3>
+        <dl>
+            <dt>空报表</dt>
+            <dd>检查报表是否生成了内容</dd>
+
+            <dt>格式错误</dt>
+            <dd>验证PDF头部格式</dd>
+
+            <dt>表达式错误</dt>
+            <dd>检查报表中的表达式语法</dd>
+        </dl>
+    </div>
+
+    <h2>向导操作</h2>
+    <div class="wizard-operations">
+        <h3>向导处理流程</h3>
+        <ol>
+            <li>加载向导视图</li>
+            <li>填充默认数据</li>
+            <li>模拟按钮点击</li>
+            <li>处理向导结果</li>
+        </ol>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>测试提示：</strong>
+        <ul>
+            <li>确保测试环境中安装了必要的依赖</li>
+            <li>注意处理大量数据的报表测试</li>
+            <li>验证报表在不同语言下的表现</li>
+            <li>检查报表的性能影响</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>编写完整的报表测试用例</li>
+            <li>测试不同数据场景</li>
+            <li>验证报表计算的准确性</li>
+            <li>检查报表样式的一致性</li>
+        </ul>
+    </div>
+
+    <h2>调试技巧</h2>
+    <div class="debugging">
+        <h3>常用调试方法</h3>
+        <ul>
+            <li>使用pdftotext工具检查内容</li>
+            <li>验证报表表达式</li>
+            <li>检查数据计算过程</li>
+            <li>测试边界条件</li>
+        </ul>
+    </div>
+
+    <h2>性能考虑</h2>
+    <div class="performance">
+        <h3>性能优化建议</h3>
+        <ul>
+            <li>限制测试数据量</li>
+            <li>使用适当的缓存策略</li>
+            <li>优化报表查询</li>
+            <li>控制测试频率</li>
+        </ul>
+    </div>
+
+    <h2>集成测试</h2>
+    <div class="integration">
+        <h3>测试场景</h3>
+        <ul>
+            <li>单元测试集成</li>
+            <li>自动化测试流程</li>
+            <li>持续集成环境</li>
+            <li>回归测试</li>
+        </ul>
+    </div>
+</body>
+</html> 

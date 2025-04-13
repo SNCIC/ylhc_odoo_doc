@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo系统参数配置模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo系统参数配置(ir.config_parameter)深度解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>ir_config_parameter.py</code>是Odoo框架中的系统参数存储模块,用于存储数据库级别的配置参数。它提供了一个键值对存储系统,可以存储各种系统级配置。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>
+        <ul>
+            <li>系统参数的存储和管理</li>
+            <li>数据库级别的配置项控制</li>
+            <li>系统默认参数的初始化</li>
+            <li>参数值的缓存管理</li>
+        </ul>
+    </div>
+
+    <h2>默认参数配置</h2>
+    <div class="code-block">
+        <pre><code>_default_parameters = {
+    "database.secret": lambda: str(uuid.uuid4()),
+    "database.uuid": lambda: str(uuid.uuid1()),
+    "database.create_date": fields.Datetime.now,
+    "web.base.url": lambda: "http://localhost:%s" % config.get('http_port'),
+    "base.login_cooldown_after": lambda: 10,
+    "base.login_cooldown_duration": lambda: 60,
+}</code></pre>
+    </div>
+    
+    <h3>默认参数说明</h3>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>说明</th>
+            <th>默认值生成方式</th>
+        </tr>
+        <tr>
+            <td>database.secret</td>
+            <td>数据库安全密钥</td>
+            <td>随机UUID4</td>
+        </tr>
+        <tr>
+            <td>database.uuid</td>
+            <td>数据库唯一标识</td>
+            <td>UUID1(基于时间戳)</td>
+        </tr>
+        <tr>
+            <td>database.create_date</td>
+            <td>数据库创建时间</td>
+            <td>当前时间</td>
+        </tr>
+        <tr>
+            <td>web.base.url</td>
+            <td>系统基础URL</td>
+            <td>本地服务器URL</td>
+        </tr>
+        <tr>
+            <td>base.login_cooldown_after</td>
+            <td>登录冷却触发次数</td>
+            <td>10次</td>
+        </tr>
+        <tr>
+            <td>base.login_cooldown_duration</td>
+            <td>登录冷却时间</td>
+            <td>60秒</td>
+        </tr>
+    </table>
+
+    <h2>核心类解析</h2>
+    <h3>IrConfigParameter (Model)</h3>
+    <div class="code-block">
+        <pre><code>class IrConfigParameter(models.Model):
+    _name = 'ir.config_parameter'
+    _description = 'System Parameter'
+    _rec_name = 'key'
+    _order = 'key'</code></pre>
+    </div>
+
+    <h3>字段定义</h3>
+    <div class="fields">
+        <ul>
+            <li><code>key</code>: Char字段,必填,唯一键</li>
+            <li><code>value</code>: Text字段,必填,存储值</li>
+        </ul>
+    </div>
+
+    <h3>主要方法详解</h3>
+    
+    <h4>1. get_param 方法</h4>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>获取系统参数值的主要方法。</p>
+        <h5>参数说明：</h5>
+        <ul>
+            <li><code>key</code>: 参数键名</li>
+            <li><code>default</code>: 默认值(可选)</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code>base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', 'http://localhost:8069')</code></pre>
+    </div>
+
+    <h4>2. set_param 方法</h4>
+    <div class="method-details">
+        <h5>功能描述：</h5>
+        <p>设置系统参数值的主要方法。</p>
+        <h5>参数说明：</h5>
+        <ul>
+            <li><code>key</code>: 参数键名</li>
+            <li><code>value</code>: 参数值</li>
+        </ul>
+        <h5>使用示例：</h5>
+        <pre><code>env['ir.config_parameter'].sudo().set_param('my.parameter', 'value')</code></pre>
+    </div>
+
+    <h2>实际应用场景</h2>
+    
+    <h3>1. 系统配置管理</h3>
+    <div class="example">
+        <pre><code># 设置系统基础URL
+self.env['ir.config_parameter'].sudo().set_param('web.base.url', 'https://myodoo.com')
+
+# 获取系统邮件服务器配置
+smtp_server = self.env['ir.config_parameter'].sudo().get_param('smtp.server')
+smtp_port = self.env['ir.config_parameter'].sudo().get_param('smtp.port', '25')</code></pre>
+    </div>
+
+    <h3>2. 自定义参数管理</h3>
+    <div class="example">
+        <pre><code>class MyModule(models.Model):
+    _name = 'my.module'
+
+    def get_config(self):
+        return {
+            'api_key': self.env['ir.config_parameter'].sudo().get_param('my_module.api_key'),
+            'api_url': self.env['ir.config_parameter'].sudo().get_param('my_module.api_url'),
+            'timeout': int(self.env['ir.config_parameter'].sudo().get_param('my_module.timeout', '30'))
+        }</code></pre>
+    </div>
+
+    <h2>缓存机制</h2>
+    <div class="caching">
+        <h3>主要特点：</h3>
+        <ul>
+            <li>使用<code>@ormcache</code>装饰器实现参数值缓存</li>
+            <li>在参数值变更时自动清除缓存</li>
+            <li>支持多公司环境下的参数隔离</li>
+        </ul>
+        <pre><code>@api.model
+@ormcache('key')
+def _get_param(self, key):
+    self.flush_model(['key', 'value'])
+    self.env.cr.execute("SELECT value FROM ir_config_parameter WHERE key = %s", [key])
+    result = self.env.cr.fetchone()
+    return result and result[0]</code></pre>
+    </div>
+
+    <h2>安全性考虑</h2>
+    <div class="security">
+        <h3>安全机制：</h3>
+        <ol>
+            <li>默认参数不允许删除</li>
+            <li>参数键名唯一性约束</li>
+            <li>访问权限控制</li>
+            <li>敏感参数加密存储</li>
+        </ol>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>使用建议：</h3>
+        <ol>
+            <li>使用sudo()访问系统参数</li>
+            <li>为自定义参数添加模块前缀</li>
+            <li>处理参数值类型转换</li>
+            <li>合理使用默认值</li>
+            <li>注意参数命名规范</li>
+        </ol>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>避免频繁修改参数值</li>
+            <li>注意参数值的类型转换</li>
+            <li>谨慎处理敏感信息</li>
+            <li>考虑多公司环境影响</li>
+        </ul>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 小数精度模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 小数精度模块(decimal_precision)详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p>decimal_precision.py是Odoo 18中处理小数精度的扩展模块。它继承了基础的decimal.precision模型,主要用于处理折扣等特殊场景下的小数精度控制。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>自定义折扣精度控制</li>
+            <li>上下文感知的精度设置</li>
+            <li>灵活的精度调整机制</li>
+        </ul>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>precision_get</h3>
+            <pre><code>def precision_get(self, application)</code></pre>
+            <p>获取指定应用场景的小数精度。</p>
+            <ul>
+                <li>参数:
+                    <ul>
+                        <li>application: 应用场景标识符(如'Discount')</li>
+                    </ul>
+                </li>
+                <li>返回: 小数精度值</li>
+            </ul>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 获取折扣的小数精度
+precision = self.env['decimal.precision'].precision_get('Discount')
+
+# 在特殊上下文中忽略折扣精度限制
+with_context = self.env['decimal.precision'].with_context(
+    ignore_discount_precision=True
+).precision_get('Discount')  # 返回100
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>精度控制逻辑</h3>
+        <pre><code>
+def precision_get(self, application):
+    if application == 'Discount' and self.env.context.get('ignore_discount_precision'):
+        return 100
+    return super().precision_get(application)
+        </code></pre>
+        <p>说明:</p>
+        <ul>
+            <li>当应用场景为'Discount'且上下文中设置了ignore_discount_precision时,返回100</li>
+            <li>其他情况下使用父类的精度设置</li>
+            <li>返回100意味着允许最多100位小数,实际上相当于不限制精度</li>
+        </ul>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 标准折扣计算</h3>
+        <pre><code>
+# 使用标准精度计算折扣
+discount = 12.345
+precision = self.env['decimal.precision'].precision_get('Discount')
+rounded_discount = float_round(discount, precision_digits=precision)
+        </code></pre>
+
+        <h3>2. 特殊折扣处理</h3>
+        <pre><code>
+# 需要更高精度的特殊场景
+precision = self.env['decimal.precision'].with_context(
+    ignore_discount_precision=True
+).precision_get('Discount')
+special_discount = 12.3456789
+        </code></pre>
+
+        <h3>3. 批量折扣计算</h3>
+        <pre><code>
+# 批量处理折扣时的精度控制
+def process_discounts(self, discounts):
+    precision = self.env['decimal.precision'].precision_get('Discount')
+    return [float_round(d, precision_digits=precision) for d in discounts]
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>合理使用精度控制</li>
+            <li>注意性能影响</li>
+            <li>保持数据一致性</li>
+            <li>适当的精度舍入</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 精度不一致</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>上下文设置不同</li>
+                    <li>舍入方法不一致</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>统一上下文设置</li>
+                    <li>使用一致的舍入方法</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 性能问题</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>过高的精度设置</li>
+                    <li>频繁的精度转换</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>使用合适的精度级别</li>
+                    <li>缓存精度设置</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>谨慎使用ignore_discount_precision</li>
+            <li>注意精度对性能的影响</li>
+            <li>保持与其他模块的兼容性</li>
+            <li>考虑数据库存储的影响</li>
+        </ul>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加新的精度应用场景
+                <pre><code>
+# 在继承类中添加新的应用场景
+class DecimalPrecisionExtended(models.Model):
+    _inherit = 'decimal.precision'
+    
+    def precision_get(self, application):
+        if application == 'Custom':
+            return self._get_custom_precision()
+        return super().precision_get(application)
+                </code></pre>
+            </li>
+            <li>自定义精度计算逻辑
+                <pre><code>
+def _get_custom_precision(self):
+    """自定义精度计算方法"""
+    if self.env.context.get('custom_precision'):
+        return self.env.context['custom_precision']
+    return 2  # 默认精度
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+</body>
+</html> 

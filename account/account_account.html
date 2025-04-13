@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 会计科目模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 会计科目模块详解</h1>
+    
+    <div class="module-description">
+        <h2>模块概述</h2>
+        <p><code>account_account.py</code>是Odoo 18中处理会计科目的核心模块。它定义了会计科目的结构、属性和行为,是整个会计系统的基础。</p>
+    </div>
+
+    <div class="key-features">
+        <h2>核心功能</h2>
+        <ul>
+            <li>会计科目的创建和管理</li>
+            <li>科目编码和层级结构</li>
+            <li>科目类型和属性设置</li>
+            <li>多公司支持</li>
+            <li>科目余额计算</li>
+            <li>科目对账功能</li>
+        </ul>
+    </div>
+
+    <div class="main-methods">
+        <h2>主要方法详解</h2>
+
+        <section class="method">
+            <h3>_compute_code</h3>
+            <pre><code>@api.depends_context('company')
+@api.depends('code_store')
+def _compute_code(self)</code></pre>
+            <p>计算科目编码,支持多公司环境。</p>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 获取科目编码
+account = self.env['account.account'].browse(account_id)
+code = account.code  # 自动触发_compute_code计算
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_search_new_account_code</h3>
+            <pre><code>def _search_new_account_code(self, start_code, cache=None)</code></pre>
+            <p>搜索并生成新的可用科目编码。</p>
+            <div class="example">
+                <h4>使用示例:</h4>
+                <pre><code>
+# 查找新的可用科目编码
+new_code = self._search_new_account_code('101100')
+# 结果可能是: '101101'
+                </code></pre>
+            </div>
+        </section>
+
+        <section class="method">
+            <h3>_compute_current_balance</h3>
+            <pre><code>@api.depends_context('company')
+def _compute_current_balance(self)</code></pre>
+            <p>计算科目当前余额。</p>
+            <div class="example">
+                <pre><code>
+# 获取科目余额
+account = self.env['account.account'].browse(account_id)
+balance = account.current_balance
+                </code></pre>
+            </div>
+        </section>
+    </div>
+
+    <div class="technical-details">
+        <h2>技术细节</h2>
+        
+        <h3>科目类型定义</h3>
+        <pre><code>
+account_type = fields.Selection([
+    ("asset_receivable", "Receivable"),
+    ("asset_cash", "Bank and Cash"),
+    ("asset_current", "Current Assets"),
+    ("asset_non_current", "Non-current Assets"),
+    ("asset_prepayments", "Prepayments"),
+    ("asset_fixed", "Fixed Assets"),
+    ("liability_payable", "Payable"),
+    ("liability_credit_card", "Credit Card"),
+    ("liability_current", "Current Liabilities"),
+    ("liability_non_current", "Non-current Liabilities"),
+    ("equity", "Equity"),
+    ("equity_unaffected", "Current Year Earnings"),
+    ("income", "Income"),
+    ("income_other", "Other Income"),
+    ("expense", "Expenses"),
+    ("expense_depreciation", "Depreciation"),
+    ("expense_direct_cost", "Cost of Revenue"),
+    ("off_balance", "Off-Balance Sheet"),
+])
+        </code></pre>
+
+        <h3>科目编码规则</h3>
+        <pre><code>
+ACCOUNT_CODE_REGEX = re.compile(r'^[A-Za-z0-9.]+$')
+ACCOUNT_CODE_NUMBER_REGEX = re.compile(r'(.*?)(\d*)(\D*?)$')
+        </code></pre>
+    </div>
+
+    <div class="practical-usage">
+        <h2>实际应用场景</h2>
+
+        <h3>1. 创建新科目</h3>
+        <pre><code>
+# 创建新的会计科目
+new_account = self.env['account.account'].create({
+    'code': '101200',
+    'name': '银行存款',
+    'account_type': 'asset_cash',
+    'company_id': company_id,
+})
+        </code></pre>
+
+        <h3>2. 科目余额查询</h3>
+        <pre><code>
+# 查询科目余额
+accounts = self.env['account.account'].search([
+    ('account_type', '=', 'asset_cash')
+])
+balances = accounts.mapped('current_balance')
+        </code></pre>
+
+        <h3>3. 科目重组</h3>
+        <pre><code>
+# 拆分多公司共享的科目
+account = self.env['account.account'].browse(account_id)
+account.action_unmerge()
+        </code></pre>
+    </div>
+
+    <div class="best-practices">
+        <h2>最佳实践</h2>
+        <ul>
+            <li>使用规范的科目编码体系</li>
+            <li>正确设置科目类型和属性</li>
+            <li>定期检查科目余额</li>
+            <li>及时处理科目对账差异</li>
+            <li>合理使用科目层级结构</li>
+        </ul>
+    </div>
+
+    <div class="common-issues">
+        <h2>常见问题及解决方案</h2>
+        <dl>
+            <dt>问题1: 科目编码冲突</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>多公司环境下编码重复</li>
+                    <li>科目导入时编码重复</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>使用_search_new_account_code生成唯一编码</li>
+                    <li>检查并修正重复编码</li>
+                </ul>
+            </dd>
+
+            <dt>问题2: 余额计算不准确</dt>
+            <dd>
+                <p>可能原因:</p>
+                <ul>
+                    <li>未过账的凭证</li>
+                    <li>货币转换问题</li>
+                    <li>期间锁定设置问题</li>
+                </ul>
+                <p>解决方案:</p>
+                <ul>
+                    <li>检查未过账凭证</li>
+                    <li>验证货币转换设置</li>
+                    <li>检查期间锁定设置</li>
+                </ul>
+            </dd>
+        </dl>
+    </div>
+
+    <div class="notes">
+        <h2>注意事项</h2>
+        <ul>
+            <li>科目编码一旦使用不建议修改</li>
+            <li>注意科目类型的正确设置</li>
+            <li>定期检查科目使用情况</li>
+            <li>关注多公司环境下的科目管理</li>
+        </ul>
+    </div>
+
+    <div class="constraints">
+        <h2>重要约束</h2>
+        <pre><code>
+@api.constrains('account_type', 'reconcile')
+def _check_reconcile(self):
+    """确保应收/应付科目必须可对账"""
+    for account in self:
+        if account.account_type in ('asset_receivable', 'liability_payable') and not account.reconcile:
+            raise ValidationError(_('应收/应付科目必须设置为可对账'))
+        </code></pre>
+
+        <pre><code>
+@api.constrains('code')
+def _check_account_code(self):
+    """确保科目编码格式正确"""
+    for account in self:
+        if account.code and not re.match(ACCOUNT_CODE_REGEX, account.code):
+            raise ValidationError(_('科目编码只能包含字母、数字和点号'))
+        </code></pre>
+    </div>
+
+    <div class="extensions">
+        <h2>扩展建议</h2>
+        <p>如何扩展此模块的功能:</p>
+        <ul>
+            <li>添加自定义科目类型
+                <pre><code>
+# 在继承类中扩展selection
+class AccountAccountExtended(models.Model):
+    _inherit = 'account.account'
+    
+    account_type = fields.Selection(
+        selection_add=[('custom_type', 'Custom Type')]
+    )
+                </code></pre>
+            </li>
+            <li>添加自定义验证规则
+                <pre><code>
+@api.constrains('code')
+def _check_custom_rules(self):
+    for account in self:
+        if not your_custom_validation(account.code):
+            raise ValidationError(_('自定义验证失败'))
+                </code></pre>
+            </li>
+        </ul>
+    </div>
+
+    <div class="migration-notes">
+        <h2>迁移注意事项</h2>
+        <p>从旧版本升级到Odoo 18时需要注意:</p>
+        <ul>
+            <li>科目类型的变化</li>
+            <li>多公司支持的改进</li>
+            <li>科目编码规则的变化</li>
+            <li>余额计算逻辑的优化</li>
+        </ul>
+    </div>
+</body>
+</html> 

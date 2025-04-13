@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo CLI Cloc模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo代码行数统计工具(Cloc)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>cloc.py</code>是Odoo框架中的一个命令行工具，用于统计代码行数。这个工具主要用于：</p>
+    <ul>
+        <li>统计Python、JavaScript和XML文件的相关代码行数</li>
+        <li>作为定制化维护定价的粗略度量标准</li>
+        <li>支持按模块路径或数据库名称进行统计</li>
+    </ul>
+
+    <h2>核心功能分析</h2>
+    
+    <h3>1. 命令行参数解析</h3>
+    <div class="code-block">
+        <pre><code>class Cloc(Command):
+    def run(self, args):
+        parser = argparse.ArgumentParser(
+            prog=f'{Path(sys.argv[0]).name} {self.name}',
+            description="..."
+        )</code></pre>
+    </div>
+    <p>主要参数包括：</p>
+    <ul>
+        <li><code>--database</code> 或 <code>-d</code>：指定数据库名称</li>
+        <li><code>--path</code> 或 <code>-p</code>：指定文件或目录路径</li>
+        <li><code>--verbose</code> 或 <code>-v</code>：详细输出级别</li>
+    </ul>
+
+    <h3>2. 运行模式</h3>
+    <p>工具支持两种运行模式：</p>
+    <div class="mode-description">
+        <h4>路径模式</h4>
+        <pre><code>odoo-bin cloc -p module_path</code></pre>
+        <p>直接统计指定路径下的代码行数</p>
+
+        <h4>数据库模式</h4>
+        <pre><code>odoo-bin cloc --addons-path=dirs -d database</code></pre>
+        <p>只统计数据库中的自定义代码</p>
+    </div>
+
+    <h2>使用示例</h2>
+    <div class="example">
+        <h3>1. 统计单个模块的代码行数</h3>
+        <pre><code>odoo-bin cloc -p /path/to/my_module</code></pre>
+
+        <h3>2. 统计数据库中的自定义代码</h3>
+        <pre><code>odoo-bin cloc -d my_database</code></pre>
+
+        <h3>3. 详细输出模式</h3>
+        <pre><code>odoo-bin cloc -p /path/to/my_module -v</code></pre>
+    </div>
+
+    <h2>工作流程</h2>
+    <ol>
+        <li>解析命令行参数</li>
+        <li>创建Cloc对象实例</li>
+        <li>根据模式选择执行路径：
+            <ul>
+                <li>如果指定了数据库，统计数据库中的代码</li>
+                <li>如果指定了路径，统计路径中的代码</li>
+            </ul>
+        </li>
+        <li>生成报告</li>
+    </ol>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>必须指定数据库名称或路径，否则会显示帮助信息</li>
+            <li>数据库模式下只统计自定义代码</li>
+            <li>统计结果可能会因代码格式化方式而有所不同</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>在评估项目规模时使用此工具</li>
+            <li>在维护定价时结合其他指标使用</li>
+            <li>定期统计代码量以跟踪项目增长</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>提示：</strong>此工具提供的是代码量的粗略估计，不应作为唯一的项目复杂度衡量标准。建议结合其他指标（如功能点数、测试覆盖率等）一起使用。
+    </div>
+</body>
+</html> 

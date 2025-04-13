@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo用户权限管理模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo用户权限管理模块(GroupsView)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_users.py</code>是Odoo框架中的用户权限管理模块，继承自<code>res.groups</code>。该模块主要处理会计模块相关的用户权限管理，包括权限组的显示和激活。</p>
+    
+    <div class="note">
+        <strong>核心功能：</strong>管理会计模块的用户权限组，控制权限的显示和分配，确保安全的权限管理。
+    </div>
+    
+    <h2>主要方法解析</h2>
+    
+    <h3>1. get_application_groups方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def get_application_groups(self, domain):
+    group_account_user = self.env.ref('account.group_account_user', raise_if_not_found=False)
+    if group_account_user and group_account_user.category_id.xml_id == 'base.module_category_hidden':
+        domain += [('id', '!=', group_account_user.id)]
+    # ... 其他组的处理 ...</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>从用户界面中移除特定的会计权限组</li>
+        <li>处理三个主要的会计权限组：
+            <ul>
+                <li>group_account_user（完整会计功能）</li>
+                <li>group_account_readonly（只读权限）</li>
+                <li>group_account_basic（基础权限）</li>
+            </ul>
+        </li>
+        <li>防止用户界面混淆</li>
+    </ul>
+
+    <h3>2. _activate_group_account_secured方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _activate_group_account_secured(self):
+    group_account_secured = self.env.ref('account.group_account_secured', raise_if_not_found=False)
+    if not group_account_secured:
+        return
+    groups_with_access = [
+        'account.group_account_readonly',
+        'account.group_account_invoice',
+    ]
+    for group_name in groups_with_access:
+        group = self.env.ref(group_name, raise_if_not_found=False)
+        if group:
+            group.sudo()._apply_group(group_account_secured)</code></pre>
+    </div>
+    <p>功能说明：</p>
+    <ul>
+        <li>激活安全账户组的权限</li>
+        <li>为指定的权限组应用安全设置</li>
+        <li>确保权限的正确继承关系</li>
+    </ul>
+
+    <h2>权限组层次结构</h2>
+    <div class="hierarchy">
+        <ul>
+            <li>完整会计功能 (group_account_user)
+                <ul>
+                    <li>只读权限 (group_account_readonly)</li>
+                    <li>基础权限 (group_account_basic)</li>
+                </ul>
+            </li>
+            <li>安全账户组 (group_account_secured)
+                <ul>
+                    <li>只读权限 (group_account_readonly)</li>
+                    <li>发票权限 (group_account_invoice)</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. 获取应用权限组</h3>
+    <div class="code-block">
+        <pre><code># 获取可见的应用权限组
+groups = self.env['res.groups'].get_application_groups([
+    ('category_id.name', '=', 'Accounting')
+])</code></pre>
+    </div>
+
+    <h3>2. 激活安全账户组</h3>
+    <div class="code-block">
+        <pre><code># 激活安全账户组
+self.env['res.groups']._activate_group_account_secured()</code></pre>
+    </div>
+
+    <h2>安全考虑</h2>
+    <div class="warning">
+        <strong>重要安全提示：</strong>
+        <ul>
+            <li>权限组的修改需要管理员权限</li>
+            <li>某些权限组在UI中被隐藏以防止误操作</li>
+            <li>权限的变更会影响用户的操作范围</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <ul>
+        <li>遵循最小权限原则分配用户权限</li>
+        <li>定期审查用户权限设置</li>
+        <li>使用安全账户组增强关键操作的安全性</li>
+        <li>记录权限变更操作</li>
+    </ul>
+
+    <h2>权限组说明</h2>
+    <table>
+        <tr>
+            <th>权限组</th>
+            <th>描述</th>
+            <th>适用场景</th>
+        </tr>
+        <tr>
+            <td>group_account_user</td>
+            <td>完整会计功能</td>
+            <td>会计人员、财务经理</td>
+        </tr>
+        <tr>
+            <td>group_account_readonly</td>
+            <td>只读权限</td>
+            <td>审计人员、管理层</td>
+        </tr>
+        <tr>
+            <td>group_account_basic</td>
+            <td>基础权限</td>
+            <td>普通用户、数据录入人员</td>
+        </tr>
+        <tr>
+            <td>group_account_secured</td>
+            <td>安全账户组</td>
+            <td>需要额外安全控制的操作</td>
+        </tr>
+    </table>
+
+    <div class="note">
+        <strong>技术说明：</strong>
+        <p>本模块通过精细的权限控制确保会计操作的安全性。权限组的设计遵循职责分离原则，同时提供了足够的灵活性以适应不同的业务需求。</p>
+    </div>
+
+    <h2>常见问题解决</h2>
+    <ul>
+        <li>权限不足：检查用户所属权限组</li>
+        <li>权限组不可见：确认是否被故意隐藏</li>
+        <li>权限继承问题：检查权限组的层次关系</li>
+    </ul>
+</body>
+</html> 

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo合作伙伴系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo合作伙伴系统(res.partner)详解</h1>
+    
+    <h2>1. 模块概述</h2>
+    <p><code>res.partner</code>是Odoo系统中最基础的模块之一,用于管理所有的业务伙伴信息,包括客户、供应商、联系人等。它提供了完整的联系人管理功能,并与其他模块紧密集成。</p>
+
+    <h2>2. 核心特性</h2>
+    <div class="feature-list">
+        <h3>2.1 基本属性</h3>
+        <ul>
+            <li><code>name</code>: 名称</li>
+            <li><code>type</code>: 类型(联系人/发票地址/送货地址)</li>
+            <li><code>parent_id</code>: 上级合作伙伴</li>
+            <li><code>child_ids</code>: 下级联系人</li>
+            <li><code>email</code>: 电子邮件</li>
+            <li><code>phone</code>: 电话</li>
+            <li><code>mobile</code>: 手机</li>
+            <li><code>vat</code>: 税号</li>
+            <li><code>lang</code>: 语言</li>
+            <li><code>category_id</code>: 标签分类</li>
+        </ul>
+
+        <h3>2.2 主要功能</h3>
+        <ul>
+            <li>联系人管理</li>
+            <li>地址管理</li>
+            <li>分类标签</li>
+            <li>银行账户管理</li>
+            <li>多语言支持</li>
+            <li>权限控制</li>
+        </ul>
+    </div>
+
+    <h2>3. 核心方法解析</h2>
+    
+    <h3>3.1 地址处理</h3>
+    <pre><code>
+def _display_address(self, without_company=False):
+    """格式化地址显示
+    
+    根据国家格式化地址
+    """
+    </code></pre>
+    
+    <div class="note">
+        <strong>实现说明:</strong>
+        <p>地址处理包括:</p>
+        <ol>
+            <li>获取地址格式模板</li>
+            <li>收集地址字段值</li>
+            <li>应用格式化规则</li>
+            <li>处理多语言</li>
+        </ol>
+    </div>
+
+    <h3>3.2 商业实体处理</h3>
+    <pre><code>
+def _commercial_fields(self):
+    """返回商业字段列表
+    
+    定义需要同步的商业相关字段
+    """
+    </code></pre>
+
+    <div class="example">
+        <h4>使用示例:</h4>
+        <pre><code>
+# 创建公司
+company = env['res.partner'].create({
+    'name': '测试公司',
+    'is_company': True,
+    'vat': 'CN123456789',
+})
+
+# 创建联系人
+contact = env['res.partner'].create({
+    'name': '张三',
+    'parent_id': company.id,
+    'type': 'contact',
+    'email': 'zhangsan@example.com',
+})
+
+# 创建地址
+address = env['res.partner'].create({
+    'name': '送货地址',
+    'parent_id': company.id,
+    'type': 'delivery',
+    'street': '测试路123号',
+    'city': '上海市',
+})
+        </code></pre>
+    </div>
+
+    <h2>4. 重要字段说明</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>合作伙伴名称</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>Selection</td>
+            <td>类型(contact/invoice/delivery)</td>
+        </tr>
+        <tr>
+            <td>parent_id</td>
+            <td>Many2one</td>
+            <td>上级合作伙伴</td>
+        </tr>
+        <tr>
+            <td>child_ids</td>
+            <td>One2many</td>
+            <td>下级联系人</td>
+        </tr>
+        <tr>
+            <td>category_id</td>
+            <td>Many2many</td>
+            <td>标签分类</td>
+        </tr>
+        <tr>
+            <td>user_id</td>
+            <td>Many2one</td>
+            <td>销售员</td>
+        </tr>
+        <tr>
+            <td>vat</td>
+            <td>Char</td>
+            <td>税号</td>
+        </tr>
+    </table>
+
+    <h2>5. 地址格式化</h2>
+    
+    <h3>5.1 地址字段</h3>
+    <pre><code>
+ADDRESS_FIELDS = (
+    'street',
+    'street2',
+    'zip',
+    'city',
+    'state_id',
+    'country_id'
+)
+    </code></pre>
+
+    <h3>5.2 格式化示例</h3>
+    <pre><code>
+# 默认地址格式
+"%(street)s\n%(street2)s\n%(city)s %(state_code)s %(zip)s\n%(country_name)s"
+
+# 中国地址格式
+"%(country_name)s %(state_name)s %(city)s\n%(street)s %(street2)s"
+    </code></pre>
+
+    <h2>6. 联系人类型</h2>
+    <div class="types">
+        <h3>6.1 基本类型</h3>
+        <ul>
+            <li><code>contact</code>: 联系人</li>
+            <li><code>invoice</code>: 发票地址</li>
+            <li><code>delivery</code>: 送货地址</li>
+            <li><code>other</code>: 其他地址</li>
+        </ul>
+
+        <h3>6.2 类型特点</h3>
+        <ul>
+            <li>contact类型必须有名称</li>
+            <li>地址类型可以共享联系信息</li>
+            <li>类型影响地址显示格式</li>
+        </ul>
+    </div>
+
+    <h2>7. 最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>合理使用合作伙伴层级</li>
+            <li>正确设置联系人类型</li>
+            <li>维护完整的地址信息</li>
+            <li>使用标签进行分类</li>
+            <li>注意数据完整性</li>
+        </ol>
+    </div>
+
+    <h2>8. 注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>避免循环引用</li>
+            <li>注意字段同步</li>
+            <li>处理好多语言</li>
+            <li>维护地址格式</li>
+            <li>控制数据权限</li>
+        </ul>
+    </div>
+
+    <h2>9. 扩展功能</h2>
+    <div class="extensions">
+        <h3>9.1 银行账户</h3>
+        <pre><code>
+# 添加银行账户
+bank_account = env['res.partner.bank'].create({
+    'acc_number': '6222123456789',
+    'partner_id': partner.id,
+    'bank_id': bank.id,
+})
+        </code></pre>
+
+        <h3>9.2 联系人标签</h3>
+        <pre><code>
+# 创建标签
+category = env['res.partner.category'].create({
+    'name': '重要客户',
+    'color': 2,
+})
+
+# 添加标签
+partner.write({
+    'category_id': [(4, category.id)]
+})
+        </code></pre>
+    </div>
+
+    <h2>10. 常见问题</h2>
+    <div class="faq">
+        <h3>10.1 地址格式问题</h3>
+        <ul>
+            <li>检查国家设置</li>
+            <li>验证地址字段</li>
+            <li>确认格式模板</li>
+        </ul>
+
+        <h3>10.2 数据同步问题</h3>
+        <ul>
+            <li>检查商业字段</li>
+            <li>验证继承关系</li>
+            <li>确认字段权限</li>
+        </ul>
+    </div>
+
+</body>
+</html> 

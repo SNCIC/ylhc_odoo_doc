@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo序列混入模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo序列混入(SequenceMixin)模块解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>sequence_mixin.py</code>是Odoo框架中的一个重要基础模块，它提供了一个可编辑的序列号机制。这个混入类主要用于生成和管理文档编号，如发票编号、订单编号等。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>序列混入类提供了一种灵活的方式来处理业务文档的编号，支持按年、月或自定义规则自动重置编号。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>自动序列生成</strong>：根据预定义的格式自动生成序列号</li>
+        <li><strong>序列格式解析</strong>：支持复杂的序列格式，包括前缀、年份、月份和数字序列</li>
+        <li><strong>序列重置机制</strong>：支持按年、月、年范围等方式重置序列</li>
+        <li><strong>序列约束检查</strong>：确保序列号与日期匹配</li>
+    </ol>
+    
+    <h2>关键属性</h2>
+    <div class="code-block">
+        <pre><code>class SequenceMixin(models.AbstractModel):
+    _name = 'sequence.mixin'
+    _description = "Automatic sequence"
+
+    _sequence_field = "name"
+    _sequence_date_field = "date"
+    _sequence_index = False</code></pre>
+    </div>
+    
+    <h3>属性说明</h3>
+    <ul>
+        <li><code>_sequence_field</code>：存储序列号的字段名，默认为"name"</li>
+        <li><code>_sequence_date_field</code>：存储日期的字段名，默认为"date"</li>
+        <li><code>_sequence_index</code>：是否为序列创建索引，默认为False</li>
+    </ul>
+    
+    <h2>序列格式正则表达式</h2>
+    <div class="code-block">
+        <pre><code>    prefix = r'(?P<prefix1>.*?)'
+    prefix2 = r'(?P<prefix2>\D)'
+    prefix3 = r'(?P<prefix3>\D+?)'
+    seq = r'(?P<seq>\d*)'
+    month = r'(?P<month>(0[1-9]|1[0-2]))'
+    year = r'(?P<year>((?<=\D)|(?<=^))((19|20|21)\d{2}|(\d{2}(?=\D))))'
+    year_end = r'(?P<year_end>((?<=\D)|(?<=^))((19|20|21)\d{2}|(\d{2}(?=\D))))'
+    suffix = r'(?P<suffix>\D*?)'</code></pre>
+    </div>
+    
+    <h3>正则表达式说明</h3>
+    <table>
+        <tr>
+            <th>组件</th>
+            <th>说明</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>prefix</td>
+            <td>序列号的前缀部分</td>
+            <td>INV/</td>
+        </tr>
+        <tr>
+            <td>year</td>
+            <td>年份(支持2/4位)</td>
+            <td>2024或24</td>
+        </tr>
+        <tr>
+            <td>month</td>
+            <td>月份(01-12)</td>
+            <td>01</td>
+        </tr>
+        <tr>
+            <td>seq</td>
+            <td>数字序列</td>
+            <td>0001</td>
+        </tr>
+        <tr>
+            <td>suffix</td>
+            <td>序列号的后缀</td>
+            <td>-TEST</td>
+        </tr>
+    </table>
+    
+    <h2>主要方法</h2>
+    
+    <h3>1. 序列号生成与管理</h3>
+    <div class="method-block">
+        <h4>_set_next_sequence</h4>
+        <p>生成下一个序列号的核心方法：</p>
+        <pre><code>def _set_next_sequence(self):
+    last_sequence = self._get_last_sequence()
+    new = not last_sequence
+    if new:
+        last_sequence = self._get_last_sequence(relaxed=True) or self._get_starting_sequence()</code></pre>
+        <p>使用示例：</p>
+        <pre><code># 在创建新发票时自动生成序列号
+class AccountMove(models.Model):
+    _inherit = ['sequence.mixin', 'account.move']
+    
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if 'name' not in vals:
+                vals['name'] = self._set_next_sequence()</code></pre>
+    </div>
+    
+    <h3>2. 序列格式解析</h3>
+    <div class="method-block">
+        <h4>_get_sequence_format_param</h4>
+        <p>解析序列号格式并提取参数：</p>
+        <pre><code>def _get_sequence_format_param(self, previous):
+    sequence_number_reset = self._deduce_sequence_number_reset(previous)
+    format_values = re.match(regex, previous).groupdict()</code></pre>
+        <p>使用示例：</p>
+        <pre><code># 解析现有序列号
+format_string, format_values = record._get_sequence_format_param("INV/2024/0001")
+# 返回格式和值
+# format_string = "{prefix1}%Y/{seq:04d}"
+# format_values = {'prefix1': 'INV/', 'year': 2024, 'seq': 1}</code></pre>
+    </div>
+    
+    <h3>3. 序列重置规则</h3>
+    <div class="method-block">
+        <h4>_deduce_sequence_number_reset</h4>
+        <p>确定序列号的重置规则：</p>
+        <pre><code>def _deduce_sequence_number_reset(self, name):
+    for regex, ret_val, requirements in [
+        (self._sequence_year_range_monthly_regex, 'year_range_month', [...]),
+        (self._sequence_monthly_regex, 'month', [...]),
+        (self._sequence_yearly_regex, 'year', [...]),
+        (self._sequence_fixed_regex, 'never', [...])]:</code></pre>
+        <p>支持的重置规则：</p>
+        <ul>
+            <li>year_range_month: 按年范围和月份重置</li>
+            <li>month: 按月重置</li>
+            <li>year: 按年重置</li>
+            <li>never: 永不重置</li>
+        </ul>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>基本使用</h3>
+    <div class="example-block">
+        <pre><code>class SalesOrder(models.Model):
+    _name = 'sale.order'
+    _inherit = ['sequence.mixin']
+    
+    name = fields.Char(string='订单编号', required=True, copy=False, readonly=True)
+    date_order = fields.Date(string='订单日期')
+    
+    _sequence_field = 'name'
+    _sequence_date_field = 'date_order'
+    
+    def _get_starting_sequence(self):
+        return "SO/%(year)s/%(month)02d/0000"</code></pre>
+    </div>
+    
+    <h3>自定义序列格式</h3>
+    <div class="example-block">
+        <pre><code>class CustomInvoice(models.Model):
+    _inherit = ['sequence.mixin']
+    
+    def _get_starting_sequence(self):
+        return "CUSTOM/%(year)s/%(seq)05d"
+    
+    def _get_sequence_format_param(self, previous):
+        if previous:
+            return super()._get_sequence_format_param(previous)
+        return "CUSTOM/%Y/%05d", {'year': fields.Date.today().year, 'seq': 0}</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>始终在序列号中包含年份信息，便于管理和查询</li>
+            <li>为不同类型的文档使用不同的前缀，避免混淆</li>
+            <li>合理设置序列重置规则，避免序列号过长</li>
+            <li>使用足够长度的序列号位数，预留增长空间</li>
+            <li>在高并发场景下，考虑使用数据库锁确保序列号唯一性</li>
+        </ul>
+    </div>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>修改序列号格式可能导致现有序列号混乱，需谨慎操作</li>
+            <li>确保序列号格式符合正则表达式规范</li>
+            <li>注意序列号长度限制，避免超出字段长度</li>
+            <li>在多公司环境下，注意序列号的唯一性约束</li>
+        </ul>
+    </div>
+</body>
+</html> 

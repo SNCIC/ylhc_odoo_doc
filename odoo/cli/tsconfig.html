@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo TypeScript配置工具解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo TypeScript配置工具解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>tsconfig.py</code>是Odoo框架中的TypeScript配置生成工具，它能够自动为Odoo项目生成TypeScript配置文件，使得开发者可以在Odoo中更好地使用TypeScript进行开发。</p>
+    
+    <div class="note">
+        <strong>主要功能：</strong>
+        <ul>
+            <li>自动生成tsconfig.json配置文件</li>
+            <li>自动检测和配置模块路径</li>
+            <li>配置TypeScript编译选项</li>
+            <li>管理文件排除规则</li>
+        </ul>
+    </div>
+
+    <h2>核心组件解析</h2>
+
+    <h3>1. TSConfig类</h3>
+    <div class="code-block">
+        <pre><code>class TSConfig(Command):
+    """ Generates tsconfig files for javascript code """</code></pre>
+    </div>
+    <p>TSConfig类是主要的命令实现类，提供以下核心功能：</p>
+    <ul>
+        <li>TypeScript配置生成</li>
+        <li>模块路径管理</li>
+        <li>编译选项配置</li>
+    </ul>
+
+    <h3>2. 模块检测方法</h3>
+    <div class="code-block">
+        <pre><code>def get_module_list(self, path):
+    return [
+        mod.split(os.path.sep)[-2]
+        for mname in MANIFEST_NAMES
+        for mod in glob.glob(os.path.join(path, f'*/{mname}'))
+    ]</code></pre>
+    </div>
+    <p>模块检测方法的主要功能：</p>
+    <ul>
+        <li>扫描Odoo模块目录</li>
+        <li>识别有效的模块</li>
+        <li>提取模块名称</li>
+    </ul>
+
+    <h3>3. 路径处理方法</h3>
+    <div class="code-block">
+        <pre><code>def clean_path(self, path):
+    return re.sub(r"/{2,}", "/", path)
+
+def prefix_suffix_path(self, path, prefix, suffix):
+    return self.clean_path(f"{prefix}/{path}/{suffix}")</code></pre>
+    </div>
+    <p>路径处理方法的功能：</p>
+    <ul>
+        <li>清理和标准化路径</li>
+        <li>添加前缀和后缀</li>
+        <li>处理重复的路径分隔符</li>
+    </ul>
+
+    <h2>配置生成详解</h2>
+
+    <h3>1. 编译器选项配置</h3>
+    <div class="code-block">
+        <pre><code>"compilerOptions": {
+    "baseUrl": ".",
+    "target": "es2019",
+    "checkJs": True,
+    "allowJs": True,
+    "noEmit": True,
+    "typeRoots": list(map(lambda p: p + "/web/tooling/types", paths)),
+    "paths": self.generate_imports(modules)
+}</code></pre>
+    </div>
+    <p>编译器选项的主要设置：</p>
+    <ul>
+        <li>ES2019作为目标版本</li>
+        <li>启用JavaScript检查</li>
+        <li>配置类型定义根目录</li>
+        <li>设置模块路径映射</li>
+    </ul>
+
+    <h3>2. 导入路径生成</h3>
+    <div class="code-block">
+        <pre><code>def generate_imports(self, modules):
+    return {
+        f'@{module}/*': [path]
+        for module, path in modules.items()
+    }</code></pre>
+    </div>
+    <p>导入路径生成的特点：</p>
+    <ul>
+        <li>使用@符号作为模块前缀</li>
+        <li>支持通配符路径</li>
+        <li>自动映射模块路径</li>
+    </ul>
+
+    <h3>3. 文件排除规则</h3>
+    <div class="code-block">
+        <pre><code>def generate_excludes(self):
+    return [
+        "/**/*.po",
+        "/**/*.py",
+        "/**/*.pyc",
+        # ... 更多排除规则
+    ]</code></pre>
+    </div>
+    <p>排除规则的设计：</p>
+    <ul>
+        <li>排除非JavaScript/TypeScript文件</li>
+        <li>排除构建产物</li>
+        <li>排除文档和资源文件</li>
+    </ul>
+
+    <h2>使用示例</h2>
+
+    <h3>1. 基本使用</h3>
+    <div class="code-block">
+        <pre><code># 生成TypeScript配置
+odoo-bin tsconfig --addons-path=/path/to/addons > tsconfig.json</code></pre>
+    </div>
+
+    <h3>2. 多路径配置</h3>
+    <div class="code-block">
+        <pre><code># 配置多个插件路径
+odoo-bin tsconfig --addons-path=/path1,/path2,/path3 > tsconfig.json</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>建议：</strong>
+        <ul>
+            <li>在项目根目录生成配置文件</li>
+            <li>包含所有相关的插件路径</li>
+            <li>定期更新配置文件</li>
+            <li>使用版本控制管理配置文件</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>警告：</strong>
+        <ul>
+            <li>确保所有路径都是有效的</li>
+            <li>注意模块命名冲突</li>
+            <li>检查生成的配置文件完整性</li>
+            <li>确保TypeScript版本兼容性</li>
+        </ul>
+    </div>
+
+    <h2>开发工具集成</h2>
+    <p>配置文件与开发工具的集成：</p>
+    <div class="code-block">
+        <pre><code># VS Code设置示例
+{
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true
+}</code></pre>
+    </div>
+
+    <h2>小结</h2>
+    <p>Odoo TypeScript配置工具提供了：</p>
+    <ul>
+        <li>自动化的配置文件生成</li>
+        <li>完整的模块路径管理</li>
+        <li>灵活的编译选项设置</li>
+        <li>全面的文件类型控制</li>
+    </ul>
+
+    <div class="note">
+        <strong>提示：</strong>
+        <p>TypeScript配置工具是Odoo 18中新增的功能，它极大地改善了Odoo的前端开发体验，使得开发者可以更好地利用TypeScript的类型系统和现代化特性。</p>
+    </div>
+</body>
+</html> 

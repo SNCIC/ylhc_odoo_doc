@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo会计账簿仪表板模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo会计账簿仪表板模块(account_journal_dashboard)详解</h1>
+    
+    <h2>模块概述</h2>
+    <p>account_journal_dashboard.py是Odoo中处理会计账簿仪表板的模块。它提供了账簿的可视化展示和实时数据统计功能，帮助用户快速了解账簿状态和关键指标。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>仪表板是一种数据可视化工具，它将账簿的关键信息以直观的方式展示给用户，包括余额、待处理项、图表等信息。</p>
+    </div>
+
+    <h2>核心功能</h2>
+    
+    <h3>1. 看板数据生成</h3>
+    <div class="function-analysis">
+        <pre><code>def _kanban_dashboard(self):
+    dashboard_data = self._get_journal_dashboard_data_batched()
+    for journal in self:
+        journal.kanban_dashboard = json.dumps(dashboard_data[journal.id])</code></pre>
+        
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>生成看板JSON数据</li>
+            <li>支持批量数据处理</li>
+            <li>实时更新看板信息</li>
+        </ul>
+    </div>
+
+    <h3>2. 图表数据生成</h3>
+    <div class="function-analysis">
+        <pre><code>def _kanban_dashboard_graph(self):
+    bank_cash_journals = self.filtered(lambda journal: journal.type in ('bank', 'cash', 'credit'))
+    bank_cash_graph_datas = bank_cash_journals._get_bank_cash_graph_data()
+    for journal in bank_cash_journals:
+        journal.kanban_dashboard_graph = json.dumps(bank_cash_graph_datas[journal.id])</code></pre>
+
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>生成银行和现金账簿的图表数据</li>
+            <li>支持不同类型账簿的图表展示</li>
+            <li>自动处理数据格式化</li>
+        </ul>
+    </div>
+
+    <h3>3. 活动数据生成</h3>
+    <div class="function-analysis">
+        <pre><code>def _get_json_activity_data(self):
+    today = fields.Date.context_today(self)
+    activities = defaultdict(list)
+    sql_query = SQL("""
+        SELECT activity.id,
+               activity.res_id,
+               activity.res_model,
+               activity.summary,
+               CASE WHEN activity.date_deadline < %(today)s THEN 'late' ELSE 'future' END as status,
+               %(act_type_name)s as act_type_name,
+               act_type.category as activity_category,
+               activity.date_deadline,
+               move.journal_id
+        FROM account_move move
+        JOIN mail_activity activity ON activity.res_id = move.id 
+        AND activity.res_model = 'account.move'
+        LEFT JOIN mail_activity_type act_type ON activity.activity_type_id = act_type.id
+        WHERE move.journal_id = ANY(%(ids)s)
+        AND move.company_id = ANY(%(company_ids)s)
+    """)</code></pre>
+
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>收集账簿相关的活动数据</li>
+            <li>区分逾期和未来活动</li>
+            <li>支持多公司环境</li>
+        </ul>
+    </div>
+
+    <h2>数据统计功能</h2>
+    
+    <h3>1. 银行现金统计</h3>
+    <div class="function-analysis">
+        <pre><code>def _get_bank_cash_graph_data(self):
+    def build_graph_data(date, amount, currency):
+        name = format_date(date, 'd LLLL Y', locale=locale)
+        short_name = format_date(date, 'd MMM', locale=locale)
+        return {'x': short_name, 'y': currency.round(amount), 'name': name}</code></pre>
+
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>生成银行和现金账户的图表数据</li>
+            <li>支持日期格式化</li>
+            <li>处理货币金额四舍五入</li>
+        </ul>
+    </div>
+
+    <h3>2. 销售采购统计</h3>
+    <div class="function-analysis">
+        <pre><code>def _get_sale_purchase_graph_data(self):
+    today = fields.Date.today()
+    day_of_week = int(format_datetime(today, 'e', locale=get_lang(self.env).code))
+    first_day_of_week = today + timedelta(days=-day_of_week+1)</code></pre>
+
+        <p><strong>功能说明：</strong></p>
+        <ul>
+            <li>生成销售和采购的图表数据</li>
+            <li>按周统计数据</li>
+            <li>支持多币种处理</li>
+        </ul>
+    </div>
+
+    <h2>业务场景应用</h2>
+    <div class="business-scenarios">
+        <h3>1. 查看账簿概览</h3>
+        <pre><code># 获取账簿仪表板数据
+journal = env['account.journal'].browse(journal_id)
+dashboard_data = json.loads(journal.kanban_dashboard)
+print(f"当前余额: {dashboard_data.get('account_balance')}")</code></pre>
+
+        <h3>2. 分析趋势图表</h3>
+        <pre><code># 获取图表数据
+graph_data = json.loads(journal.kanban_dashboard_graph)
+for point in graph_data[0]['values']:
+    print(f"日期: {point['name']}, 金额: {point['y']}")</code></pre>
+
+        <h3>3. 监控待办活动</h3>
+        <pre><code># 获取活动数据
+activity_data = json.loads(journal.json_activity_data)
+for activity in activity_data['activities']:
+    print(f"活动: {activity['name']}, 状态: {activity['status']}")</code></pre>
+    </div>
+
+    <h2>数据展示格式</h2>
+    <div class="data-format">
+        <h3>1. 看板数据格式</h3>
+        <pre><code>{
+    "account_balance": "¥ 10,000.00",
+    "number_to_check": 5,
+    "number_to_reconcile": 3,
+    "has_at_least_one_statement": true,
+    "bank_statements_source": "undefined",
+    "is_sample_data": false
+}</code></pre>
+
+        <h3>2. 图表数据格式</h3>
+        <pre><code>{
+    "values": [
+        {
+            "x": "01 Jan",
+            "y": 1000.0,
+            "name": "01 January 2024"
+        }
+    ],
+    "title": "",
+    "key": "Balance",
+    "area": true,
+    "color": "#7c7bad"
+}</code></pre>
+    </div>
+
+    <h2>技术实现细节</h2>
+    <div class="technical-details">
+        <h3>性能优化</h3>
+        <ul>
+            <li>使用SQL直接查询提高性能</li>
+            <li>批量处理数据减少数据库访问</li>
+            <li>合理使用缓存机制</li>
+        </ul>
+
+        <h3>数据安全</h3>
+        <ul>
+            <li>多公司数据隔离</li>
+            <li>用户权限控制</li>
+            <li>敏感数据保护</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li>定期刷新仪表板数据</li>
+            <li>合理设置图表时间范围</li>
+            <li>关注异常数据波动</li>
+            <li>及时处理待办活动</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>大量数据时注意性能影响</li>
+            <li>确保货币金额正确转换</li>
+            <li>注意时区处理</li>
+            <li>定期清理历史数据</li>
+        </ul>
+    </div>
+
+    <h2>扩展功能</h2>
+    <div class="extensions">
+        <h3>1. 自定义图表</h3>
+        <pre><code>def _graph_title_and_key(self):
+    if self.type in ['sale', 'purchase']:
+        return ['', _('Residual amount')]
+    elif self.type == 'cash':
+        return ['', _('Cash: Balance')]
+    elif self.type == 'bank':
+        return ['', _('Bank: Balance')]
+    elif self.type == 'credit':
+        return ['', _('Credit Card: Balance')]</code></pre>
+
+        <h3>2. 样本数据生成</h3>
+        <pre><code># 生成样本数据
+if is_sample_data:
+    for i in range(30, 0, -5):
+        current_date = today + timedelta(days=-i)
+        data.append(build_graph_data(
+            current_date, 
+            random.randint(-5, 15), 
+            currency
+        ))</code></pre>
+    </div>
+</body>
+</html> 

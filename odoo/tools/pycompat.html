@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Python兼容性模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 Python兼容性模块(pycompat.py)解析</h1>
+    
+    <h2>模块概述</h2>
+    <p><code>pycompat.py</code>是Odoo框架中的一个兼容性模块,主要用于处理Python不同版本之间的兼容性问题,特别是在处理CSV文件和文本编码方面。在Odoo 18中,该模块的部分功能已被标记为废弃。</p>
+    
+    <div class="note">
+        <strong>重要说明：</strong>从Odoo 18开始,许多兼容性函数已被标记为废弃(Deprecated),建议使用Python原生的替代方案。
+    </div>
+    
+    <h2>核心功能</h2>
+    
+    <h3>1. CSV处理函数</h3>
+    <div class="code-block">
+        <h4>csv_reader函数</h4>
+        <pre><code>def csv_reader(stream, **params):
+    warnings.warn("Deprecated since Odoo 18.0: can just use `csv.reader` with a text stream or use `TextIOWriter` or `codec.getreader` to transcode.", DeprecationWarning, 2)
+    assert not isinstance(stream, io.TextIOBase)
+    return csv.reader(_reader(stream), **params)</code></pre>
+        <p>功能说明：</p>
+        <ul>
+            <li>用于读取CSV文件的兼容性函数</li>
+            <li>接受字节流作为输入</li>
+            <li>自动处理UTF-8编码</li>
+            <li>在Odoo 18中已废弃,建议使用Python原生csv.reader</li>
+        </ul>
+    </div>
+
+    <div class="code-block">
+        <h4>csv_writer函数</h4>
+        <pre><code>def csv_writer(stream, **params):
+    warnings.warn("Deprecated since Odoo 18.0: can just use `csv.writer` with a text stream or use `TextIOWriter` or `codec.getwriter` to transcode.", DeprecationWarning, 2)
+    assert not isinstance(stream, io.TextIOBase)
+    return csv.writer(_writer(stream), **params)</code></pre>
+        <p>功能说明：</p>
+        <ul>
+            <li>用于写入CSV文件的兼容性函数</li>
+            <li>接受字节流作为输出</li>
+            <li>自动处理UTF-8编码</li>
+            <li>在Odoo 18中已废弃,建议使用Python原生csv.writer</li>
+        </ul>
+    </div>
+
+    <h3>2. 文本转换函数</h3>
+    <div class="code-block">
+        <h4>to_text函数</h4>
+        <pre><code>def to_text(source: typing.Any) -> str:
+    if source is None or source is False:
+        return ''
+    if isinstance(source, bytes):
+        return source.decode()
+    if isinstance(source, str):
+        return source
+    return str(source)</code></pre>
+        <p>功能说明：</p>
+        <ul>
+            <li>将任意输入转换为文本字符串</li>
+            <li>特殊处理：
+                <ul>
+                    <li>None和False转换为空字符串</li>
+                    <li>字节类型自动解码为字符串</li>
+                    <li>字符串类型直接返回</li>
+                    <li>其他类型使用str()转换</li>
+                </ul>
+            </li>
+            <li>在Odoo 18中已废弃</li>
+        </ul>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>1. CSV文件处理示例</h3>
+    <div class="code-block">
+        <pre><code># Odoo 18之前的用法
+with open('data.csv', 'rb') as f:
+    reader = pycompat.csv_reader(f)
+    for row in reader:
+        print(row)
+
+# Odoo 18推荐用法
+with open('data.csv', 'r', encoding='utf-8') as f:
+    reader = csv.reader(f)
+    for row in reader:
+        print(row)</code></pre>
+    </div>
+
+    <h3>2. 文本转换示例</h3>
+    <div class="code-block">
+        <pre><code># Odoo 18之前的用法
+text1 = pycompat.to_text(None)           # 返回 ''
+text2 = pycompat.to_text(b'Hello')       # 返回 'Hello'
+text3 = pycompat.to_text(123)            # 返回 '123'
+
+# Odoo 18推荐用法
+text1 = '' if value is None else str(value)
+text2 = byte_data.decode('utf-8')
+text3 = str(numeric_value)</code></pre>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <h3>在Odoo 18中的建议</h3>
+        <ul>
+            <li>直接使用Python内置的csv模块处理CSV文件</li>
+            <li>使用文本流而不是字节流处理文件</li>
+            <li>显式指定编码(如UTF-8)而不是依赖隐式转换</li>
+            <li>使用Python原生的str()函数进行类型转换</li>
+            <li>使用上下文管理器(with语句)处理文件操作</li>
+        </ul>
+    </div>
+
+    <h2>注意事项</h2>
+    <div class="warning">
+        <ul>
+            <li>所有pycompat模块中的函数在Odoo 18中都已标记为废弃</li>
+            <li>建议在新代码中使用Python原生功能</li>
+            <li>如果需要处理编码问题,建议使用codecs模块或io模块的功能</li>
+            <li>在处理CSV文件时,始终明确指定编码以避免潜在的编码问题</li>
+        </ul>
+    </div>
+
+    <h2>向后兼容性</h2>
+    <div class="compatibility">
+        <p>虽然这些函数在Odoo 18中已被标记为废弃,但为了保持向后兼容性,它们仍然可用。然而,在开发新模块或更新现有模块时,应该：</p>
+        <ul>
+            <li>避免使用这些废弃的函数</li>
+            <li>使用Python 3的原生功能</li>
+            <li>在更新旧代码时,将这些函数调用替换为推荐的替代方案</li>
+        </ul>
+    </div>
+</body>
+</html> 

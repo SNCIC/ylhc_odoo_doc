@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo支付方式模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo支付方式模型(AccountPaymentMethod)详解</h1>
+    
+    <h2>模型概述</h2>
+    <p>AccountPaymentMethod模型是Odoo中管理支付方式的核心模型。它定义了系统中可用的支付方式（如现金、银行转账、支票等），并提供了支付方式的配置和管理功能。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>
+        <p>支付方式是定义如何进行收付款的基础配置，它决定了支付流程的处理方式和所需的信息。</p>
+    </div>
+
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>支付方式名称，必填且可翻译</td>
+        </tr>
+        <tr>
+            <td>code</td>
+            <td>Char</td>
+            <td>支付方式代码，用于内部标识</td>
+        </tr>
+        <tr>
+            <td>payment_type</td>
+            <td>Selection</td>
+            <td>支付类型：收款(inbound)或付款(outbound)</td>
+        </tr>
+    </table>
+
+    <h2>主要功能</h2>
+    
+    <h3>1. 支付方式管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountPaymentMethod(models.Model):
+    _name = "account.payment.method"
+    _description = "Payment Methods"
+
+    name = fields.Char(required=True, translate=True)
+    code = fields.Char(required=True)
+    payment_type = fields.Selection([
+        ('inbound', 'Inbound'),
+        ('outbound', 'Outbound')
+    ], required=True)
+        </code></pre>
+    </div>
+
+    <h3>2. 支付方式行管理</h3>
+    <div class="code-block">
+        <pre><code>
+class AccountPaymentMethodLine(models.Model):
+    _name = "account.payment.method.line"
+    _description = "Payment Methods"
+    _order = 'sequence, id'
+
+    name = fields.Char(compute='_compute_name', readonly=False, store=True)
+    sequence = fields.Integer(default=10)
+    payment_method_id = fields.Many2one(
+        string='Payment Method',
+        comodel_name='account.payment.method',
+        domain="[('payment_type', '=?', payment_type)]",
+        required=True,
+    )
+        </code></pre>
+    </div>
+
+    <h2>使用示例</h2>
+    
+    <h3>创建新支付方式</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建新支付方式
+payment_method = self.env['account.payment.method'].create({
+    'name': '微信支付',
+    'code': 'wechat_pay',
+    'payment_type': 'inbound'
+})
+        </code></pre>
+    </div>
+
+    <h3>配置支付方式行</h3>
+    <div class="code-example">
+        <pre><code>
+# 创建支付方式行
+method_line = self.env['account.payment.method.line'].create({
+    'name': '微信支付',
+    'payment_method_id': payment_method.id,
+    'journal_id': bank_journal.id
+})
+        </code></pre>
+    </div>
+
+    <h2>业务场景</h2>
+    
+    <h3>1. 配置新支付方式</h3>
+    <div class="business-case">
+        <p>当需要添加新的支付方式时：</p>
+        <ol>
+            <li>创建支付方式记录</li>
+            <li>配置支付方式行</li>
+            <li>关联到日记账</li>
+        </ol>
+    </div>
+
+    <h3>2. 支付方式可用性控制</h3>
+    <div class="business-case">
+        <p>根据不同场景控制支付方式的可用性：</p>
+        <ol>
+            <li>根据支付类型筛选</li>
+            <li>根据币种限制</li>
+            <li>根据公司设置限制</li>
+        </ol>
+    </div>
+
+    <h2>技术实现细节</h2>
+    
+    <h3>关键方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>_get_payment_method_information</td>
+            <td>获取支付方式的配置信息</td>
+        </tr>
+        <tr>
+            <td>_get_payment_method_domain</td>
+            <td>获取支付方式的过滤域</td>
+        </tr>
+        <tr>
+            <td>_auto_toggle_account_to_reconcile</td>
+            <td>自动切换账户的调节状态</td>
+        </tr>
+    </table>
+
+    <h3>重要约束</h3>
+    <div class="constraints">
+        <ul>
+            <li>支付方式代码和类型的组合必须唯一</li>
+            <li>支付方式名称在同一公司内必须唯一</li>
+            <li>支付账户必须设置正确</li>
+        </ul>
+    </div>
+
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ol>
+            <li>为每种支付方式使用唯一且有意义的代码</li>
+            <li>正确设置支付方式的收付款类型</li>
+            <li>合理配置支付方式的可用性规则</li>
+            <li>定期检查支付方式的使用情况</li>
+        </ol>
+    </div>
+
+    <h2>常见问题解答</h2>
+    <div class="faq">
+        <dl>
+            <dt>问：如何添加新的支付方式？</dt>
+            <dd>答：需要创建支付方式记录并配置相应的支付方式行，同时确保正确设置了所有必要的参数。</dd>
+            
+            <dt>问：支付方式和日记账的关系是什么？</dt>
+            <dd>答：支付方式通过支付方式行与日记账关联，一个日记账可以有多个支付方式。</dd>
+            
+            <dt>问：如何限制支付方式的使用？</dt>
+            <dd>答：可以通过设置支付方式的domain、公司限制、币种限制等方式来控制其使用范围。</dd>
+        </dl>
+    </div>
+
+    <h2>扩展开发</h2>
+    <div class="development">
+        <h3>添加新支付方式</h3>
+        <pre><code>
+# 继承支付方式模型添加新功能
+class CustomPaymentMethod(models.Model):
+    _inherit = 'account.payment.method'
+
+    custom_field = fields.Char(string='Custom Field')
+    
+    def custom_method(self):
+        # 自定义处理逻辑
+        pass
+        </code></pre>
+    </div>
+
+</body>
+</html> 
