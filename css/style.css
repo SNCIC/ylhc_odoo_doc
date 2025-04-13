@@ -200,7 +200,6 @@ body {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     transition: all 0.3s ease;
     font-size: 20px;
-    display: flex;
     align-items: center;
     justify-content: center;
 }
@@ -248,7 +247,7 @@ body {
     }
 
     .content {
-        margin-top: 50px;
+        margin-top: 0;
         padding: 15px;
     }
 
@@ -273,6 +272,7 @@ body {
     /* 移动端内容区域样式 */
     .content h1 {
         font-size: 24px;
+        margin-top: 0;
     }
 
     .content h2 {
