@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo表达式编辑器操作符解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo表达式编辑器操作符系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>expression_editor_operator_editor.js</code>是Odoo框架中的一个辅助模块，它负责为表达式编辑器提供适当的操作符选项。这个模块根据字段类型筛选并提供合适的操作符，确保用户只能选择对特定字段类型有意义的操作符，从而简化表达式的构建过程。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>表达式编辑器操作符编辑器是表达式编辑器系统的一个关键组件，它基于领域选择器(domain selector)的操作符体系，但进行了适当的筛选，只保留了对Python表达式有效的操作符集合。通过这种方式，它确保了构建的表达式在Python环境中能够正确执行。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>操作符筛选</strong>：根据表达式需要筛选合适的操作符</li>
+        <li><strong>类型感知</strong>：根据字段类型提供适当的操作符选项</li>
+        <li><strong>领域操作符重用</strong>：重用领域选择器的操作符体系</li>
+        <li><strong>表达式限制</strong>：确保只提供Python表达式支持的操作符</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>尽管该模块代码简洁，但其功能非常重要。让我们来分析其实现：</p>
+    
+    <div class="code-block">
+        <pre><code>import { getDomainDisplayedOperators } from "@web/core/domain_selector/domain_selector_operator_editor";
+
+const EXPRESSION_VALID_OPERATORS = [
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "between",
+    "within",
+    "in",
+    "not in",
+    "=",
+    "!=",
+    "set",
+    "not_set",
+    "starts_with",
+    "ends_with",
+    "is",
+    "is_not",
+];
+
+export function getExpressionDisplayedOperators(fieldDef) {
+    const operators = getDomainDisplayedOperators(fieldDef);
+    return operators.filter((operator) => EXPRESSION_VALID_OPERATORS.includes(operator));</code></pre>
+    </div>
+    
+    <h3>关键元素解析</h3>
+    <div class="components">
+        <div class="component-item">
+            <h4>EXPRESSION_VALID_OPERATORS常量</h4>
+            <p>定义了表达式编辑器支持的有效操作符列表，包括：</p>
+            <ul>
+                <li>比较操作符: <code><</code>, <code><=</code>, <code>></code>, <code>>=</code>, <code>=</code>, <code>!=</code></li>
+                <li>范围操作符: <code>between</code>, <code>within</code></li>
+                <li>集合操作符: <code>in</code>, <code>not in</code></li>
+                <li>存在性检查: <code>set</code>, <code>not_set</code></li>
+                <li>字符串操作符: <code>starts_with</code>, <code>ends_with</code></li>
+                <li>布尔操作符: <code>is</code>, <code>is_not</code></li>
+            </ul>
+        </div>
+        
+        <div class="component-item">
+            <h4>getExpressionDisplayedOperators函数</h4>
+            <p>核心函数，功能是：</p>
+            <ol>
+                <li>首先调用领域选择器的<code>getDomainDisplayedOperators</code>函数获取字段类型对应的所有可能操作符</li>
+                <li>然后通过<code>filter</code>方法筛选出那些在<code>EXPRESSION_VALID_OPERATORS</code>列表中的操作符</li>
+                <li>返回筛选后的操作符列表，供表达式编辑器使用</li>
+            </ol>
+        </div>
+    </div>
+    
+    <h3>函数详解</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>功能描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>getExpressionDisplayedOperators</td>
+            <td>获取字段的可用表达式操作符</td>
+            <td>fieldDef: 字段定义对象</td>
+            <td>操作符字符串数组</td>
+        </tr>
+    </table>
+    
+    <h2>字段类型与操作符映射</h2>
+    <p>不同的字段类型支持不同的操作符集合。以下是常见字段类型支持的操作符映射：</p>
+    
+    <div class="mapping-table">
+        <table>
+            <tr>
+                <th>字段类型</th>
+                <th>支持的操作符</th>
+                <th>示例</th>
+            </tr>
+            <tr>
+                <td>字符型 (char, text)</td>
+                <td>=, !=, set, not_set, starts_with, ends_with</td>
+                <td>name == "John", description != "Test", email.ends_with("@example.com")</td>
+            </tr>
+            <tr>
+                <td>数值型 (integer, float)</td>
+                <td>=, !=, <, <=, >, >=, set, not_set</td>
+                <td>amount > 1000, quantity < 5, price >= 50.0</td>
+            </tr>
+            <tr>
+                <td>布尔型 (boolean)</td>
+                <td>is, is_not</td>
+                <td>is_company is True, active is not False</td>
+            </tr>
+            <tr>
+                <td>日期型 (date, datetime)</td>
+                <td>=, !=, <, <=, >, >=, between, set, not_set</td>
+                <td>date > "2023-01-01", create_date.between("2023-01-01", "2023-12-31")</td>
+            </tr>
+            <tr>
+                <td>选择型 (selection)</td>
+                <td>=, !=, in, not in, set, not_set</td>
+                <td>state == "done", type.in(["sale", "purchase"])</td>
+            </tr>
+            <tr>
+                <td>多对一 (many2one)</td>
+                <td>=, !=, set, not_set</td>
+                <td>partner_id == 42, country_id != 1</td>
+            </tr>
+            <tr>
+                <td>一对多/多对多 (one2many, many2many)</td>
+                <td>in, not in, set, not_set</td>
+                <td>tag_ids.in([1, 2, 3]), category_ids != []</td>
+            </tr>
+        </table>
+    </div>
+    
+    <h2>表达式操作符与领域操作符的区别</h2>
+    <p>表达式操作符是领域操作符的一个子集，主要区别在于：</p>
+    
+    <div class="comparison">
+        <div class="comparison-item">
+            <h4>语法差异</h4>
+            <p>表达式操作符直接映射到Python的表达式语法，而领域操作符则使用Odoo特定的领域语法。例如：</p>
+            <ul>
+                <li>表达式: <code>partner_id.country_id.code == 'BE'</code></li>
+                <li>领域: <code>[('partner_id.country_id.code', '=', 'BE')]</code></li>
+            </ul>
+        </div>
+        
+        <div class="comparison-item">
+            <h4>操作符集合</h4>
+            <p>某些领域操作符在表达式中不适用，主要是因为它们没有直接的Python表达式等价物，或者表达方式不同：</p>
+            <ul>
+                <li><code>ilike</code>: 领域中用于不区分大小写的模糊匹配</li>
+                <li><code>like</code>: 领域中用于区分大小写的模糊匹配</li>
+                <li><code>child_of</code>: 领域中用于层级结构查询</li>
+                <li><code>parent_of</code>: 领域中用于反向层级结构查询</li>
+            </ul>
+        </div>
+        
+        <div class="comparison-item">
+            <h4>使用场景</h4>
+            <p>表达式主要用于Python代码执行的上下文，如：</p>
+            <ul>
+                <li>服务器动作的条件</li>
+                <li>自动化规则的条件</li>
+                <li>计算字段的表达式</li>
+                <li>报表的条件过滤</li>
+            </ul>
+            <p>而领域主要用于数据过滤和查询：</p>
+            <ul>
+                <li>记录集过滤</li>
+                <li>搜索视图</li>
+                <li>ORM的search方法</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>实际使用示例</h2>
+    <p>以下是表达式编辑器操作符的实际使用示例：</p>
+    
+    <div class="examples">
+        <h3>示例1: 在表达式编辑器中获取操作符</h3>
+        <div class="code-block">
+            <pre><code>import { getExpressionDisplayedOperators } from "@web/core/expression_editor/expression_editor_operator_editor";
+
+// 获取字段定义
+const partnerFields = await orm.call("res.partner", "fields_get", []);
+const nameFieldDef = partnerFields.name;
+
+// 获取适用于名称字段的操作符
+const nameOperators = getExpressionDisplayedOperators(nameFieldDef);
+// 结果: ["=", "!=", "set", "not_set", "starts_with", "ends_with"]
+
+// 使用这些操作符创建选择组件
+const operatorOptions = nameOperators.map(operator => ({
+    value: operator,
+    label: getOperatorLabel(operator)
+}));</code></pre>
+        </div>
+        
+        <h3>示例2: 在自定义表达式构建器中使用</h3>
+        <div class="code-block">
+            <pre><code>import { Component, useState } from "@odoo/owl";
+import { getExpressionDisplayedOperators } from "@web/core/expression_editor/expression_editor_operator_editor";
+
+class CustomExpressionBuilder extends Component {
+    static template = "custom_module.ExpressionBuilder";
+    static props = {
+        fieldDef: Object,
+        onExpressionChange: Function,
+    };
+    
+    setup() {
+        this.state = useState({
+            selectedOperator: null,
+            value: null
+        });
+        
+        // 获取当前字段可用的操作符
+        this.operators = getExpressionDisplayedOperators(this.props.fieldDef);
+        
+        // 默认选择第一个操作符
+        if (this.operators.length) {
+            this.state.selectedOperator = this.operators[0];
+        }
+    }
+    
+    onOperatorChange(ev) {
+        this.state.selectedOperator = ev.target.value;
+        this.updateExpression();
+    }
+    
+    onValueChange(ev) {
+        this.state.value = ev.target.value;
+        this.updateExpression();
+    }
+    
+    updateExpression() {
+        if (this.state.selectedOperator && this.state.value !== null) {
+            // 构建表达式片段
+            let expression;
+            const fieldName = this.props.fieldDef.name;
+            const operator = this.state.selectedOperator;
+            const value = this.state.value;
+            
+            // 根据操作符类型构建不同的表达式
+            if (operator === "is" || operator === "is_not") {
+                const boolValue = value === "true" ? "True" : "False";
+                expression = `${fieldName} ${operator} ${boolValue}`;
+            } else if (operator === "in" || operator === "not in") {
+                expression = `${fieldName} ${operator} [${value}]`;
+            } else {
+                expression = `${fieldName} == "${value}"`;
+            }
+            
+            this.props.onExpressionChange(expression);
+        }
+    }
+}</code></pre>
+        </div>
+    </div>
+    
+    <h2>与领域选择器操作符的关系</h2>
+    <p>表达式编辑器操作符与领域选择器操作符的关系可以用下图表示：</p>
+    
+    <div class="relationship-diagram">
+        <h3>组件关系</h3>
+        <pre>
++------------------------------------+
+|  getDomainDisplayedOperators       |
+|  (来自domain_selector_operator_editor) |
+|  - 提供所有可能的领域操作符        |
++------------------------------------+
+              |
+              | 调用
+              v
++------------------------------------+
+|  EXPRESSION_VALID_OPERATORS        |
+|  - 定义表达式支持的操作符集合      |
++------------------------------------+
+              |
+              | 用于筛选
+              v
++------------------------------------+
+|  getExpressionDisplayedOperators   |
+|  - 筛选并返回适用于表达式的操作符  |
++------------------------------------+
+              |
+              | 使用
+              v
++------------------------------------+
+|  ExpressionEditor组件              |
+|  - 在UI中展示适用的操作符          |
++------------------------------------+
+        </pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，表达式编辑器操作符模块具有以下特点：</p>
+    <ul>
+        <li>更清晰的操作符筛选逻辑</li>
+        <li>支持更多的字段类型和操作符组合</li>
+        <li>与领域选择器操作符系统的更好集成</li>
+        <li>代码更加简洁高效</li>
+        <li>更好的类型检查支持</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中扩展或修改表达式操作符？以下是一些示例：</p>
+    
+    <div class="code-block">
+ 

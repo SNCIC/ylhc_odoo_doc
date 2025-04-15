@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo文件上传服务解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo文件上传服务解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>file_upload_service.js</code>是Odoo 18框架中的一个核心服务，负责处理文件上传的底层逻辑和状态管理。该服务提供了统一的文件上传接口，管理上传进度，处理错误情况，并通过事件系统通知应用程序上传状态的变化。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>文件上传服务是一个全局服务，为整个Odoo应用提供一致的文件上传体验。它封装了XMLHttpRequest的复杂性，提供了简单易用的API，同时维护所有上传任务的状态，便于进度展示和错误处理。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>文件上传管理</strong>：处理文件上传的核心逻辑</li>
+        <li><strong>上传进度追踪</strong>：实时监控和报告上传进度</li>
+        <li><strong>错误处理</strong>：捕获并处理上传过程中的各种错误</li>
+        <li><strong>状态通知</strong>：通过事件系统发送上传状态变化通知</li>
+        <li><strong>多文件支持</strong>：同时处理多个文件的上传</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>fileUploadService采用服务模式设计，通过Odoo的服务注册表注册，提供全应用范围的文件上传功能：</p>
+    
+    <div class="code-block">
+        <pre><code>export const fileUploadService = {
+    dependencies: ["notification"],
+    
+    createXhr() {
+        return new window.XMLHttpRequest();
+    },
+
+    start(env, { notificationService }) {
+        const uploads = reactive({});
+        let nextId = 1;
+        const bus = new EventBus();
+
+        // 上传方法实现
+        const upload = async (route, files, params = {}) => {
+            // 实现细节...
+        };
+
+        return { bus, upload, uploads };
+    },
+};
+
+registry.category("services").add("file_upload", fileUploadService);</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>dependencies</code>：声明服务依赖，这里依赖notification服务</li>
+        <li><code>createXhr</code>：创建XMLHttpRequest对象的工厂方法，便于测试时mock</li>
+        <li><code>start</code>：服务初始化方法，返回服务API</li>
+    </ul>
+    
+    <h3>服务返回值详解</h3>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>bus</td>
+            <td>EventBus</td>
+            <td>用于发送上传状态变化事件的事件总线</td>
+        </tr>
+        <tr>
+            <td>upload</td>
+            <td>Function</td>
+            <td>执行文件上传的核心方法</td>
+        </tr>
+        <tr>
+            <td>uploads</td>
+            <td>Reactive Object</td>
+            <td>包含所有当前上传任务状态的响应式对象</td>
+        </tr>
+    </table>
+    
+    <h3>upload方法详解</h3>
+    <p>upload方法是该服务的核心，负责处理实际的文件上传过程：</p>
+    
+    <div class="code-block">
+        <pre><code>const upload = async (route, files, params = {}) => {
+    const xhr = this.createXhr();
+    xhr.open("POST", route);
+    const formData = new FormData();
+    formData.append("csrf_token", odoo.csrf_token);
+    for (const file of files) {
+        formData.append("ufile", file);
+    }
+    if (params.buildFormData) {
+        params.buildFormData(formData);
+    }
+    const upload = reactive({
+        id: nextId++,
+        xhr,
+        data: formData,
+        progress: 0,
+        loaded: 0,
+        total: 0,
+        state: "pending",
+        title: files.length === 1 ? files[0].name : _t("%s Files", files.length),
+        type: files.length === 1 ? files[0].type : undefined,
+    });
+    uploads[upload.id] = upload;
+    
+    // 设置事件监听器
+    xhr.upload.addEventListener("progress", async (ev) => {
+        upload.progress = ev.loaded / ev.total;
+        upload.loaded = ev.loaded;
+        upload.total = ev.total;
+        upload.state = "loading";
+    });
+    
+    xhr.addEventListener("load", () => {
+        delete uploads[upload.id];
+        upload.state = "loaded";
+        bus.trigger("FILE_UPLOAD_LOADED", { upload });
+    });
+    
+    xhr.addEventListener("error", async () => {
+        delete uploads[upload.id];
+        upload.state = "error";
+        if (
+            params.displayErrorNotification !== undefined &&
+            params.displayErrorNotification
+        ) {
+            notificationService.add(_t("An error occured while uploading."), {
+                title: _t("Error"),
+                sticky: true,
+            });
+        }
+        bus.trigger("FILE_UPLOAD_ERROR", { upload });
+    });
+    
+    xhr.addEventListener("abort", async () => {
+        delete uploads[upload.id];
+        upload.state = "abort";
+        bus.trigger("FILE_UPLOAD_ERROR", { upload });
+    });
+    
+    xhr.send(formData);
+    bus.trigger("FILE_UPLOAD_ADDED", { upload });
+    return upload;
+};</code></pre>
+    </div>
+    
+    <h3>Upload对象结构</h3>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>id</td>
+            <td>Number</td>
+            <td>上传任务的唯一标识符</td>
+        </tr>
+        <tr>
+            <td>xhr</td>
+            <td>XMLHttpRequest</td>
+            <td>处理上传的XHR对象</td>
+        </tr>
+        <tr>
+            <td>data</td>
+            <td>FormData</td>
+            <td>包含上传文件和参数的表单数据</td>
+        </tr>
+        <tr>
+            <td>progress</td>
+            <td>Number</td>
+            <td>上传进度比例（0-1之间的小数）</td>
+        </tr>
+        <tr>
+            <td>loaded</td>
+            <td>Number</td>
+            <td>已上传的字节数</td>
+        </tr>
+        <tr>
+            <td>total</td>
+            <td>Number</td>
+            <td>总字节数</td>
+        </tr>
+        <tr>
+            <td>state</td>
+            <td>String</td>
+            <td>上传状态："pending", "loading", "loaded", "error", "abort"</td>
+        </tr>
+        <tr>
+            <td>title</td>
+            <td>String</td>
+            <td>显示名称（单文件时为文件名，多文件时为"X Files"）</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>String</td>
+            <td>文件MIME类型（仅单文件上传时有效）</td>
+        </tr>
+    </table>
+    
+    <h3>事件系统</h3>
+    <p>fileUploadService通过事件总线发送以下事件：</p>
+    <table>
+        <tr>
+            <th>事件名</th>
+            <th>触发时机</th>
+            <th>负载</th>
+        </tr>
+        <tr>
+            <td>FILE_UPLOAD_ADDED</td>
+            <td>新上传任务创建并开始上传时</td>
+            <td>{ upload }</td>
+        </tr>
+        <tr>
+            <td>FILE_UPLOAD_LOADED</td>
+            <td>上传成功完成时</td>
+            <td>{ upload }</td>
+        </tr>
+        <tr>
+            <td>FILE_UPLOAD_ERROR</td>
+            <td>上传发生错误或被中止时</td>
+            <td>{ upload }</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    <h3>示例1：基本文件上传</h3>
+    
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class MyUploadComponent extends Component {
+    setup() {
+        this.fileUpload = useService("file_upload");
+        this.notification = useService("notification");
+    }
+    
+    async uploadFile(file) {
+        try {
+            const route = "/web/binary/upload_attachment";
+            const params = {
+                buildFormData: (formData) => {
+                    formData.append("model", "res.partner");
+                    formData.append("id", this.props.partnerId);
+                },
+                displayErrorNotification: true
+            };
+            
+            const upload = await this.fileUpload.upload(route, [file], params);
+            
+            // 监听上传完成事件
+            const onUploaded = (ev) => {
+                if (ev.detail.upload.id === upload.id) {
+                    this.fileUpload.bus.removeEventListener("FILE_UPLOAD_LOADED", onUploaded);
+                    this.handleUploadSuccess(ev.detail.upload);
+                }
+            };
+            this.fileUpload.bus.addEventListener("FILE_UPLOAD_LOADED", onUploaded);
+            
+            return upload;
+        } catch (error) {
+            this.notification.add("上传文件时发生错误", { type: "danger" });
+            throw error;
+        }
+    }
+    
+    handleUploadSuccess(upload) {
+        this.notification.add(`文件 ${upload.title} 上传成功！`, { type: "success" });
+        // 执行上传成功后的业务逻辑
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：带进度条的文件上传</h3>
+    
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { useState } from "@odoo/owl";
+
+class UploadWithProgress extends Component {
+    static template = "my_module.UploadWithProgress";
+    
+    setup() {
+        this.fileUpload = useService("file_upload");
+        this.state = useState({
+            uploads: {},
+            hasActiveUploads: false
+        });
+        
+        // 监听所有上传事件
+        this.fileUpload.bus.addEventListener("FILE_UPLOAD_ADDED", this.onUploadAdded.bind(this));
+        this.fileUpload.bus.addEventListener("FILE_UPLOAD_LOADED", this.onUploadComplete.bind(this));
+        this.fileUpload.bus.addEventListener("FILE_UPLOAD_ERROR", this.onUploadError.bind(this));
+    }
+    
+    onUploadAdded(ev) {
+        const { upload } = ev.detail;
+        this.state.uploads[upload.id] = upload;
+        this.state.hasActiveUploads = true;
+    }
+    
+    onUploadComplete(ev) {
+        const { upload } = ev.detail;
+        delete this.state.uploads[upload.id];
+        this.updateActiveUploadsState();
+    }
+    
+    onUploadError(ev) {
+        const { upload } = ev.detail;
+        delete this.state.uploads[upload.id];
+        this.updateActiveUploadsState();
+    }
+    
+    updateActiveUploadsState() {
+        this.state.hasActiveUploads = Object.keys(this.state.uploads).length > 0;
+    }
+    
+    cancelUpload(uploadId) {
+        if (this.state.uploads[uploadId]) {
+            this.state.uploads[uploadId].xhr.abort();
+        }
+    }
+    
+    async handleFileSelect(ev) {
+        const files = ev.target.files;
+        if (!files.length) return;
+        
+        try {
+            await this.fileUpload.upload("/web/binary/upload_attachment", files, {
+                buildFormData: (formData) => {
+                    formData.append("model", this.props.model);
+                    formData.append("id", this.props.recordId);
+                }
+            });
+        } catch (error) {
+            console.error("上传失败:", error);
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-name="my_module.UploadWithProgress" owl="1"&gt;
+    &lt;div class="upload-container"&gt;
+        &lt;input 
+            type="file" 
+            multiple="multiple"
+            t-on-change="handleFileSelect"
+            class="form-control"
+        /&gt;
+        
+        &lt;div t-if="state.hasActiveUploads" class="uploads-progress mt-3"&gt;
+            &lt;h6&gt;当前上传任务&lt;/h6&gt;
+            &lt;div t-foreach="Object.values(state.uploads)" t-as="upload" t-key="upload.id" class="upload-item mb-2"&gt;
+                &lt;div class="d-flex justify-content-between align-items-center"&gt;
+                    &lt;span t-esc="upload.title"/&gt;
+                    &lt;button class="btn btn-sm btn-outline-danger" t-on-click="() => this.cancelUpload(upload.id)"&gt;
+                        取消
+                    &lt;/button&gt;
+                &lt;/div&gt;
+                &lt;div class="progress"&gt;
+                    &lt;div class="progress-bar" t-att-style="'width: ' + (upload.progress * 100) + '%'" t-esc="Math.round(upload.progress * 100) + '%'"/&gt;
+                &lt;/div&gt;
+                &lt;small&gt;
+                    &lt;t t-esc="(upload.loaded / 1024 / 1024).toFixed(2)"/&gt; MB / 
+                    &lt;t t-esc="(upload.total / 1024 / 1024).toFixed(2)"/&gt; MB
+                &lt;/small&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <h3>示例3：使用useFileUploader钩子</h3>
+    <p>Odoo提供了一个便捷的钩子useFileUploader，简化文件上传服务的使用：</p>
+    
+    <div class="code-block">
+        <pre><code>import { useFileUploader } from "@web/core/utils/files";
+
+class SimpleUploader extends Component {
+    static template = "my_module.SimpleUploader";
+    
+    setup() {
+        this.uploadFiles = useFileUploader();
+    }
+    
+    async onFileInputChange(ev) {
+        const files = ev.target.files;
+        if (!files.length) return;
+        
+        const params = {
+            csrf_token: odoo.csrf_token,
+            ufile: [...files],
+            model: "my.model",
+            id: this.props.recordId
+        };
+        
+        try {
+            const result = await this.uploadFiles("/my_module/upload", params);
+            if (result) {
+                // 处理上传结果
+                this.props.onUploaded(result);
+            }
+        } catch (error) {
+            // 处理错误
+            console.error("上传失败:", error);
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-name="my_module.SimpleUploader" owl="1"&gt;
+    &lt;div class="simple-uploader"&gt;
+        &lt;label class="btn btn-primary"&gt;
+            选择文件
+            &lt;input 
+                type="file" 
+                class="d-none" 
+                t-on-change="onFileInputChange"
+            /&gt;
+        &lt;/label&gt;
+    &lt;/div&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <h2>服务原理深度解析</h2>
+    
+    <div class="tech-details">
+        <div class="detail-item">
+            <h4>响应式状态管理</h4>
+            <p>fileUploadService使用OWL框架的reactive函数创建响应式状态对象，使得上传状态变化能够自动触发UI更新。</p>
+        </div>
+        <div class="detail-item">
+            <h4>事件驱动架构</h4>
+            <p>服务使用EventBus发送上传状态事件，采用松耦合的设计使不同组件能够响应上传状态变化。</p>
+        </div>
+        <div class="detail-item">
+            <h4>XMLHttpRequest封装</h4>
+            <p>服务封装了原生XMLHttpRequest，处理进度事件、完成事件和错误事件，简化了复杂的异步文件上传流程。</p>
+        </div>
+        <div class="detail-item">
+            <h4>可扩展参数</h4>
+            <p>通过params.buildFormData回调允许调用者自定义FormData内容，增强了服务的灵活性。</p>
+        </div>
+    </div>
+    
+    <h2>与上传组件的集成</h2>
+    <p>fileUploadService设计为与Odoo的文件上传相关组件无缝集成：</p>
+    <ul>
+        <li><strong>FileInput组件</strong>：通过useFileUploader钩子使用此服务</li>
+        <li><strong>文件上传进度组件</strong>：使用uploads响应式对象显示上传进度</li>
+        <li><strong>附件管理组件</strong>：上传完成后处理附件创建和关联</li>
+    </ul>
+    
+    <h2>性能优化设计</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>上传状态追踪</h4>
+            <p>通过维护uploads对象，可以同时处理多个上传任务并追踪它们的状态。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>资源清理</h4>
+            <p>上传完成、出错或中止时，自动从uploads对象中移除上传任务，避免内存泄漏。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>可控的错误通知</h4>
+            <p>通过params.displayErrorNotification参数控制是否显示错误通知，避免在某些场景下的重复错误提示。</p>
+        </div>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>在使用fileUploadService时，需要注意以下几点：
+        <ul>
+            <li>监听事件时，确保正确处理事件解绑，避免内存泄漏</li>
+            <li>处理大文件上传时，考虑服务器端的文件大小限制</li>
+            <li>实现上传取消功能时，记得调用xhr.abort()</li>
+            <li>处理多文件上传时，注意验证文件类型和大小</li>
+            <li>考虑网络不稳定情况，实现上传重试机制</li>
+            <li>使用params.buildFormData添加必要的元数据，而不是修改路由URL</li>
+        </ul>
+    </div>
+    
+    <h2>与其他服务的交互</h2>
+    <p>fileUploadService与其他Odoo服务的交互：</p>
+    <ul>
+        <li><strong>notification服务</strong>：用于显示上传错误通知</li>
+        <li><strong>orm服务</strong>：上传完成后通常与ORM服务交互处理服务器响应</li>
+        <li><strong>http服务</strong>：底层依赖于HTTP服务处理网络请求</li>
+        <li><strong>registry服务</strong>：通过注册表注册自身，使其可被其他组件使用</li>
+    </ul>
+    
+    <h2>高级使用技巧</h2>
+    <ol>
+        <li><strong>自定义请求头</strong>：可以在调用前修改XMLHttpRequest对象添加自定义头部</li>
+        <li><strong>中断点续传</strong>：可以基于此服务实现中断后继续上传功能</li>
+        <li><strong>批量操作</strong>：可以同时发起多个上传任务并集中管理它们的状态</li>
+        <li><strong>预览生成</strong>：上传图片文件时可以结合FileReader API生成预览</li>
+        <li><strong>文件切片上传</strong>：大文件可以切片上传，减轻服务器压力</li>
+    </ol>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>在Odoo 18中，fileUploadService相比前代版本有以下改进：</p>
+    <ul>
+        <li>完全重写为OWL 2.0兼容的服务</li>
+        <li>添加了更完善的事件系统，使状态追踪更加可靠</li>
+        <li>响应式状态管理，简化了上传进度展示</li>
+        <li>更好的错误处理和用户反馈机制</li>
+        <li>与新的通知系统的集成更加紧密</li>
+    </ul>
+    
+    <h2>相关文件上传组件</h2>
+    <p>Odoo中与fileUploadService配合使用的组件：</p>
+    <ul>
+        <li><strong>FileUploadProgressBar</strong>：显示单个文件上传进度的组件</li>
+        <li><strong>FileUploadProgressContainer</strong>：管理和显示多个上传进度的容器组件</li>
+        <li><strong>FileUploadProgressRecord</strong>：展示单个上传记录的详细信息</li>
+        <li><strong>FileInput</strong>：高级文件输入组件，内部使用上传服务</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>fileUploadService是Odoo中文件上传功能的核心服务，它提供了：</p>
+    <ul>
+        <li>统一的文件上传API</li>
+        <li>完善的上传状态管理</li>
+        <li>可靠的错误处理机制</li>
+        <li>事件驱动的状态通知系统</li>
+        <li>与UI组件的无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在实现文件上传功能时，应优先考虑使用fileUploadService或其提供的钩子函数，而不是自己实现文件上传逻辑。这样可以确保一致的用户体验和更简便的开发过程。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件活动混入(mail.activity.mixin)模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件活动混入(mail.activity.mixin)模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_activity_mixin.py</code>是Odoo邮件模块中的一个核心组件，它提供了一种向任何模型添加活动管理功能的方法。活动是Odoo中的一种特殊任务类型，它们可以分配给用户，设置截止日期，并与特定记录关联。通过继承此混入模型，您的自定义模型可以轻松获得完整的活动管理功能。</p>
+    
+    <div class="note">
+        <strong>活动系统简介：</strong>Odoo的活动系统提供了一种轻量级的任务跟踪机制，比完整的项目管理更简单，但比简单的待办事项列表更强大。活动可以与几乎任何记录关联，例如客户、销售订单、采购申请等，便于用户跟踪与特定业务对象相关的下一步操作。
+    </div>
+    
+    <h2>活动混入架构</h2>
+    <p>mail.activity.mixin是一个抽象模型，提供了以下核心功能：</p>
+    <ul>
+        <li>通过One2many字段连接到mail.activity模型</li>
+        <li>提供多个计算字段来汇总活动状态</li>
+        <li>实现活动的创建、安排、反馈和删除方法</li>
+        <li>提供搜索和分组功能，支持基于活动状态的数据过滤</li>
+    </ul>
+    
+    <h2>关键字段</h2>
+    
+    <div class="code-block">
+        <pre><code>activity_ids = fields.One2many(
+    'mail.activity', 'res_id', 'Activities',
+    auto_join=True,
+    groups="base.group_user",)
+activity_state = fields.Selection([
+    ('overdue', 'Overdue'),
+    ('today', 'Today'),
+    ('planned', 'Planned')], string='Activity State',
+    compute='_compute_activity_state',
+    search='_search_activity_state',
+    groups="base.group_user",
+    help='Status based on activities\nOverdue: Due date is already passed\n'
+         'Today: Activity date is today\nPlanned: Future activities.')
+activity_user_id = fields.Many2one(
+    'res.users', 'Responsible User',
+    compute='_compute_activity_user_id', readonly=True,
+    search='_search_activity_user_id',
+    groups="base.group_user")
+activity_type_id = fields.Many2one(
+    'mail.activity.type', 'Next Activity Type',
+    related='activity_ids.activity_type_id', readonly=False,
+    search='_search_activity_type_id',
+    groups="base.group_user")
+activity_type_icon = fields.Char('Activity Type Icon', related='activity_ids.icon')
+activity_date_deadline = fields.Date(
+    'Next Activity Deadline',
+    compute='_compute_activity_date_deadline', search='_search_activity_date_deadline',
+    compute_sudo=False, readonly=True, store=False,
+    groups="base.group_user")
+my_activity_date_deadline = fields.Date(
+    'My Activity Deadline',
+    compute='_compute_my_activity_date_deadline', search='_search_my_activity_date_deadline',
+    compute_sudo=False, readonly=True, groups="base.group_user")
+activity_summary = fields.Char(
+    'Next Activity Summary',
+    related='activity_ids.summary', readonly=False,
+    search='_search_activity_summary',
+    groups="base.group_user",)
+activity_exception_decoration = fields.Selection([
+    ('warning', 'Alert'),
+    ('danger', 'Error')],
+    compute='_compute_activity_exception_type',
+    search='_search_activity_exception_decoration',
+    help="Type of the exception activity on record.")
+activity_exception_icon = fields.Char('Icon', help="Icon to indicate an exception activity.",
+    compute='_compute_activity_exception_type')</code></pre>
+    </div>
+    
+    <p>这些字段可以分为几个主要类别：</p>
+    
+    <h3>1. 主要关联字段</h3>
+    <ul>
+        <li><strong>activity_ids</strong>：关联到此记录的所有活动</li>
+    </ul>
+    
+    <h3>2. 状态字段</h3>
+    <ul>
+        <li><strong>activity_state</strong>：基于截止日期的活动状态（逾期/今天/计划中）</li>
+        <li><strong>activity_exception_decoration</strong>：警告或错误装饰，用于UI显示</li>
+        <li><strong>activity_exception_icon</strong>：异常活动的图标</li>
+    </ul>
+    
+    <h3>3. 活动信息字段</h3>
+    <ul>
+        <li><strong>activity_user_id</strong>：负责下一个活动的用户</li>
+        <li><strong>activity_type_id</strong>：下一个活动的类型</li>
+        <li><strong>activity_type_icon</strong>：活动类型的图标</li>
+        <li><strong>activity_date_deadline</strong>：下一个活动的截止日期</li>
+        <li><strong>my_activity_date_deadline</strong>：当前用户负责的活动截止日期</li>
+        <li><strong>activity_summary</strong>：下一个活动的摘要</li>
+    </ul>
+    
+    <h2>计算方法</h2>
+    
+    <h3>1. 异常活动计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('activity_ids.activity_type_id.decoration_type', 'activity_ids.activity_type_id.icon')
+def _compute_activity_exception_type(self):
+    # prefetch all activity types for all activities, this will avoid any query in loops
+    self.mapped('activity_ids.activity_type_id.decoration_type')
+
+    for record in self:
+        activity_type_ids = record.activity_ids.mapped('activity_type_id')
+        exception_activity_type_id = False
+        for activity_type_id in activity_type_ids:
+            if activity_type_id.decoration_type == 'danger':
+                exception_activity_type_id = activity_type_id
+                break
+            if activity_type_id.decoration_type == 'warning':
+                exception_activity_type_id = activity_type_id
+        record.activity_exception_decoration = exception_activity_type_id and exception_activity_type_id.decoration_type
+        record.activity_exception_icon = exception_activity_type_id and exception_activity_type_id.icon</code></pre>
+    </div>
+    <p>此方法计算记录的异常装饰和图标：</p>
+    <ul>
+        <li>预先获取所有活动类型的装饰类型，避免循环中的查询</li>
+        <li>优先选择"danger"装饰类型的活动</li>
+        <li>如果没有"danger"类型，则选择"warning"类型</li>
+        <li>设置相应的装饰和图标值</li>
+    </ul>
+    
+    <h3>2. 活动状态计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('activity_ids.state')
+def _compute_activity_state(self):
+    for record in self:
+        states = record.activity_ids.mapped('state')
+        if 'overdue' in states:
+            record.activity_state = 'overdue'
+        elif 'today' in states:
+            record.activity_state = 'today'
+        elif 'planned' in states:
+            record.activity_state = 'planned'
+        else:
+            record.activity_state = False</code></pre>
+    </div>
+    <p>此方法确定记录的整体活动状态：</p>
+    <ul>
+        <li>收集所有关联活动的状态</li>
+        <li>按优先级顺序确定状态："overdue" > "today" > "planned"</li>
+        <li>如果没有活动，则状态为False</li>
+    </ul>
+    
+    <h3>3. 其他计算方法</h3>
+    <ul>
+        <li><strong>_compute_activity_user_id</strong>：确定负责下一个活动的用户</li>
+        <li><strong>_compute_activity_date_deadline</strong>：确定下一个活动的截止日期</li>
+        <li><strong>_compute_my_activity_date_deadline</strong>：确定当前用户负责的活动截止日期</li>
+    </ul>
+    
+    <h2>搜索方法</h2>
+    
+    <h3>1. 活动状态搜索</h3>
+    <div class="code-block">
+        <pre><code>def _search_activity_state(self, operator, value):
+    all_states = {'overdue', 'today', 'planned', False}
+    if operator == '=':
+        search_states = {value}
+    elif operator == '!=':
+        search_states = all_states - {value}
+    elif operator == 'in':
+        search_states = set(value)
+    elif operator == 'not in':
+        search_states = all_states - set(value)
+
+    reverse_search = False
+    if False in search_states:
+        # If we search "activity_state = False", they might be a lot of records
+        # (million for some models), so instead of returning the list of IDs
+        # [(id, 'in', ids)] we will reverse the domain and return something like
+        # [(id, 'not in', ids)], so the list of ids is as small as possible
+        reverse_search = True
+        search_states = all_states - search_states
+
+    # Use number in the SQL query for performance purpose
+    integer_state_value = {
+        'overdue': -1,
+        'today': 0,
+        'planned': 1,
+        False: None,
+    }
+
+    search_states_int = {integer_state_value.get(s or False) for s in search_states}
+
+    self.env['mail.activity'].flush_model(['active', 'date_deadline', 'res_model', 'user_id', 'user_tz'])
+    query = SQL(
+        """(
+        SELECT res_id
+            FROM (
+                SELECT res_id,
+                    -- Global activity state
+                    MIN(
+                            -- Compute the state of each individual activities
+                            -- -1: overdue
+                            --  0: today
+                            --  1: planned
+                        SIGN(EXTRACT(day from (
+                                mail_activity.date_deadline - DATE_TRUNC('day', %(today_utc)s AT TIME ZONE COALESCE(mail_activity.user_tz, 'utc'))
+                        )))
+                        )::INT AS activity_state
+                FROM mail_activity
+                WHERE mail_activity.res_model = %(res_model_table)s AND mail_activity.active = true
+            GROUP BY res_id
+            ) AS res_record
+        WHERE %(search_states_int)s @> ARRAY[activity_state]
+        )""",
+        today_utc=pytz.utc.localize(datetime.utcnow()),
+        res_model_table=self._name,
+        search_states_int=list(search_states_int)
+    )
+
+    return [('id', 'not in' if reverse_search else 'in', query)]</code></pre>
+    </div>
+    <p>这个搜索方法非常精细，直接使用SQL查询以提高性能：</p>
+    <ul>
+        <li>根据操作符和值构建搜索状态集合</li>
+        <li>对于没有活动的记录（False状态），使用反向搜索优化性能</li>
+        <li>使用整数值表示活动状态，便于SQL查询</li>
+        <li>使用优化的SQL查询直接计算每个记录的活动状态</li>
+        <li>返回符合条件的记录ID列表</li>
+    </ul>
+    
+    <h3>2. 其他搜索方法</h3>
+    <ul>
+        <li><strong>_search_activity_exception_decoration</strong>：按异常装饰类型搜索</li>
+        <li><strong>_search_activity_date_deadline</strong>：按活动截止日期搜索</li>
+        <li><strong>_search_activity_user_id</strong>：按负责用户搜索</li>
+        <li><strong>_search_activity_type_id</strong>：按活动类型搜索</li>
+        <li><strong>_search_activity_summary</strong>：按活动摘要搜索</li>
+        <li><strong>_search_my_activity_date_deadline</strong>：按当前用户的活动截止日期搜索</li>
+    </ul>
+    
+    <h2>核心API方法</h2>
+    
+    <h3>1. 记录生命周期方法</h3>
+    <div class="code-block">
+        <pre><code>def write(self, vals):
+    # Delete activities of archived record.
+    if 'active' in vals and vals['active'] is False:
+        self.env['mail.activity'].sudo().search(
+            [('res_model', '=', self._name), ('res_id', 'in', self.ids)]
+        ).unlink()
+    return super(MailActivityMixin, self).write(vals)
+
+def unlink(self):
+    """ Override unlink to delete records activities through (res_model, res_id). """
+    record_ids = self.ids
+    result = super(MailActivityMixin, self).unlink()
+    self.env['mail.activity'].sudo().search(
+        [('res_model', '=', self._name), ('res_id', 'in', record_ids)]
+    ).unlink()
+    return result</code></pre>
+    </div>
+    <p>这些方法确保活动的生命周期与其关联记录保持一致：</p>
+    <ul>
+        <li><strong>write</strong>：当记录归档时（active=False），删除其所有活动</li>
+        <li><strong>unlink</strong>：当记录删除时，删除其所有活动</li>
+    </ul>
+    
+    <h3>2. 活动管理方法</h3>
+    <div class="code-block">
+        <pre><code>def activity_schedule(self, act_type_xmlid='', date_deadline=None, summary='', note='', **act_values):
+    """ Schedule an activity on each record of the current record set.
+    ...
+    """
+    if self.env.context.get('mail_activity_automation_skip'):
+        return False
+
+    if not date_deadline:
+        date_deadline = fields.Date.context_today(self)
+    if isinstance(date_deadline, datetime):
+        date_deadline = date_deadline.date()
+    if act_type_xmlid:
+        activity_type = self.sudo().env.ref(act_type_xmlid, raise_if_not_found=False)
+        if not activity_type:
+            activity_type = self._default_activity_type()
+    else:
+        activity_type = self.env['mail.activity.type'].browse(act_values.get('activity_type_id')) or self._default_activity_type()
+
+    model_id = self.env['ir.model']._get(self._name).id
+    activities = self.env['mail.activity']
+    for record in self:
+        create_vals = {
+            'activity_type_id': activity_type.id,
+            'summary': summary or activity_type.summary,
+            'automated': act_values.get('automated', False),
+            'note': note or activity_type.default_note,
+            'date_deadline': date_deadline,
+            'res_model_id': model_id,
+            'res_id': record.id,
+        }
+        create_vals.update(act_values)
+        activities |= self.env['mail.activity'].create(create_vals)
+    return activities</code></pre>
+    </div>
+    <p>activity_schedule方法是创建新活动的主要入口点：</p>
+    <ul>
+        <li>支持通过XML ID指定活动类型</li>
+        <li>设置默认截止日期为今天</li>
+        <li>为记录集中的每条记录创建活动</li>
+        <li>支持通过关键字参数设置其他活动属性</li>
+    </ul>
+    
+    <h3>3. 其他活动管理方法</h3>
+    <ul>
+        <li><strong>activity_reschedule</strong>：重新安排活动的截止日期和负责人</li>
+        <li><strong>activity_feedback</strong>：标记活动为已完成，提供反馈</li>
+        <li><strong>activity_unlink</strong>：删除活动</li>
+        <li><strong>activity_send_mail</strong>：向活动相关用户发送邮件通知</li>
+        <li><strong>_activity_schedule_with_view</strong>：使用特定视图创建活动</li>
+    </ul>
+    
+    <h2>分组和UI支持</h2>
+    
+    <div class="code-block">
+        <pre><code>def _read_group_groupby(self, groupby_spec, query):
+    """ Override read_group to calculate the activity for each record. """
+    # ... 实现省略 ...
+    return super()._read_group_groupby(groupby_spec, query)
+
+def toggle_active(self):
+    """ When archiving: mark as done activities related to the record.
+    """
+    # ... 实现省略 ...
+    return super().toggle_active()</code></pre>
+    </div>
+    <p>这些方法提供了分组和UI交互支持：</p>
+    <ul>
+        <li><strong>_read_group_groupby</strong>：支持按活动状态分组记录</li>
+        <li><strong>toggle_active</strong>：在归档记录时将活动标记为已完成</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：创建支持活动的自定义模型</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class ProjectTask(models.Model):
+    _name = 'project.task'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
+    _description = '项目任务'
+    
+    name = fields.Char('任务名称', required=True)
+    description = fields.Text('描述')
+    user_id = fields.Many2one('res.users', string='负责人')
+    date_deadline = fields.Date('截止日期')</code></pre>
+    </div>
+    <p>通过简单地继承mail.activity.mixin，项目任务模型获得了完整的活动管理功能。</p>
+    
+    <h3>示例2：在业务逻辑中安排活动</h3>
+    <div class="code-block">
+        <pre><code>def confirm_order(self):
+    # 业务逻辑
+    self.state = 'confirmed'
+    
+    # 为财务部门安排活动
+    self.activity_schedule(
+        'mail.mail_activity_data_todo',
+        user_id=self.company_id.finance_manager_id.id,
+        summary="确认付款",
+        note="订单 %s 已确认，请安排付款" % self.name,
+        date_deadline=fields.Date.today() + timedelta(days=2)
+    )
+    
+    return True</code></pre>
+    </div>
+    <p>在业务流程中，可以为特定用户安排活动，以确保工作流的连续性。</p>
+    
+    <h3>示例3：基于活动状态的视图过滤</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="view_task_search_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;project.task.search.form&lt;/field&gt;
+    &lt;field name="model"&gt;project.task&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;search&gt;
+            &lt;field name="name"/&gt;
+            &lt;filter string="我的活动" name="my_activities" domain="[('activity_user_id', '=', uid)]"/&gt;
+            &lt;separator/&gt;
+            &lt;filter string="逾期活动" name="activities_overdue" domain="[('activity_state', '=', 'overdue')]"/&gt;
+            &lt;filter string="今日活动" name="activities_today" domain="[('activity_state', '=', 'today')]"/&gt;
+            &lt;filter string="计划活动" name="activities_planned" domain="[('activity_state', '=', 'planned')]"/&gt;
+        &lt;/search&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    <p>这个搜索视图定义了基于活动状态的过滤器，让用户可以轻松找到需要注意的记录。</p>
+    
+    <h3>示例4：活动看板小组件</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="view_task_kanban" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;project.task.kanban&lt;/field&gt;
+    &lt;field name="model"&gt;project.task&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;kanban&gt;
+            &lt;field name="activity_ids"/&gt;
+            &lt;field name="activity_state"/&gt;
+            &lt;templates&gt;
+                &lt;t t-name="kanban-box"&gt;
+                    &lt;div class="oe_kanban_card"&gt;
+                        &lt;div class="oe_kanban_content"&gt;
+                            &lt;div class="o_kanban_record_title"&gt;
+                                &lt;field name="name"/&gt;
+                            &lt;/div&gt;
+                            &lt;div class="o_kanban_record_bottom"&gt;
+                                &lt;div class="oe_kanban_bottom_left"&gt;
+                                    &lt;field name="activity_ids" widget="kanban_activity"/&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/div&gt;
+                    &lt;/div&gt;
+                &lt;/t&gt;
+            &lt;/templates&gt;
+        &lt;/kanban&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    <p>通过将activity_ids字段与kanban_activity小组件结合使用，可以在看板视图中显示活动状态和管理选项。</p>
+    
+    <h2>最佳实践</h2>
+    
+    <div class="note">
+        <strong>使用建议：</strong>
+        <ol>
+            <li><strong>合理继承</strong>：
+                <ul>
+                    <li>通常与mail.thread一起继承，以获得完整的沟通功能</li>
+                    <li>考虑业务需求，不要为简单的模型添加不必要的复杂性</li>
+                </ul>
+            </li>
+            <li><strong>活动类型</strong>：
+                <ul>
+                    <li>为不同的业务流程创建专用的活动类型</li>
+                    <li>设置合理的默认值，如负责人和截止时间计算</li>
+                </ul>
+            </li>
+            <li><strong>自动化</strong>：
+                <ul>
+                    <li>在关键业务流程点自动安排活动</li>
+                    <li>使用mail_activity_automation_skip上下文在批量操作中避免创建过多活动</li>
+                </ul>
+            </li>
+            <li><strong>使用UI组件</strong>：
+                <ul>
+                    <li>在表单视图中包含活动小组件，通常位于聊天区域</li>
+                    <li>在看板视图中使用kanban_activity小组件</li>
+                    <li>在搜索视图中添加活动状态过滤器</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>活动与记录紧密关联，在删除或归档记录时会自动清理</li>
+            <li>活动状态是动态计算的，依赖于当前日期，不存储在数据库中</li>
+            <li>在高流量系统中，过多的活动可能影响性能，考虑定期清理已完成的活动</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的变化</h2>
+    
+    <p>在Odoo 18中，活动混入有以下改进：</p>
+    
+    <ul>
+        <li>改进的性能，特别是在大规模部署中</li>
+        <li>更好的状态计算逻辑，考虑用户时区</li>
+        <li>增强的安全性，确保只有授权用户才能看到和管理活动</li>
+        <li>新的活动小组件，提供更丰富的用户界面体验</li>
+    </ul>
+    
+    <h2>与其他模块的关系</h2>
+    
+    <p>mail.activity.mixin与多个Odoo核心组件紧密集成：</p>
+    
+    <ul>
+        <li><strong>mail.activity</strong>：活动记录模型，存储具体的活动数据</li>
+        <li><strong>mail.activity.type</strong>：定义不同类型的活动及其默认行为</li>
+        <li><strong>mail.thread</strong>：通常与活动混入一起使用，提供消息线程功能</li>
+        <li><strong>calendar</strong>：活动可以与日历事件关联</li>
+        <li><strong>web</strong>：提供活动小组件的前端实现</li>
+    </ul>
+    
+    <h2>小结</h2>
+    
+    <p>mail.activity.mixin是Odoo中一个强大的组件，它为模型提供了完整的活动管理功能：</p>
+    
+    <ul>
+        <li>轻量级的任务管理系统，可以与任何业务记录关联</li>
+        <li>自动计算的活动状态，方便用户识别需要注意的项目</li>
+        <li>丰富的API，支持活动的创建、更新和完成</li>
+        <li>与Odoo的UI组件深度集成，提供出色的用户体验</li>
+        <li>与邮件系统集成，支持活动通知和沟通</li>
+    </ul>
+    
+    <p>通过正确使用这个混入，开发者可以为自定义模型快速添加活动功能，使业务流程更加连贯和可跟踪，从而提高用户生产力和系统整体价值。</p>
+</body>
+</html> 

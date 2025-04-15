@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Cookie操作模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Cookie操作模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>cookie.js</code>是Odoo框架中的一个实用工具模块，它提供了一组简单而强大的方法来操作浏览器Cookies。这个模块封装了原生document.cookie API的复杂性，使得在Odoo应用中管理Cookies变得更加直观和简单。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Cookie操作模块为开发者提供了一个简洁的接口来读取、写入和删除Cookies，同时处理了编码/解码等常见问题，使得Cookie操作更加安全和便捷。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>Cookie读取</strong>：获取指定名称的Cookie值</li>
+        <li><strong>Cookie设置</strong>：设置Cookie，包括值、过期时间等参数</li>
+        <li><strong>Cookie删除</strong>：便捷地删除指定的Cookie</li>
+        <li><strong>路径管理</strong>：自动为Cookies设置正确的路径</li>
+        <li><strong>过期时间控制</strong>：提供默认和自定义的Cookie过期时间设置</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>cookie模块的实现非常简洁，它导出了一个cookie对象，包含了三个主要方法：get、set和delete。</p>
+    
+    <div class="code-block">
+        <pre><code>const COOKIE_TTL = 24 * 60 * 60 * 365;
+
+export const cookie = {
+    get _cookieMonster() {
+        return document.cookie;
+    },
+    set _cookieMonster(value) {
+        document.cookie = value;
+    },
+    get(str) {
+        const parts = this._cookieMonster.split("; ");
+        for (const part of parts) {
+            const [key, value] = part.split(/=(.*)/);
+            if (key === str) {
+                return value || "";
+            }
+        }
+    },
+    set(key, value, ttl = COOKIE_TTL) {
+        let fullCookie = [];
+        if (value !== undefined) {
+            fullCookie.push(`${key}=${value}`);
+        }
+        fullCookie = fullCookie.concat(["path=/", `max-age=${ttl}`]);
+        this._cookieMonster = fullCookie.join("; ");
+    },
+    delete(key) {
+        this.set(key, "kill", 0);
+    },
+};</code></pre>
+    </div>
+    
+    <h3>常量和属性</h3>
+    <ul>
+        <li><code>COOKIE_TTL</code>：默认Cookie过期时间，设置为一年（24 * 60 * 60 * 365秒）</li>
+        <li><code>_cookieMonster</code>：getter和setter，用于访问和修改document.cookie</li>
+    </ul>
+    
+    <h3>方法详解</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>参数</th>
+            <th>返回值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>get</td>
+            <td>str: 要获取的Cookie名称</td>
+            <td>string | undefined: Cookie的值</td>
+            <td>获取指定名称的Cookie值，如果不存在则返回undefined</td>
+        </tr>
+        <tr>
+            <td>set</td>
+            <td>key: Cookie名称<br>value: Cookie值<br>ttl: 过期时间(秒)，默认一年</td>
+            <td>void</td>
+            <td>设置指定名称和值的Cookie，可以自定义过期时间</td>
+        </tr>
+        <tr>
+            <td>delete</td>
+            <td>key: 要删除的Cookie名称</td>
+            <td>void</td>
+            <td>删除指定名称的Cookie</td>
+        </tr>
+    </table>
+    
+    <h3>实现细节</h3>
+    <ol>
+        <li><code>get</code>方法解析document.cookie字符串，按分号和等号分割，找到匹配的key并返回value</li>
+        <li><code>set</code>方法构建Cookie字符串，默认设置path为"/"，过期时间为一年</li>
+        <li><code>delete</code>方法通过设置一个立即过期的Cookie来删除它</li>
+        <li>模块使用getter/setter来封装document.cookie访问，提高代码可读性和可测试性</li>
+    </ol>
+    
+    <h2>使用示例</h2>
+    <p>下面是几种使用cookie模块的常见场景：</p>
+    
+    <h3>示例1：基本用法</h3>
+    <div class="code-block">
+        <pre><code>import { cookie } from "@web/core/browser/cookie";
+
+// 设置Cookie
+cookie.set("user_language", "zh_CN");
+
+// 获取Cookie
+const language = cookie.get("user_language");
+console.log(language); // 输出: "zh_CN"
+
+// 删除Cookie
+cookie.delete("user_language");</code></pre>
+    </div>
+    
+    <h3>示例2：设置自定义过期时间</h3>
+    <div class="code-block">
+        <pre><code>import { cookie } from "@web/core/browser/cookie";
+
+// 设置一个有效期为1小时的Cookie
+const ONE_HOUR = 60 * 60;
+cookie.set("session_token", "abc123", ONE_HOUR);
+
+// 设置一个永久Cookie (10年)
+const TEN_YEARS = 10 * 365 * 24 * 60 * 60;
+cookie.set("permanent_preference", "dark_theme", TEN_YEARS);</code></pre>
+    </div>
+    
+    <h3>示例3：检查用户偏好设置</h3>
+    <div class="code-block">
+        <pre><code>import { cookie } from "@web/core/browser/cookie";
+
+function getUserThemePreference() {
+    const savedTheme = cookie.get("theme_preference");
+    if (savedTheme) {
+        return savedTheme;
+    }
+    
+    // 如果没有保存的偏好，使用默认值并保存
+    const defaultTheme = "light";
+    cookie.set("theme_preference", defaultTheme);
+    return defaultTheme;
+}</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>cookie模块的工作原理非常直观：</p>
+    
+    <div class="flow-diagram">
+        <h3>Cookie获取流程</h3>
+        <ol>
+            <li>通过<code>_cookieMonster</code> getter访问document.cookie</li>
+            <li>将cookie字符串按"; "分割成键值对数组</li>
+            <li>遍历数组查找匹配的键</li>
+            <li>找到后返回对应的值</li>
+        </ol>
+        
+        <h3>Cookie设置流程</h3>
+        <ol>
+            <li>构建cookie键值对字符串</li>
+            <li>添加path和max-age属性</li>
+            <li>通过<code>_cookieMonster</code> setter设置document.cookie</li>
+            <li>浏览器存储cookie并处理过期逻辑</li>
+        </ol>
+        
+        <h3>Cookie删除流程</h3>
+        <ol>
+            <li>设置同名cookie，但max-age为0</li>
+            <li>浏览器接收到过期的cookie后立即删除</li>
+        </ol>
+    </div>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>使用注意：</strong>
+        <ul>
+            <li>Cookie大小限制：每个Cookie通常限制在4KB以内，避免存储大量数据</li>
+            <li>敏感数据：不要在Cookie中存储敏感信息，除非进行适当的加密</li>
+            <li>跨域限制：Cookie受同源策略限制，默认情况下只能被同域名下的页面访问</li>
+            <li>数据类型：Cookie只能存储字符串，需要手动处理复杂数据类型的序列化/反序列化</li>
+            <li>性能考虑：频繁读写Cookie会影响性能，对于频繁变化的数据应考虑使用其他存储方式</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>cookie模块在Odoo框架中通常与以下模块配合使用：</p>
+    <ul>
+        <li><strong>browser.js</strong>：提供底层浏览器功能访问</li>
+        <li><strong>session.js</strong>：管理用户会话，可能使用Cookie存储会话标识</li>
+        <li><strong>user_settings.js</strong>：保存用户UI偏好</li>
+        <li><strong>各种认证模块</strong>：可能使用Cookie进行用户认证</li>
+    </ul>
+    
+    <h2>安全考虑</h2>
+    <p>在使用Cookie时需要考虑以下安全因素：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>XSS防护</h4>
+            <p>避免将未经验证的用户输入直接存储在Cookie中，以防止跨站脚本攻击(XSS)</p>
+        </div>
+        <div class="benefit-item">
+            <h4>CSRF保护</h4>
+            <p>对于敏感操作，不要完全依赖Cookie进行身份验证，应结合其他机制防止跨站请求伪造(CSRF)</p>
+        </div>
+        <div class="benefit-item">
+            <h4>HttpOnly标志</h4>
+            <p>对于敏感Cookie，应考虑通过服务器设置HttpOnly标志，防止JavaScript访问</p>
+        </div>
+        <div class="benefit-item">
+            <h4>Secure标志</h4>
+            <p>在HTTPS环境下，重要的Cookie应设置Secure标志，确保只通过加密连接传输</p>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，cookie模块具有以下特点：</p>
+    <ul>
+        <li>简化的API设计，更易于使用</li>
+        <li>默认路径设置为"/"，确保Cookie在整个应用中可用</li>
+        <li>使用max-age属性而不是expires，更符合现代标准</li>
+        <li>提供了便捷的删除方法，简化Cookie管理</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>优先使用localStorage/sessionStorage，只在必要时使用Cookie</li>
+        <li>明确定义Cookie的用途和生命周期，避免过度使用</li>
+        <li>在合适的场景下使用自定义过期时间，而不是默认值</li>
+        <li>为复杂数据结构使用JSON.stringify()和JSON.parse()进行序列化/反序列化</li>
+        <li>在读取Cookie前先检查其是否存在，避免未定义错误</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发者提示：</strong>虽然cookie模块提供了便捷的API，但对于复杂的状态管理，应考虑使用专门的状态管理解决方案，如Odoo的服务或存储机制。Cookie应主要用于跨页面需持久化的轻量级数据。
+    </div>
+</body>
+</html> 

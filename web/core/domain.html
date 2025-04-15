@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo域表达式处理模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo域表达式处理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>domain.js</code>是Odoo框架中的一个核心模块，负责处理域表达式(Domain)。域表达式是Odoo用来描述记录筛选条件的特殊数据结构，它在客户端和服务器端之间传递筛选逻辑，是Odoo中搜索、过滤和条件判断的基础。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>域表达式(Domain)是Odoo中用于过滤数据记录的条件语法，它既可以表示为列表形式，也可以是字符串形式。<code>domain.js</code>模块提供了创建、解析、组合和评估域表达式的工具，是Odoo前端搜索和过滤功能的核心支持。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>域表达式解析</strong>：将各种形式的域表达式转换为标准化的内部表示</li>
+        <li><strong>域表达式组合</strong>：使用逻辑运算符(AND/OR)组合多个域表达式</li>
+        <li><strong>域表达式评估</strong>：根据给定的记录检查域表达式是否匹配</li>
+        <li><strong>条件创建</strong>：提供创建各种筛选条件的工具</li>
+        <li><strong>域表达式操作</strong>：提供对域表达式的转换、简化和操作函数</li>
+        <li><strong>错误处理</strong>：提供特定的错误类型和处理机制</li>
+    </ol>
+    
+    <h2>核心组件</h2>
+    <p>模块的主要组件包括：</p>
+    
+    <h3>1. Domain类</h3>
+    <p>这是模块的核心类，提供了域表达式的解析、操作和评估功能。</p>
+    
+    <h3>2. 特殊的域表达式常量</h3>
+    <ul>
+        <li><code>Domain.TRUE</code> - 始终匹配所有记录的域</li>
+        <li><code>Domain.FALSE</code> - 不匹配任何记录的域</li>
+    </ul>
+    
+    <h3>3. 域表达式处理工具函数</h3>
+    <ul>
+        <li><code>evalDomain</code> - 在指定上下文中评估域表达式</li>
+        <li>其他内部工具函数用于处理域表达式的解析和规范化</li>
+    </ul>
+    
+    <h2>详细解析：Domain类</h2>
+    <div class="code-block">
+        <pre><code>export class Domain {
+    // 静态方法和属性
+    static combine(domains, operator) { /* ... */ }
+    static and(domains) { /* ... */ }
+    static or(domains) { /* ... */ }
+    static not(domain) { /* ... */ }
+    static removeDomainLeaves(domain, keysToRemove) { /* ... */ }
+    
+    // 实例方法
+    constructor(descr = []) { /* ... */ }
+    contains(record) { /* ... */ }
+    toString() { /* ... */ }
+    toList(context) { /* ... */ }
+    toJson() { /* ... */ }
+}</code></pre>
+    </div>
+    
+    <h3>静态方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td><code>combine(domains, operator)</code></td>
+            <td>使用指定的逻辑运算符组合多个域表达式</td>
+            <td>
+                <code>domains: DomainRepr[]</code> - 域表达式数组<br>
+                <code>operator: "AND" | "OR"</code> - 组合操作符
+            </td>
+            <td><code>Domain</code> - 组合后的域表达式对象</td>
+        </tr>
+        <tr>
+            <td><code>and(domains)</code></td>
+            <td>使用AND运算符组合多个域表达式</td>
+            <td><code>domains: DomainRepr[]</code> - 域表达式数组</td>
+            <td><code>Domain</code> - 组合后的域表达式对象</td>
+        </tr>
+        <tr>
+            <td><code>or(domains)</code></td>
+            <td>使用OR运算符组合多个域表达式</td>
+            <td><code>domains: DomainRepr[]</code> - 域表达式数组</td>
+            <td><code>Domain</code> - 组合后的域表达式对象</td>
+        </tr>
+        <tr>
+            <td><code>not(domain)</code></td>
+            <td>返回给定域表达式的否定形式</td>
+            <td><code>domain: DomainRepr</code> - 域表达式</td>
+            <td><code>Domain</code> - 否定后的域表达式对象</td>
+        </tr>
+        <tr>
+            <td><code>removeDomainLeaves(domain, keysToRemove)</code></td>
+            <td>移除域中特定字段的条件叶子节点</td>
+            <td>
+                <code>domain: DomainRepr</code> - 域表达式<br>
+                <code>keysToRemove: string[]</code> - 要移除的字段名数组
+            </td>
+            <td><code>Domain</code> - 处理后的域表达式对象</td>
+        </tr>
+    </table>
+    
+    <h3>实例方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td><code>constructor(descr)</code></td>
+            <td>创建一个新的域表达式对象</td>
+            <td><code>descr?: DomainRepr</code> - 域表达式描述(列表或字符串)</td>
+            <td><code>Domain</code> - 新的域表达式对象</td>
+        </tr>
+        <tr>
+            <td><code>contains(record)</code></td>
+            <td>检查记录是否符合域表达式条件</td>
+            <td><code>record: Object</code> - 要检查的记录对象</td>
+            <td><code>boolean</code> - 是否匹配</td>
+        </tr>
+        <tr>
+            <td><code>toString()</code></td>
+            <td>将域表达式转换为字符串形式</td>
+            <td>无</td>
+            <td><code>string</code> - 域表达式的字符串表示</td>
+        </tr>
+        <tr>
+            <td><code>toList(context)</code></td>
+            <td>将域表达式转换为列表形式</td>
+            <td><code>context: Object</code> - 评估上下文</td>
+            <td><code>DomainListRepr</code> - 域表达式的列表表示</td>
+        </tr>
+        <tr>
+            <td><code>toJson()</code></td>
+            <td>将域表达式转换为JSON友好的格式</td>
+            <td>无</td>
+            <td><code>DomainListRepr | string</code> - 适合JSON的域表达式表示</td>
+        </tr>
+    </table>
+    
+    <h2>域表达式的表示形式</h2>
+    <p>域表达式在Odoo中有多种表示形式：</p>
+    
+    <h3>1. 列表形式</h3>
+    <div class="code-block">
+        <pre><code>// 简单条件: name 等于 "John"
+[["name", "=", "John"]]
+
+// 组合条件: name 等于 "John" 并且 age 大于 18
+[["name", "=", "John"], ["age", ">", 18]]
+
+// 使用逻辑运算符: name 等于 "John" 或者 name 等于 "Jane"
+["|", ["name", "=", "John"], ["name", "=", "Jane"]]
+
+// 复杂组合: (name = "John" 或 name = "Jane") 并且 age > 18
+["&", "|", ["name", "=", "John"], ["name", "=", "Jane"], ["age", ">", 18]]</code></pre>
+    </div>
+    
+    <h3>2. 字符串形式</h3>
+    <div class="code-block">
+        <pre><code>// 简单条件
+'[["name", "=", "John"]]'
+
+// 组合条件
+'[["name", "=", "John"], ["age", ">", 18]]'
+
+// 使用逻辑运算符
+'["|", ["name", "=", "John"], ["name", "=", "Jane"]]'</code></pre>
+    </div>
+    
+    <h3>3. Domain对象</h3>
+    <div class="code-block">
+        <pre><code>// 从列表创建
+const domain1 = new Domain([["name", "=", "John"]]);
+
+// 从字符串创建
+const domain2 = new Domain('[["age", ">", 18]]');
+
+// 组合域
+const combinedDomain = Domain.and([domain1, domain2]);</code></pre>
+    </div>
+    
+    <h2>核心功能详解</h2>
+    
+    <h3>1. 域表达式规范化</h3>
+    <p>一个关键的内部函数<code>normalizeDomainAST</code>确保域表达式的AST(抽象语法树)格式正确且完整：</p>
+    <div class="code-block">
+        <pre><code>function normalizeDomainAST(domain, op = "&") {
+    // 检查域类型
+    if (domain.type !== 4 /* List */) {
+        if (domain.type === 10 /* Tuple */) {
+            const value = domain.value;
+            /* 检查Tuple内容有效性 */
+            // ...
+        } else {
+            throw new InvalidDomainError("Invalid domain AST");
+        }
+    }
+    
+    // 空域直接返回
+    if (domain.value.length === 0) {
+        return domain;
+    }
+    
+    // 验证域结构并补全缺失操作符
+    let expected = 1;
+    for (const child of domain.value) {
+        // 检查各种节点类型并计算expected值
+        // ...
+    }
+    
+    // 处理未平衡的域表达式
+    const values = domain.value.slice();
+    while (expected < 0) {
+        expected++;
+        values.unshift({ type: 1 /* String */, value: op });
+    }
+    
+    // 最终验证
+    if (expected > 0) {
+        throw new InvalidDomainError(`invalid domain ${formatAST(domain)} (missing ${expected} segment(s))`);
+    }
+    
+    return { type: 4 /* List */, value: values };
+}</code></pre>
+    </div>
+    <p>这个函数确保：</p>
+    <ul>
+        <li>域表达式的AST结构有效</li>
+        <li>操作符和操作数的数量平衡</li>
+        <li>自动添加缺失的逻辑操作符（默认为"&"）</li>
+        <li>对无效域抛出适当的错误</li>
+    </ul>
+    
+    <h3>2. 条件匹配评估</h3>
+    <p>模块提供了评估记录是否匹配条件的功能：</p>
+    <div class="code-block">
+        <pre><code>function matchCondition(record, condition) {
+    if (typeof condition === "boolean") {
+        return condition;
+    }
+    const [field, operator, value] = condition;
+
+    // 处理嵌套字段
+    if (typeof field === "string") {
+        const names = field.split(".");
+        if (names.length >= 2) {
+            return matchCondition(record[names[0]], [names.slice(1).join("."), operator, value]);
+        }
+    }
+    
+    // 处理特殊操作符如like, ilike等
+    // ...
+    
+    // 获取字段值
+    const fieldValue = typeof field === "number" ? field : record[field];
+    
+    // 根据不同操作符执行匹配逻辑
+    switch (operator) {
+        case "=?":
+            // 特殊操作符处理...
+        case "=":
+        case "==":
+            // 相等判断...
+        case "!=":
+        case "<>":
+            // 不等判断...
+        // 其他操作符...
+    }
+}</code></pre>
+    </div>
+    <p>该函数支持多种操作符，包括：</p>
+    <ul>
+        <li>基本比较：=, ==, !=, <>, <, <=, >, >=</li>
+        <li>集合操作：in, not in</li>
+        <li>字符串匹配：like, not like, ilike, not ilike, =like, =ilike</li>
+        <li>特殊操作符：=? (若值为null或false则总是匹配)</li>
+    </ul>
+    
+    <h3>3. 域表达式评估</h3>
+    <p>一旦域被解析为标准形式，它可以被评估来检查记录是否匹配：</p>
+    <div class="code-block">
+        <pre><code>function matchDomain(record, domain) {
+    if (domain.length === 0) {
+        return true;
+    }
+    const operators = makeOperators(record);
+    const reversedDomain = Array.from(domain).reverse();
+    const condStack = [];
+    for (const item of reversedDomain) {
+        const operator = typeof item === "string" && operators[item];
+        if (operator) {
+            const operands = condStack.splice(-operator.length);
+            condStack.push(operator(...operands));
+        } else {
+            condStack.push(item);
+        }
+    }
+    return matchCondition(record, condStack.pop());
+}</code></pre>
+    </div>
+    <p>这个函数使用了栈的算法来评估复杂的域表达式：</p>
+    <ol>
+        <li>将域表达式的元素从后向前处理</li>
+        <li>遇到条件时推入栈</li>
+        <li>遇到操作符时从栈中弹出相应数量的操作数，执行操作，并将结果推回栈</li>
+        <li>最终栈顶元素就是整个表达式的结果</li>
+    </ol>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本域创建和检查</h3>
+    <div class="code-block">
+        <pre><code>import { Domain } from "@web/core/domain";
+
+// 创建一个简单域表达式
+const domain = new Domain([["name", "=", "John"], ["age", ">", 18]]);
+
+// 检查记录是否匹配
+const record = { name: "John", age: 25 };
+const matches = domain.contains(record);  // true
+
+// 不匹配的记录
+const otherRecord = { name: "Jane", age: 30 };
+const otherMatches = domain.contains(otherRecord);  // false</code></pre>
+    </div>
+    
+    <h3>2. 组合域表达式</h3>
+    <div class="code-block">
+        <pre><code>import { Domain } from "@web/core/domain";
+
+// 创建两个域
+const nameDomain = new Domain([["name", "=", "John"]]);
+const ageDomain = new Domain([["age", ">", 18]]);
+
+// 使用AND组合
+const andDomain = Domain.and([nameDomain, ageDomain]);
+// 等价于: [["name", "=", "John"], ["age", ">", 18]]
+
+// 使用OR组合
+const orDomain = Domain.or([nameDomain, ageDomain]);
+// 等价于: ["|", ["name", "=", "John"], ["age", ">", 18]]
+
+// 使用NOT
+const notDomain = Domain.not(nameDomain);
+// 等价于: ["!", ["name", "=", "John"]]</code></pre>
+    </div>
+    
+    <h3>3. 域转换</h3>
+    <div class="code-block">
+        <pre><code>import { Domain } from "@web/core/domain";
+
+const domain = new Domain(["|", ["name", "=", "John"], ["name", "=", "Jane"]]);
+
+// 转换为字符串
+const stringDomain = domain.toString();
+// '["|", ["name", "=", "John"], ["name", "=", "Jane"]]'
+
+// 转换为列表
+const context = { uid: 2 };
+const listDomain = domain.toList(context);
+// ["|", ["name", "=", "John"], ["name", "=", "Jane"]]
+
+// 转换为JSON友好格式
+const jsonDomain = domain.toJson();
+// 如果不包含上下文变量: ["|", ["name", "=", "John"], ["name", "=", "Jane"]]
+// 如果包含上下文变量(如uid): '["|", ["name", "=", uid], ["name", "=", "Jane"]]'</code></pre>
+    </div>
+    
+    <h3>4. 移除域叶子</h3>
+    <div class="code-block">
+        <pre><code>import { Domain } from "@web/core/domain";
+
+// 创建一个包含多个字段的域
+const domain = new Domain([
+    ["name", "=", "John"],
+    ["age", ">", 18],
+    ["active", "=", true]
+]);
+
+// 移除与'name'字段相关的条件
+const prunedDomain = Domain.removeDomainLeaves(domain, ["name"]);
+// 结果: [["age", ">", 18], ["active", "=", true]]</code></pre>
+    </div>
+    
+    <h2>常见操作符</h2>
+    <p>Odoo的域表达式支持多种操作符，以下是最常用的一些：</p>
+    
+    <table>
+        <tr>
+            <th>操作符</th>
+            <th>描述</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>=, ==</td>
+            <td>等于</td>
+            <td><code>["name", "=", "John"]</code></td>
+        </tr>
+        <tr>
+            <td>!=, &lt;&gt;</td>
+            <td>不等于</td>
+            <td><code>["age", "!=", 18]</code></td>
+        </tr>
+        <tr>
+            <td>&gt;</td>
+            <td>大于</td>
+            <td><code>["age", ">", 18]</code></td>
+        </tr>
+        <tr>
+            <td>&gt;=</td>
+            <td>大于等于</td>
+            <td><code>["age", ">=", 18]</code></td>
+        </tr>
+        <tr>
+            <td>&lt;</td>
+            <td>小于</td>
+            <td><code>["age", "<", 18]</code></td>
+        </tr>
+        <tr>
+            <td>&lt;=</td>
+            <td>小于等于</td>
+            <td><code>["age", "<=", 18]</code></td>
+        </tr>
+        <tr>
+            <td>in</td>
+            <td>包含于</td>
+            <td><code>["state", "in", ["draft", "open"]]</code></td>
+        </tr>
+        <tr>
+            <td>not in</td>
+            <td>不包含于</td>
+            <td><code>["state", "not in", ["done", "cancel"]]</code></td>
+        </tr>
+        <tr>
+            <td>like</td>
+            <td>模糊匹配(区分大小写)</td>
+            <td><code>["name", "like", "Jo%"]</code></td>
+        </tr>
+        <tr>
+            <td>ilike</td>
+            <td>模糊匹配(不区分大小写)</td>
+            <td><code>["name", "ilike", "jo%"]</code></td>
+        </tr>
+        <tr>
+            <td>=?</td>
+            <td>若值为null/false则总是匹配</td>
+            <td><code>["parent_id", "=?", false]</code></td>
+        </tr>
+    </table>
+    
+    <h2>逻辑操作符</h2>
+    <p>域表达式使用以下逻辑操作符组合多个条件：</p>
+    
+    <table>
+        <tr>
+            <th>操作符</th>
+            <th>描述</th>
+            <th>语法</th>
+        </tr>
+        <tr>
+            <td>&</td>
+            <td>逻辑与(AND)</td>
+            <td><code>["&", condition1, condition2]</code></td>
+        </tr>
+        <tr>
+            <td>|</td>
+            <td>逻辑或(OR)</td>
+            <td><code>["|", condition1, condition2]</code></td>
+        </tr>
+        <tr>
+            <td>!</td>
+            <td>逻辑非(NOT)</td>
+            <td><code>["!", condition]</code></td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>注意：</strong>在域表达式中，逻辑操作符的位置很重要。逻辑操作符放在操作数之前，遵循前缀表示法。这与一些编程语言中的中缀表示法不同。
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，<code>domain.js</code>模块有以下增强：</p>
+    <ul>
+        <li><strong>更好的类型支持</strong>：通过TypeScript类型定义提高了类型安全</li>
+        <li><strong>性能优化</strong>：改进了域表达式解析和评估的性能</li>
+        <li><strong>更完善的错误处理</strong>：提供更明确的错误信息和类型</li>
+        <li><strong>JSON序列化增强</strong>：通过<code>toJson()</code>方法提供了更好的JSON序列化支持</li>
+        <li><strong>与现代框架集成</strong>：更好地与OWL和现代JavaScript特性集成</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>在Odoo 18开发中使用域表达式的最佳实践：</p>
+    
+    <div class="best-practices">
+        <h3>最佳实践：</h3>
+        <ul>
+            <li><strong>使用Domain类</strong>：始终使用Domain类而不是手动构造域列表，以确保结构正确</li>
+            <li><strong>优先使用链式操作</strong>：使用<code>Domain.and</code>、<code>Domain.or</code>等方法构建复杂域，而不是手动添加操作符</li>
+            <li><strong>处理错误</strong>：在处理可能无效的域时，捕获<code>InvalidDomainError</code>并提供友好的错误反馈</li>
+            <li><strong>序列化域</strong>：使用<code>toJson()</code>方法序列化域以便存储或传输，而不是依赖<code>toString()</code></li>
+            <li><strong>简化复杂域</strong>：对于复杂的筛选逻辑，考虑分解为多个子域然后组合，提高可读性</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>提示：</strong>域表达式是Odoo中非常强大的筛选和查询工具。正确使用<code>domain.js</code>模块可以显著简化前端过滤逻辑的实现，提高代码的可读性和可维护性。
+    </div>
+</body>
+</html>

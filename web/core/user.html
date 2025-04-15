@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo用户信息管理系统解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18用户信息管理系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>user.js</code>是Odoo框架中的核心模块，负责管理当前登录用户的信息、权限和首选项。这个模块为整个Odoo前端应用提供了用户上下文，并封装了与用户相关的操作和查询方法。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>用户模块是Odoo前端与后端用户系统的桥梁，它在前端保存和管理用户信息，提供权限检查、偏好设置等功能，确保整个应用程序能够获取到当前用户的状态和权限。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>用户信息管理</strong>：存储和提供当前登录用户的基本信息</li>
+        <li><strong>权限检查</strong>：提供组权限和访问权限的验证机制</li>
+        <li><strong>上下文管理</strong>：维护用户上下文，包括语言、时区等设置</li>
+        <li><strong>用户设置</strong>：允许读取和更新用户偏好设置</li>
+        <li><strong>最近连接用户管理</strong>：在本地存储中跟踪最近登录的用户</li>
+    </ol>
+    
+    <h2>主要API和功能解析</h2>
+    
+    <h3>1. 用户对象创建</h3>
+    <div class="code-block">
+        <pre><code>export function _makeUser(session) {
+    // 从session中提取用户信息
+    const {
+        home_action_id: homeActionId,
+        is_admin: isAdmin,
+        is_internal_user: isInternalUser,
+        is_system: isSystem,
+        name,
+        partner_id: partnerId,
+        show_effect: showEffect,
+        uid: userId,
+        username: login,
+        user_context: context,
+        user_settings,
+        partner_write_date: writeDate,
+    } = session;
+    const settings = user_settings || {};
+
+    // 从session中删除用户信息，避免信息冗余
+    delete session.home_action_id;
+    delete session.is_admin;
+    // ... 其他删除操作 ...
+
+    // 创建权限缓存
+    const groupCache = new Cache(getGroupCacheValue, getGroupCacheKey);
+    // ... 缓存初始化 ...
+
+    const user = {
+        // 用户属性
+        name,
+        login,
+        isAdmin,
+        // ... 其他属性 ...
+        
+        // getter方法
+        get context() { /* ... */ },
+        get lang() { /* ... */ },
+        get tz() { /* ... */ },
+        get settings() { /* ... */ },
+        
+        // 操作方法
+        updateContext(update) { /* ... */ },
+        hasGroup(group) { /* ... */ },
+        checkAccessRight(model, operation, ids = []) { /* ... */ },
+        async setUserSettings(key, value) { /* ... */ },
+    };
+
+    return user;
+}</code></pre>
+    </div>
+    
+    <p>这个函数是用户对象工厂，负责创建用户对象实例：</p>
+    <ul>
+        <li>从<code>session</code>对象中提取用户信息并映射到有意义的变量名</li>
+        <li>从<code>session</code>中移除用户信息，避免数据冗余和不一致</li>
+        <li>初始化权限缓存和访问权限缓存，优化权限检查性能</li>
+        <li>创建用户对象，包含属性、getter和方法</li>
+    </ul>
+    
+    <p>用户对象是单例模式，在应用中只创建一次，通过导出的<code>user</code>常量在整个应用中共享。</p>
+    
+    <h3>2. 用户属性</h3>
+    <p>用户对象包含以下关键属性：</p>
+    
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>String</td>
+            <td>用户完整名称</td>
+        </tr>
+        <tr>
+            <td>login</td>
+            <td>String</td>
+            <td>用户登录名（用户名）</td>
+        </tr>
+        <tr>
+            <td>isAdmin</td>
+            <td>Boolean</td>
+            <td>是否为管理员用户</td>
+        </tr>
+        <tr>
+            <td>isSystem</td>
+            <td>Boolean</td>
+            <td>是否为系统用户（具有系统组权限）</td>
+        </tr>
+        <tr>
+            <td>partnerId</td>
+            <td>Number</td>
+            <td>关联的业务伙伴ID</td>
+        </tr>
+        <tr>
+            <td>homeActionId</td>
+            <td>Number</td>
+            <td>用户主页动作ID</td>
+        </tr>
+        <tr>
+            <td>showEffect</td>
+            <td>Boolean</td>
+            <td>是否显示界面特效</td>
+        </tr>
+        <tr>
+            <td>userId</td>
+            <td>Number</td>
+            <td>用户ID</td>
+        </tr>
+        <tr>
+            <td>writeDate</td>
+            <td>String</td>
+            <td>伙伴记录的最后修改日期</td>
+        </tr>
+    </table>
+    
+    <p>此外，还有几个通过getter访问的计算属性：</p>
+    
+    <div class="code-block">
+        <pre><code>get context() {
+    return Object.assign({}, context, { uid: this.userId });
+},
+get lang() {
+    return lang;
+},
+get tz() {
+    return this.context.tz;
+},
+get settings() {
+    return Object.assign({}, settings);
+}</code></pre>
+    </div>
+    
+    <h3>3. 权限检查功能</h3>
+    <p>用户模块提供两种权限检查方法：</p>
+    
+    <h4>3.1 组权限检查</h4>
+    <div class="code-block">
+        <pre><code>hasGroup(group) {
+    return groupCache.read(group, this.context);
+}</code></pre>
+    </div>
+    
+    <p>这个方法检查当前用户是否属于指定的安全组：</p>
+    <ul>
+        <li><code>group</code>参数是组的XML ID，如<code>'base.group_user'</code></li>
+        <li>结果会被缓存，避免重复的RPC调用</li>
+        <li>一些常用组（如<code>base.group_user</code>、<code>base.group_system</code>）的结果在初始化时就预先缓存</li>
+    </ul>
+    
+    <h4>3.2 访问权限检查</h4>
+    <div class="code-block">
+        <pre><code>checkAccessRight(model, operation, ids = []) {
+    return accessRightCache.read(model, operation, ensureArray(ids), this.context);
+}</code></pre>
+    </div>
+    
+    <p>这个方法检查用户对特定模型记录的访问权限：</p>
+    <ul>
+        <li><code>model</code>：要检查的模型名称，如<code>'res.partner'</code></li>
+        <li><code>operation</code>：操作类型，如<code>'read'</code>、<code>'write'</code>、<code>'create'</code>、<code>'unlink'</code></li>
+        <li><code>ids</code>：要检查的记录ID数组（可选）</li>
+        <li>结果同样会被缓存，优化性能</li>
+    </ul>
+    
+    <h3>4. 上下文管理</h3>
+    <div class="code-block">
+        <pre><code>updateContext(update) {
+    Object.assign(context, update);
+}</code></pre>
+    </div>
+    
+    <p>这个方法用于更新用户上下文：</p>
+    <ul>
+        <li>更新用户的<code>context</code>对象，如语言、时区等设置</li>
+        <li>更新会立即生效，但不会持久化到服务器（除非显式调用服务器方法）</li>
+        <li>上下文对象在RPC调用中会自动包含，影响服务器端操作</li>
+    </ul>
+    
+    <h3>5. 用户设置管理</h3>
+    <div class="code-block">
+        <pre><code>async setUserSettings(key, value) {
+    const model = "res.users.settings";
+    const method = "set_res_users_settings";
+    const changedSettings = await rpc(`/web/dataset/call_kw/${model}/${method}`, {
+        model,
+        method,
+        args: [[this.settings.id]],
+        kwargs: {
+            new_settings: {
+                [key]: value,
+            },
+            context: this.context,
+        },
+    });
+    Object.assign(settings, changedSettings);
+}</code></pre>
+    </div>
+    
+    <p>这个方法用于更新用户设置并保存到服务器：</p>
+    <ul>
+        <li>调用<code>res.users.settings</code>模型的<code>set_res_users_settings</code>方法</li>
+        <li>使用键值对形式更新设置</li>
+        <li>接收服务器返回的已更新设置，并更新本地缓存</li>
+    </ul>
+    
+    <h3>6. 最近连接用户管理</h3>
+    <div class="code-block">
+        <pre><code>export const getLastConnectedUsers = () => {
+    const lastConnectedUsers = browser.localStorage.getItem(LAST_CONNECTED_USER_KEY);
+    return lastConnectedUsers ? JSON.parse(lastConnectedUsers) : [];
+};
+
+export const setLastConnectedUsers = (users) => {
+    browser.localStorage.setItem(LAST_CONNECTED_USER_KEY, JSON.stringify(users.slice(0, 5)));
+};</code></pre>
+    </div>
+    
+    <p>这两个函数管理最近连接的用户列表：</p>
+    <ul>
+        <li>使用<code>localStorage</code>在浏览器中存储最近登录的用户信息</li>
+        <li><code>getLastConnectedUsers</code>从本地存储中检索用户列表</li>
+        <li><code>setLastConnectedUsers</code>将用户列表保存到本地存储，最多保存5个用户</li>
+    </ul>
+    
+    <p>在模块加载时，还会执行以下代码，自动更新最近连接用户列表：</p>
+    <div class="code-block">
+        <pre><code>if (user.login && user.login !== "__system__") {
+    const users = getLastConnectedUsers();
+    const lastConnectedUsers = [
+        {
+            login: user.login,
+            name: user.name,
+            partnerId: user.partnerId,
+            partnerWriteDate: user.writeDate,
+            userId: user.userId,
+        },
+        ...users.filter((u) => u.userId !== user.userId),
+    ];
+    setLastConnectedUsers(lastConnectedUsers);
+}</code></pre>
+    </div>
+    
+    <h2>缓存机制详解</h2>
+    <p>用户模块使用缓存优化权限检查性能：</p>
+    
+    <h3>组权限缓存</h3>
+    <div class="code-block">
+        <pre><code>const getGroupCacheValue = (group, context) => {
+    if (!userId) {
+        return Promise.resolve(false);
+    }
+    return rpc("/web/dataset/call_kw/res.users/has_group", {
+        model: "res.users",
+        method: "has_group",
+        args: [userId, group],
+        kwargs: { context },
+    });
+};
+const getGroupCacheKey = (group) => group;
+const groupCache = new Cache(getGroupCacheValue, getGroupCacheKey);</code></pre>
+    </div>
+    
+    <p>组权限缓存的工作原理：</p>
+    <ol>
+        <li>使用组XML ID作为缓存键</li>
+        <li>当首次检查权限时，发起RPC调用并缓存结果</li>
+        <li>后续相同的检查直接返回缓存结果，无需额外RPC调用</li>
+        <li>一些常用组权限在初始化时预先缓存</li>
+    </ol>
+    
+    <h3>访问权限缓存</h3>
+    <div class="code-block">
+        <pre><code>const getAccessRightCacheValue = (model, operation, ids, context) => {
+    const url = `/web/dataset/call_kw/${model}/has_access`;
+    return rpc(url, {
+        model,
+        method: "has_access",
+        args: [ids, operation],
+        kwargs: { context },
+    });
+};
+const getAccessRightCacheKey = (model, operation, ids) =>
+    JSON.stringify([model, operation, ids]);
+const accessRightCache = new Cache(getAccessRightCacheValue, getAccessRightCacheKey);</code></pre>
+    </div>
+    
+    <p>访问权限缓存的工作原理：</p>
+    <ol>
+        <li>使用模型名、操作类型和记录ID的组合作为缓存键</li>
+        <li>调用模型的<code>has_access</code>方法检查权限</li>
+        <li>缓存结果用于后续相同的权限检查</li>
+    </ol>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 访问用户基本信息</h3>
+    <div class="code-block">
+        <pre><code>import { user } from "@web/core/user";
+
+// 显示用户信息
+console.log(`当前用户: ${user.name} (${user.login})`);
+console.log(`用户ID: ${user.userId}`);
+console.log(`用户语言: ${user.lang}`);
+console.log(`用户时区: ${user.tz}`);</code></pre>
+    </div>
+    
+    <h3>2. 权限检查</h3>
+    <div class="code-block">
+        <pre><code>import { user } from "@web/core/user";
+import { Component, onWillStart } from "@odoo/owl";
+
+class AdminFeature extends Component {
+    setup() {
+        onWillStart(async () => {
+            // 检查用户是否为管理员
+            this.isAdmin = await user.hasGroup('base.group_system');
+            
+            // 检查用户是否有权限编辑产品
+            this.canEditProducts = await user.checkAccessRight(
+                'product.product',
+                'write'
+            );
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 更新用户上下文</h3>
+    <div class="code-block">
+        <pre><code>import { user } from "@web/core/user";
+
+// 更改语言
+user.updateContext({ lang: 'zh_CN' });
+
+// 切换公司
+user.updateContext({ allowed_company_ids: [2, 1, 3] });</code></pre>
+    </div>
+    
+    <h3>4. 保存用户设置</h3>
+    <div class="code-block">
+        <pre><code>import { user } from "@web/core/user";
+
+async function saveUserPreferences() {
+    // 保存桌面通知设置
+    await user.setUserSettings('notification_type', 'inbox');
+    
+    // 保存其他首选项
+    await user.setUserSettings('use_dark_mode', true);
+}</code></pre>
+    </div>
+    
+    <h3>5. 获取最近登录用户</h3>
+    <div class="code-block">
+        <pre><code>import { getLastConnectedUsers } from "@web/core/user";
+
+// 获取最近登录的用户列表
+const recentUsers = getLastConnectedUsers();
+console.log(`最近登录的用户: ${recentUsers.map(u => u.name).join(', ')}`);</code></pre>
+    </div>
+    
+    <h2>测试支持</h2>
+    <p>用户模块提供了<code>_makeUser</code>函数，便于在测试中创建模拟用户：</p>
+    
+    <div class="code-block">
+        <pre><code>import { _makeUser } from "@web/core/user";
+
+// 为测试创建一个模拟用户
+const mockSession = {
+    uid: 42,
+    name: "测试用户",
+    username: "test_user",
+    is_admin: false,
+    is_system: false,
+    user_context: { lang: "zh_CN", tz: "Asia/Shanghai" }
+};
+
+const testUser = _makeUser(mockSession);
+
+// 现在可以使用testUser进行测试</code></pre>
+    </div>
+    
+    <p>这种方式允许测试代码使用独立的用户对象，避免测试之间的状态干扰。</p>
+    
+    <h2>权限检查工作流程</h2>
+    
+    <div class="workflow">
+        <h3>组权限检查流程</h3>
+        <ol>
+            <li>调用<code>user.hasGroup(group)</code></li>
+            <li>检查<code>groupCache</code>是否已有缓存结果</li>
+            <li>如果有缓存，直接返回缓存结果</li>
+            <li>如果没有缓存：
+                <ol>
+                    <li>调用<code>res.users/has_group</code> RPC方法</li>
+                    <li>将结果存入缓存</li>
+                    <li>返回权限检查结果</li>
+                </ol>
+            </li>
+        </ol>
+        
+        <h3>访问权限检查流程</h3>
+        <ol>
+            <li>调用<code>user.checkAccessRight(model, operation, ids)</code></li>
+            <li>生成缓存键（模型、操作和ID的组合）</li>
+            <li>检查<code>accessRightCache</code>是否有缓存结果</li>
+            <li>如果有缓存，直接返回</li>
+            <li>如果没有缓存：
+                <ol>
+                    <li>调用模型的<code>has_access</code> RPC方法</li>
+                    <li>将结果存入缓存</li>
+                    <li>返回访问权限结果</li>
+                </ol>
+            </li>
+        </ol>
+    </div>
+    
+    <h2>注意事项与最佳实践</h2>
+    
+    <div class="warning">
+        <strong>开发提示：</strong>
+        <ul>
+            <li>权限检查是异步操作，需要使用<code>await</code>或<code>then()</code>处理结果</li>
+            <li>频繁更新用户上下文可能导致UI不一致，应谨慎使用<code>updateContext</code></li>
+            <li>不要直接修改<code>user</code>对象的属性，应使用提供的方法</li>
+            <li>权限缓存在页面刷新前一直有效，如果后端权限变更，需要刷新页面</li>
+            <li><code>localStorage</code>存储的最近用户信息在不同浏览器间不共享</li>
+        </ul>
+    </div>
+    
+    <h3>性能最佳实践</h3>
+    <ul>
+        <li>将相同的权限检查放在一起执行，利用缓存机制</li>
+        <li>避免在渲染循环中频繁检查权限</li>
+        <li>对于UI显示，可以先渲染元素，然后基于权限检查结果隐藏或禁用</li>
+        <li>对于关键安全检查，应同时在前端和后端实现</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p><code>user.js</code>提供了Odoo前端用户系统的核心功能：</p>
+    <ul>
+        <li>统一的用户信息管理</li>
+        <li>高效的权限检查机制</li>
+        <li>用户上下文和设置管理</li>
+        <li>最近登录用户的跟踪</li>
+    </ul>
+    
+    <p>通过这些功能，Odoo应用能够实现精细的权限控制，提供个性化的用户体验，并在不同页面之间保持用户状态的一致性。</p>
+</body>
+</html> 

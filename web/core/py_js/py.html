@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python-JavaScript解析器模块</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python-JavaScript解析器模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py.js</code>是Odoo前端框架中的核心模块，它提供了一个用于解析和求值Python表达式的接口层。该模块封装了Python-JavaScript转换的复杂性，使开发者能够在JavaScript环境中执行Python风格的表达式。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Odoo作为一个主要用Python开发的框架，在很多地方依赖Python表达式来处理业务逻辑。<code>py.js</code>模块通过在浏览器中模拟Python解释器，使得前端代码能够无缝地处理和执行这些Python表达式。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>Python表达式解析</strong>：将Python字符串表达式转换为抽象语法树(AST)</li>
+        <li><strong>表达式求值</strong>：执行解析后的Python表达式并返回JavaScript值</li>
+        <li><strong>布尔表达式求值</strong>：专门用于评估布尔类型的Python表达式</li>
+        <li><strong>Python-JavaScript互操作</strong>：实现两种语言之间的平滑转换</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>py.js的主要职责是提供一个简单易用的API接口，其内部实现依赖于多个专门的模块：</p>
+    
+    <div class="code-block">
+        <pre><code>import { evaluate } from "./py_interpreter";
+import { parse } from "./py_parser";
+import { tokenize } from "./py_tokenizer";
+
+export { evaluate } from "./py_interpreter";
+export { parse } from "./py_parser";
+export { tokenize } from "./py_tokenizer";
+export { formatAST } from "./py_utils";</code></pre>
+    </div>
+    
+    <h3>核心API解释</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>参数</th>
+            <th>描述</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>parseExpr</td>
+            <td>expr (string)</td>
+            <td>将Python表达式字符串解析为抽象语法树(AST)</td>
+            <td>AST对象</td>
+        </tr>
+        <tr>
+            <td>evaluateExpr</td>
+            <td>expr (string), context (Object, 可选)</td>
+            <td>解析并执行Python表达式</td>
+            <td>表达式的计算结果</td>
+        </tr>
+        <tr>
+            <td>evaluateBooleanExpr</td>
+            <td>expr (string), context (Object, 可选)</td>
+            <td>解析并执行Python布尔表达式</td>
+            <td>布尔值</td>
+        </tr>
+    </table>
+    
+    <h2>工作原理</h2>
+    <p>py.js模块的工作流程可以分为以下几个步骤：</p>
+    
+    <div class="flow-diagram">
+        <h3>表达式处理流程</h3>
+        <ol>
+            <li><strong>词法分析</strong>：使用<code>tokenize</code>函数将Python表达式字符串分解为词法单元(tokens)</li>
+            <li><strong>语法分析</strong>：使用<code>parse</code>函数将tokens转换成抽象语法树(AST)</li>
+            <li><strong>表达式求值</strong>：使用<code>evaluate</code>函数对AST进行遍历和执行，根据上下文计算表达式的值</li>
+        </ol>
+    </div>
+    
+    <h3>代码示例：parseExpr函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Parses an expression into a valid AST representation
+ * @param {string} expr
+ * @returns { AST }
+ */
+export function parseExpr(expr) {
+    const tokens = tokenize(expr);
+    return parse(tokens);
+}</code></pre>
+    </div>
+    
+    <h3>代码示例：evaluateExpr函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Evaluates a python expression
+ *
+ * @param {string} expr
+ * @param {Object} [context]
+ * @returns {any}
+ */
+export function evaluateExpr(expr, context = {}) {
+    let ast;
+    try {
+        ast = parseExpr(expr);
+    } catch (error) {
+        throw new EvalError(`Can not parse python expression: (${expr})\nError: ${error.message}`);
+    }
+    try {
+        return evaluate(ast, context);
+    } catch (error) {
+        throw new EvalError(`Can not evaluate python expression: (${expr})\nError: ${error.message}`);
+    }
+}</code></pre>
+    </div>
+    
+    <h3>代码示例：evaluateBooleanExpr函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Evaluates a python expression to return a boolean.
+ *
+ * @param {string} expr
+ * @param {Object} [context]
+ * @returns {any}
+ */
+export function evaluateBooleanExpr(expr, context = {}) {
+    if (!expr || expr === 'False' || expr === '0') {
+        return false;
+    }
+    if (expr === 'True' || expr === '1') {
+        return true;
+    }
+    return evaluateExpr(`bool(${expr})`, context);
+}</code></pre>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>以下是一些常见的使用场景：</p>
+    
+    <h3>示例1：基本表达式求值</h3>
+    <div class="code-block">
+        <pre><code>import { evaluateExpr } from "@web/core/py_js/py";
+// 使用加法运算符
+const result1 = evaluateExpr("1 + 2");  // 返回 3
+
+// 使用字符串连接
+const result2 = evaluateExpr("'Hello' + ' ' + 'World'");  // 返回 "Hello World"
+
+// 使用列表操作
+const result3 = evaluateExpr("[1, 2, 3] + [4, 5]");  // 返回 [1, 2, 3, 4, 5]</code></pre>
+    </div>
+    
+    <h3>示例2：使用上下文变量</h3>
+    <div class="code-block">
+        <pre><code>import { evaluateExpr } from "@web/core/py_js/py";
+
+// 定义上下文对象
+const context = { 
+    user: { name: "管理员", id: 1 },
+    company_id: 2,
+    active_ids: [10, 20, 30]
+};
+
+// 在表达式中使用上下文变量
+const result1 = evaluateExpr("user.name", context);  // 返回 "管理员"
+const result2 = evaluateExpr("company_id == 2", context);  // 返回 true
+const result3 = evaluateExpr("len(active_ids)", context);  // 返回 3</code></pre>
+    </div>
+    
+    <h3>示例3：处理域表达式</h3>
+    <div class="code-block">
+        <pre><code>import { evaluateExpr } from "@web/core/py_js/py";
+
+// 定义域过滤条件
+const domainStr = "[('user_id', '=', uid), '|', ('state', '=', 'draft'), ('state', '=', 'open')]";
+
+// 解析域表达式
+const context = { uid: 2 };
+const domainArray = evaluateExpr(domainStr, context);
+
+// domainArray结果: [['user_id', '=', 2], '|', ['state', '=', 'draft'], ['state', '=', 'open']]</code></pre>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>py.js模块与以下模块密切相关：</p>
+    <ul>
+        <li><code>py_tokenizer.js</code> - 负责词法分析，将表达式字符串转换为词法单元</li>
+        <li><code>py_parser.js</code> - 负责语法分析，将词法单元转换为抽象语法树</li>
+        <li><code>py_interpreter.js</code> - 负责表达式执行，遍历AST并计算表达式的值</li>
+        <li><code>py_utils.js</code> - 提供工具函数，如AST格式化和Python词典模拟</li>
+        <li><code>py_date.js</code> - 提供Python日期类型的JavaScript实现</li>
+        <li><code>py_builtin.js</code> - 提供Python内置函数的JavaScript实现</li>
+    </ul>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用py.js模块时需要注意以下几点：
+        <ul>
+            <li>并非所有Python语法都受支持，该模块主要针对Odoo中常用的表达式模式</li>
+            <li>表达式求值过程可能比原生JavaScript运算慢，应在性能敏感的代码中谨慎使用</li>
+            <li>复杂的Python表达式应当在服务器端处理，而非依赖客户端解析</li>
+            <li>上下文变量应当仔细规划，避免注入可能导致安全问题的数据</li>
+        </ul>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>优先使用简单表达式，避免复杂的Python语法结构</li>
+        <li>为提高性能，对相同的表达式考虑缓存求值结果</li>
+        <li>在处理用户输入的Python表达式时增加适当的错误处理</li>
+        <li>对于需要在前端和后端都执行的业务逻辑，使用py.js可以保持一致性</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>py.js模块是Odoo前端框架中的重要组件，它解决了Python和JavaScript之间的语言鸿沟，使得开发者能够：</p>
+    <ul>
+        <li>在浏览器中执行Python表达式</li>
+        <li>处理来自服务器的Python格式数据和表达式</li>
+        <li>实现前后端的一致性，特别是在处理域表达式、上下文条件等方面</li>
+        <li>简化开发复杂业务逻辑的过程</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发者提示：</strong>虽然py.js提供了强大的Python表达式处理能力，但在前端开发中，应当尽可能使用原生JavaScript编写业务逻辑，只有在必要时才利用py.js处理Python表达式。这样可以使代码更加高效和易于维护。
+    </div>
+</body>
+</html> 

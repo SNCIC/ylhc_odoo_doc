@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo路由管理模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo路由管理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>router.js</code>是Odoo 18框架中的一个核心模块，它负责管理客户端路由，处理URL的解析和生成，以及管理浏览器历史状态。这个模块是Odoo单页应用(SPA)架构的关键组件，使用户能够在不刷新页面的情况下导航到不同的应用和视图。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>在单页应用中，路由器管理应用状态与URL之间的映射，使得用户可以通过浏览器的前进/后退按钮导航，以及通过复制和分享URL直接访问特定页面。Odoo的路由器实现了这些功能，同时保持了与Odoo特定URL结构的兼容性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>URL解析与生成</strong>：将URL转换为应用状态对象，以及将状态对象转换回URL</li>
+        <li><strong>历史管理</strong>：处理浏览器的历史记录，支持前进/后退导航</li>
+        <li><strong>状态同步</strong>：确保URL与应用状态保持同步</li>
+        <li><strong>动作堆栈管理</strong>：维护用户导航的动作历史</li>
+        <li><strong>路径参数处理</strong>：支持将某些参数作为URL路径的一部分而不是查询字符串</li>
+        <li><strong>内部链接处理</strong>：捕获内部链接点击，进行客户端导航而非页面刷新</li>
+    </ol>
+    
+    <h2>核心概念</h2>
+    
+    <h3>1. 路径键（PATH_KEYS）</h3>
+    <p>某些特定的参数会被序列化为URL路径的一部分，而不是查询字符串：</p>
+    <div class="code-block">
+        <pre><code>export const PATH_KEYS = ["resId", "action", "active_id", "model"];</code></pre>
+    </div>
+    <p>这些键对应Odoo的核心导航概念，例如模型、动作和记录ID。</p>
+    
+    <h3>2. 路由总线（routerBus）</h3>
+    <p>一个事件总线，用于在路由变化时通知应用的其他部分：</p>
+    <div class="code-block">
+        <pre><code>export const routerBus = new EventBus();</code></pre>
+    </div>
+    <p>当URL变化或用户使用浏览器的前进/后退按钮时，路由器会触发"ROUTE_CHANGE"事件。</p>
+    
+    <h3>3. 范围应用检测</h3>
+    <p>检测当前是否在作用域受限的应用模式下运行：</p>
+    <div class="code-block">
+        <pre><code>function isScopedApp() {
+    return browser.location.href.includes("/scoped_app") && isDisplayStandalone();
+}</code></pre>
+    </div>
+    <p>这用于支持Odoo的PWA（渐进式Web应用）模式。</p>
+    
+    <h2>关键函数解析</h2>
+    
+    <h3>URL解析与状态转换</h3>
+    <p>这两个函数是路由器的核心，负责在URL和应用状态之间进行转换：</p>
+    
+    <h4>stateToUrl</h4>
+    <div class="code-block">
+        <pre><code>export function stateToUrl(state) {
+    let path = "";
+    const pathKeysToOmit = [..._hiddenKeysFromUrl];
+    const actionStack = (state.actionStack || [state]).map((a) => ({ ...a }));
+    if (actionStack.at(-1)?.action !== "menu") {
+        for (const [prevAct, currentAct] of slidingWindow(actionStack, 2).reverse()) {
+            // 处理动作堆栈中重复的ID和动作
+            // ...
+        }
+        const pathSegments = actionStack.map(pathFromActionState).filter(Boolean);
+        if (pathSegments.length) {
+            path = `/${pathSegments.join("/")}`;
+        }
+    }
+    // 处理非数字类型的active_id和resId
+    // ...
+    const search = objectToUrlEncodedString(omit(state, ...pathKeysToOmit));
+    const start_url = isScopedApp() ? "scoped_app" : "odoo";
+    return `/${start_url}${path}${search ? `?${search}` : ""}`;
+}</code></pre>
+    </div>
+    
+    <h4>urlToState</h4>
+    <div class="code-block">
+        <pre><code>export function urlToState(urlObj) {
+    const { pathname, hash, search } = urlObj;
+    const state = parseSearchQuery(search);
+
+    // 处理旧版URL兼容性
+    if (pathname === "/web") {
+        // 处理哈希（锚点）中的参数
+        // ...
+    }
+
+    const [prefix, ...splitPath] = urlObj.pathname.split("/").filter(Boolean);
+
+    if (prefix === "odoo" || isScopedApp()) {
+        // 解析路径中的动作和ID
+        const actionParts = [...splitPath.entries()].filter(
+            ([_, part]) => !isNumeric(part) && part !== "new"
+        );
+        const actions = [];
+        // 构建动作堆栈
+        // ...
+        const activeAction = actions.at(-1);
+        if (activeAction) {
+            Object.assign(state, activeAction);
+            state.actionStack = actions;
+        }
+    }
+    return state;
+}</code></pre>
+    </div>
+    
+    <h3>历史状态管理</h3>
+    <p>路由器提供了两个主要函数来管理浏览器历史：</p>
+    
+    <div class="code-block">
+        <pre><code>// 推送新状态到历史记录（创建新的历史条目）
+export const router = {
+    // ...
+    pushState: makeDebouncedPush("push"),
+    
+    // 替换当前历史条目的状态
+    replaceState: makeDebouncedPush("replace"),
+    // ...
+};</code></pre>
+    </div>
+    
+    <p>这两个函数都是通过<code>makeDebouncedPush</code>工厂函数创建的，它提供了延迟处理和批量更新的能力：</p>
+    
+    <div class="code-block">
+        <pre><code>function makeDebouncedPush(mode) {
+    function doPush() {
+        // 计算新的状态
+        const nextState = computeNextState(pushArgs.state, pushArgs.replace);
+        const url = browser.location.origin + router.stateToUrl(nextState);
+        
+        // 检查URL是否实际变化
+        if (!compareUrls(url + browser.location.hash, browser.location.href)) {
+            // 根据模式选择推送或替换历史
+            if (mode === "push") {
+                // 特殊处理标题，确保历史条目有正确的标题
+                const originalTitle = document.title;
+                document.title = pushArgs.title;
+                browser.history.pushState({ nextState }, "", url);
+                document.title = originalTitle;
+            } else {
+                browser.history.replaceState({ nextState }, "", url);
+            }
+        } else {
+            // URL没变但状态可能变了，就地更新
+            browser.history.replaceState({ nextState }, "", browser.location.href);
+        }
+        
+        // 更新当前状态
+        state = nextState;
+        if (pushArgs.reload) {
+            browser.location.reload();
+        }
+    }
+    
+    // 返回实际的函数
+    return function pushOrReplaceState(state, options = {}) {
+        // 累积参数
+        pushArgs.replace ||= options.replace;
+        pushArgs.reload ||= options.reload;
+        pushArgs.title = document.title;
+        Object.assign(pushArgs.state, state);
+        
+        // 清除之前的定时器
+        browser.clearTimeout(pushTimeout);
+        
+        const push = () => {
+            doPush();
+            pushTimeout = null;
+            pushArgs = {
+                replace: false,
+                reload: false,
+                state: {},
+            };
+        };
+        
+        // 同步或异步执行
+        if (options.sync) {
+            push();
+        } else {
+            pushTimeout = browser.setTimeout(() => {
+                push();
+            });
+        }
+    };
+}</code></pre>
+    </div>
+    
+    <h3>事件监听器</h3>
+    <p>router.js设置了几个关键的事件监听器来处理不同的导航场景：</p>
+    
+    <h4>popstate事件（浏览器前进/后退按钮）</h4>
+    <div class="code-block">
+        <pre><code>browser.addEventListener("popstate", (ev) => {
+    browser.clearTimeout(pushTimeout);
+    if (!ev.state) {
+        // 来自锚点链接的点击
+        browser.history.replaceState({ nextState: state }, "", browser.location.href);
+        return;
+    }
+    state = ev.state?.nextState || router.urlToState(new URL(browser.location));
+    // 处理客户端动作的特殊情况
+    if (!ev.state?.skipRouteChange && !router.skipLoad) {
+        routerBus.trigger("ROUTE_CHANGE");
+    }
+    router.skipLoad = false;
+});</code></pre>
+    </div>
+    
+    <h4>pageshow事件（处理bfcache）</h4>
+    <div class="code-block">
+        <pre><code>browser.addEventListener("pageshow", (ev) => {
+    if (ev.persisted) {
+        browser.clearTimeout(pushTimeout);
+        routerBus.trigger("ROUTE_CHANGE");
+    }
+});</code></pre>
+    </div>
+    
+    <h4>click事件（捕获内部链接点击）</h4>
+    <div class="code-block">
+        <pre><code>browser.addEventListener("click", (ev) => {
+    if (ev.defaultPrevented || ev.target.closest("[contenteditable]")) {
+        return;
+    }
+    const href = ev.target.closest("a")?.getAttribute("href");
+    if (href && !href.startsWith("#")) {
+        let url;
+        try {
+            url = new URL(ev.target.closest("a").href);
+        } catch {
+            return;
+        }
+        if (
+            browser.location.host === url.host &&
+            browser.location.pathname.startsWith("/odoo") &&
+            (["/web", "/odoo"].includes(url.pathname) || url.pathname.startsWith("/odoo/")) &&
+            ev.target.target !== "_blank"
+        ) {
+            ev.preventDefault();
+            state = router.urlToState(url);
+            if (url.pathname.startsWith("/odoo") && url.hash) {
+                browser.history.pushState({}, "", url.href);
+            }
+            new Promise((res) => setTimeout(res, 0)).then(() => routerBus.trigger("ROUTE_CHANGE"));
+        }
+    }
+});</code></pre>
+    </div>
+    
+    <h2>URL结构和状态映射</h2>
+    
+    <h3>Odoo URL格式</h3>
+    <p>Odoo 18的标准URL格式如下：</p>
+    <pre>/odoo/[active_id]/[action]/[resId]?[查询参数]</pre>
+    
+    <p>例如：</p>
+    <ul>
+        <li><code>/odoo/action-37</code> - 显示ID为37的动作</li>
+        <li><code>/odoo/1/action-37</code> - 在ID为1的上下文中显示ID为37的动作</li>
+        <li><code>/odoo/1/action-37/42</code> - 在ID为1的上下文中显示ID为37的动作，并打开ID为42的记录</li>
+        <li><code>/odoo/res.partner/42</code> - 直接显示res.partner模型中ID为42的记录</li>
+    </ul>
+    
+    <h3>状态对象结构</h3>
+    <p>路由器在内部使用JavaScript对象表示应用状态。一个典型的状态对象可能如下所示：</p>
+    
+    <div class="code-block">
+        <pre><code>{
+    action: "37",           // 当前动作的ID
+    model: "res.partner",   // 当前模型（如果没有具体动作）
+    resId: 42,              // 当前记录ID
+    active_id: 1,           // 当前活动ID（上下文）
+    view_type: "form",      // 当前视图类型
+    // 其他查询参数...
+    actionStack: [          // 动作导航历史
+        { action: "menu" },
+        { action: "37", active_id: 1 },
+        { action: "37", active_id: 1, resId: 42 }
+    ]
+}</code></pre>
+    </div>
+    
+    <h2>特殊处理和优化</h2>
+    
+    <h3>路径生成优化</h3>
+    <p>在生成URL路径时，路由器会尝试优化路径长度，避免重复的信息：</p>
+    <ul>
+        <li>如果当前动作的active_id与前一个动作的resId相同，会避免重复</li>
+        <li>当单记录动作前面有多记录动作时，避免重复action和active_id</li>
+    </ul>
+    
+    <h3>批量状态更新</h3>
+    <p>路由器使用延迟处理机制来批量处理状态更新，避免在快速连续的状态变化中过多地更新浏览器历史：</p>
+    <ol>
+        <li>当调用<code>pushState</code>或<code>replaceState</code>时，不会立即更新历史</li>
+        <li>而是累积状态变化，并设置一个定时器</li>
+        <li>当定时器触发时，将所有累积的变化一次性应用</li>
+        <li>如果在定时器触发前又有新的调用，之前的定时器会被取消</li>
+    </ol>
+    
+    <h3>URL兼容性处理</h3>
+    <p>路由器包含了处理旧版Odoo URL格式的代码，确保向后兼容性：</p>
+    
+    <div class="code-block">
+        <pre><code>// ** url-retrocompatibility **
+// 如果URL包含哈希，可能有两个原因：
+// 1. 它是一个锚点链接，这种情况下我们忽略它
+// 2. 它包含键值对，这种情况下我们将其合并到search中
+if (pathname === "/web") {
+    const sanitizedHash = sanitizeHash(parseHash(hash));
+    // 旧版URL使用"id"，现在为了清晰改为resId。重新映射到新名称。
+    if (sanitizedHash.id) {
+        sanitizedHash.resId = sanitizedHash.id;
+        delete sanitizedHash.id;
+        delete sanitizedHash.view_type;
+    } else if (sanitizedHash.view_type === "form") {
+        sanitizedHash.resId = "new";
+        delete sanitizedHash.view_type;
+    }
+    Object.assign(state, sanitizedHash);
+    const url = browser.location.origin + router.stateToUrl(state);
+    urlObj.href = url;
+}</code></pre>
+    </div>
+    
+    <h2>实际应用示例</h2>
+    
+    <h3>基本导航</h3>
+    <div class="code-block">
+        <pre><code>import { router } from "@web/core/browser/router";
+
+// 导航到列表视图
+router.pushState({
+    action: 93,
+    view_type: "list"
+});
+
+// 打开特定记录
+router.pushState({
+    action: 93,
+    resId: 42
+});
+
+// 带额外参数的导航
+router.pushState({
+    action: 93,
+    resId: 42,
+    context: JSON.stringify({ default_customer: true })
+});</code></pre>
+    </div>
+    
+    <h3>获取当前状态</h3>
+    <div class="code-block">
+        <pre><code>import { router } from "@web/core/browser/router";
+
+// 获取当前路由状态
+const currentState = router.current;
+console.log("当前动作:", currentState.action);
+console.log("当前记录:", currentState.resId);</code></pre>
+    </div>
+    
+    <h3>监听路由变化</h3>
+    <div class="code-block">
+        <pre><code>import { routerBus } from "@web/core/browser/router";
+
+// 监听路由变化
+routerBus.addEventListener("ROUTE_CHANGE", () => {
+    console.log("路由已变化");
+    // 更新UI或加载新数据
+});</code></pre>
+    </div>
+    
+    <h3>动作服务集成</h3>
+    <div class="code-block">
+        <pre><code>// 在动作服务中使用路由器
+class ActionService {
+    // ...
+    _performAction(actionRequest, options) {
+        // ...
+        // 将动作状态同步到URL
+        if (!options.noHistory) {
+            router.pushState({
+                action: action.id,
+                model: action.res_model,
+                view_type: state.type
+            });
+        }
+        // ...
+    }
+    // ...
+}</code></pre>
+    </div>
+    
+    <h2>高级特性</h2>
+    
+    <h3>锁定键（Locked Keys）</h3>
+    <p>某些状态参数可以被锁定，防止它们在导航过程中被覆盖：</p>
+    <div class="code-block">
+        <pre><code>// 初始化时设置锁定键
+_lockedKeys = new Set(["debug", "lang"]);
+
+// 添加新的锁定键
+router.addLockedKey("theme");</code></pre>
+    </div>
+    
+    <h3>隐藏键（Hidden Keys）</h3>
+    <p>某些状态参数可以从URL中隐藏，即使它们是状态的一部分：</p>
+    <div class="code-block">
+        <pre><code>// 初始化时隐藏一些键
+_hiddenKeysFromUrl = new Set([...PATH_KEYS, "actionStack"]);
+
+// 隐藏额外的键
+router.hideKeyFromUrl("custom_param");</code></pre>
+    </div>
+    
+    <h3>跳过路由变化（Skip Load）</h3>
+    <p>在特殊情况下，可以跳过对路由变化的处理：</p>
+    <div class="code-block">
+        <pre><code>// 在更新历史前设置跳过标志
+router.skipLoad = true;
+browser.history.back();
+// 该back操作不会触发应用状态的更新</code></pre>
+    </div>
+    
+    <h2>性能和技术考虑</h2>
+    
+    <h3>延迟处理</h3>
+    <p>路由器使用setTimeout来延迟处理状态更新，这有几个好处：</p>
+    <ul>
+        <li>允许批量处理多个快速连续的状态更新</li>
+        <li>避免过多的历史条目</li>
+        <li>提高性能，特别是在复杂状态转换过程中</li>
+    </ul>
+    
+    <h3>状态处理优化</h3>
+    <p>在处理状态和URL转换时，路由器实现了几个优化：</p>
+    <ul>
+        <li>仅当URL实际变化时才更新浏览器历史</li>
+        <li>对路径部分进行优化，避免冗余信息</li>
+        <li>使用sanitize函数清理无效或空值</li>
+    </ul>
+    
+    <h3>bfcache兼容性</h3>
+    <p>路由器包含了处理浏览器的后退/前进缓存(bfcache)的特殊逻辑，这主要针对Safari浏览器：</p>
+    <div class="code-block">
+        <pre><code>browser.addEventListener("pageshow", (ev) => {
+    if (ev.persisted) {
+        browser.clearTimeout(pushTimeout);
+        routerBus.trigger("ROUTE_CHANGE");
+    }
+});</code></pre>
+    </div>
+    <p>当页面从bfcache恢复时，会触发ROUTE_CHANGE事件，确保应用状态正确更新。</p>
+    
+    <h2>在Odoo 18中的改进</h2>
+    <p>相比于之前的版本，Odoo 18中的路由器模块有以下改进：</p>
+    <ul>
+        <li><strong>动作堆栈管理</strong>：更好地管理和显示用户的导航历史</li>
+        <li><strong>PWA支持增强</strong>：添加了对作用域受限应用模式的支持</li>
+        <li><strong>优化的路径生成</strong>：生成更简洁的URL，避免冗余信息</li>
+        <li><strong>更好的浏览器兼容性</strong>：针对Safari的bfcache特别处理</li>
+        <li><strong>内部链接处理改进</strong>：更智能地拦截和处理内部链接点击</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>router.js模块是Odoo单页应用架构的核心组件，它提供了：</p>
+    <ul>
+        <li>强大而灵活的URL与应用状态映射</li>
+        <li>智能的浏览器历史管理</li>
+        <li>对各种导航场景的支持（直接导航、内部链接、浏览器按钮）</li>
+        <li>向后兼容的URL处理</li>
+        <li>优化的性能和用户体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，应通过路由器服务来管理应用状态与URL的同步，而不是直接操作浏览器历史API。这样可以确保统一的路由行为和最佳的用户体验。
+    </div>
+</body>
+</html> 

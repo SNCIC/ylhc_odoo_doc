@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件活动计划解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件活动计划解析 (MailActivityPlan)</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_activity_plan.py</code>是Odoo框架中的活动计划实现文件，它提供了一种结构化方式来定义和执行一系列预设的活动。活动计划允许用户定义活动序列，并应用于业务对象上，自动化工作流程中的活动分配。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>活动计划是一组预定义的活动，按照特定顺序和规则执行，用于支持复杂的业务流程。它可以看作是活动的模板集合，能够被应用于记录以批量创建结构化的活动序列。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>活动序列定义</strong>：定义一系列按顺序执行的活动</li>
+        <li><strong>条件触发</strong>：基于特定条件触发活动</li>
+        <li><strong>批量应用</strong>：一次性将多个活动应用于记录</li>
+        <li><strong>责任人自动分配</strong>：根据规则自动分配活动负责人</li>
+        <li><strong>依赖管理</strong>：处理活动之间的依赖关系</li>
+        <li><strong>模型关联</strong>：将活动计划关联到特定模型</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <h3>MailActivityPlan模型定义</h3>
+    <div class="code-block">
+        <pre><code>class MailActivityPlan(models.Model):
+    """ Activity Plans link a number of activity templates together for various purposes.
+    They are used by several models to schedule activities in a more organized way. """
+    _name = 'mail.activity.plan'
+    _description = 'Mail Activity Plan'
+    _order = 'sequence, id'
+
+    active = fields.Boolean(default=True)
+    name = fields.Char('Name', translate=True, required=True)
+    res_model = fields.Selection(selection='_selection_target_model', string='Model')
+    template_ids = fields.One2many('mail.activity.plan.template', 'plan_id', string='Activities')
+    sequence = fields.Integer('Sequence', default=10)</code></pre>
+    </div>
+    
+    <h3>模型选择方法</h3>
+    <div class="code-block">
+        <pre><code>    @api.model
+    def _selection_target_model(self):
+        """ Allow to select models that inherits from mail thread. """
+        models = self.env['ir.model'].search([('is_mail_thread', '=', True), ('transient', '=', False)])
+        return [(model.model, model.name) for model in models]</code></pre>
+    </div>
+    
+    <h3>应用活动计划方法</h3>
+    <div class="code-block">
+        <pre><code>    def _apply_for_records(self, records):
+        """ Apply this plan for the given records
+          :param records: recordset on which the plan must be applied
+        """
+        self.ensure_one()
+        if not records:
+            return False
+        # Check that a plan of another model is not incorrectly applied
+        if records._name != self.res_model:
+            raise UserError(_('You cannot apply the activity plan on this model'))
+
+        res = {'error': [], 'warning': [], 'info': []}
+
+        plan_templates = self.template_ids.filtered(lambda t: t.activity_type_id)
+        all_activities = self.env['mail.activity']
+        for record in records:
+            activities = self.env['mail.activity']
+            for plan_template in plan_templates.sorted(lambda s: s.sequence):
+                responsible = plan_template._get_responsibility(record)
+                responsible_warning = False
+                # Compute durations/remaining days
+                if not responsible:
+                    res['warning'].append(_(
+                        "No possible user found for activity type %(activity_type)s on %(model_name)s (%(res_id)s)",
+                        activity_type=plan_template.activity_type_id.name,
+                        model_name=self.env['ir.model']._get(record._name).name,
+                        res_id=record.id
+                    ))
+                    responsible_warning = True
+                    continue
+
+                # Catch Plan Template Exceptions
+                try:
+                    activity = plan_template._generate_activities_from_template(record, responsible)
+                    activities |= activity
+                except Exception as e:
+                    msg = _("Error: %(error)s\nActivity Type: %(activity_type)s\nRecord: %(record)s") % {
+                        'error': e,
+                        'activity_type': plan_template.activity_type_id.name,
+                        'record': records[:1]._name + '(%d)' % records[:1].id
+                    }
+                    res['error'].append(msg)
+                    continue
+            all_activities |= activities
+
+        return {'activities': all_activities, 'feedback': res}</code></pre>
+    </div>
+    
+    <h2>活动计划模板</h2>
+    <h3>MailActivityPlanTemplate定义</h3>
+    <div class="code-block">
+        <pre><code>class MailActivityPlanTemplate(models.Model):
+    """ An Activity template for a specific activity type to be applied on a record. """
+    _name = 'mail.activity.plan.template'
+    _description = 'Mail Activity Plan Template'
+    _order = 'sequence, id'
+
+    name = fields.Char('Name', compute='_compute_name', readonly=False, store=True)
+    summary = fields.Char('Summary', translate=True)
+    plan_id = fields.Many2one('mail.activity.plan', string='Activity Plan',
+                              index=True, ondelete='cascade')
+    res_model = fields.Selection(related='plan_id.res_model', string='Model', readonly=True)
+    note = fields.Html('Note', sanitize_style=True)
+    sequence = fields.Integer('Sequence', default=10)
+    activity_type_id = fields.Many2one('mail.activity.type', string='Activity Type',
+                                       domain="['|', ('res_model', '=', False), ('res_model', '=', res_model)]")
+    responsible_type = fields.Selection([
+        ('other', 'Other'),
+        ('specific', 'Specific User'),
+        ('generic', 'Generic User From Record')], string='Responsible', default='specific', required=True)
+    responsible_id = fields.Many2one(
+        'res.users', string='Responsible User',
+        domain=lambda self: [('groups_id', 'in', self.env.ref('base.group_user').id)])
+    responsible_field_id = fields.Many2one(
+        'ir.model.fields', string='Responsible field',
+        domain=[('ttype', '=', 'many2one'), ('relation', '=', 'res.users')])</code></pre>
+    </div>
+    
+    <h3>计算名称</h3>
+    <div class="code-block">
+        <pre><code>    @api.depends('activity_type_id')
+    def _compute_name(self):
+        for template in self:
+            template.name = template.activity_type_id.name if template.activity_type_id else _('Plan Template')</code></pre>
+    </div>
+    
+    <h3>约束</h3>
+    <div class="code-block">
+        <pre><code>    @api.constrains('activity_type_id', 'res_model')
+    def _check_activity_type_res_model(self):
+        for template in self:
+            if template.activity_type_id and template.res_model and \
+                    template.activity_type_id.res_model and template.activity_type_id.res_model != template.res_model:
+                raise ValidationError(_(
+                    'The selected activity type (%(activity_type)s), can only be planned for its model: %(model)s',
+                    activity_type=template.activity_type_id.name, model=template.activity_type_id.res_model
+                ))</code></pre>
+    </div>
+    
+    <h3>获取负责人方法</h3>
+    <div class="code-block">
+        <pre><code>    def _get_responsibility(self, record):
+        """ Get the user responsible for the activity on the record """
+        self.ensure_one()
+        if self.responsible_type == 'specific':
+            return self.responsible_id
+        if self.responsible_type == 'generic' and self.responsible_field_id:
+            return record[self.responsible_field_id.name]
+        return self.env.user</code></pre>
+    </div>
+    
+    <h3>从模板生成活动</h3>
+    <div class="code-block">
+        <pre><code>    def _generate_activities_from_template(self, record, user_id):
+        """ Create an activity from the template for the record.
+            :param record: the record for which the activity must be generated
+            :param user_id: the responsible of the activity
+            :returns: the created activity
+        """
+        self.ensure_one()
+        activity_type = self.activity_type_id
+
+        # Get the deadline
+        if 'activity_previous_deadline' in self.env.context:
+            previous_deadline = fields.Date.from_string(self.env.context.get('activity_previous_deadline'))
+        else:
+            previous_deadline = fields.Date.context_today(self)
+        deadline = activity_type._calculate_date_deadline(previous_deadline)
+
+        # Program the activity
+        activity_vals = {
+            'activity_type_id': activity_type.id,
+            'summary': self.summary or activity_type.summary,
+            'note': self.note or activity_type.default_note,
+            'res_model_id': self.env['ir.model']._get_id(record._name),
+            'res_id': record.id,
+            'user_id': user_id.id,
+            'date_deadline': deadline,
+        }
+        return self.env['mail.activity'].create(activity_vals)</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>MailActivityPlan的工作原理可以概括为：</p>
+    
+    <div class="workflow">
+        <h3>活动计划执行流程</h3>
+        <ol>
+            <li><strong>计划定义</strong>：定义包含一系列活动模板的活动计划</li>
+            <li><strong>模板配置</strong>：为每个活动模板配置活动类型、责任人规则、顺序等</li>
+            <li><strong>应用计划</strong>：将活动计划应用于一个或多个记录</li>
+            <li><strong>活动生成</strong>：系统基于模板为每个记录生成活动</li>
+            <li><strong>责任人分配</strong>：根据模板配置分配活动责任人</li>
+            <li><strong>截止日期计算</strong>：根据活动类型计算活动截止日期</li>
+            <li><strong>活动执行</strong>：用户按照计划顺序完成活动</li>
+        </ol>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>以下是如何在代码中创建和使用活动计划的例子：</p>
+    
+    <h3>创建活动计划</h3>
+    <div class="code-block">
+        <pre><code># 创建销售订单跟进活动计划
+def _create_sales_followup_plan(self):
+    # 检查计划是否已存在
+    plan = self.env['mail.activity.plan'].search([
+        ('name', '=', '销售订单跟进流程'),
+        ('res_model', '=', 'sale.order')
+    ], limit=1)
+    
+    if not plan:
+        # 创建活动计划
+        plan = self.env['mail.activity.plan'].create({
+            'name': '销售订单跟进流程',
+            'res_model': 'sale.order',
+            'sequence': 10,
+        })
+        
+        # 获取活动类型
+        call_type = self.env.ref('mail.mail_activity_data_call')
+        email_type = self.env.ref('mail.mail_activity_data_email')
+        todo_type = self.env.ref('mail.mail_activity_data_todo')
+        
+        # 创建计划模板
+        self.env['mail.activity.plan.template'].create({
+            'plan_id': plan.id,
+            'sequence': 10,
+            'activity_type_id': call_type.id,
+            'summary': '首次客户联系',
+            'note': '<p>与客户电话确认订单细节，并介绍后续流程。</p>',
+            'responsible_type': 'specific',
+            'responsible_id': self.env.user.id,
+        })
+        
+        self.env['mail.activity.plan.template'].create({
+            'plan_id': plan.id,
+            'sequence': 20,
+            'activity_type_id': email_type.id,
+            'summary': '发送确认邮件',
+            'note': '<p>发送订单确认邮件，附上产品详情和交付时间。</p>',
+            'responsible_type': 'generic',
+            'responsible_field_id': self.env['ir.model.fields'].search([
+                ('model', '=', 'sale.order'),
+                ('name', '=', 'user_id')
+            ], limit=1).id,
+        })
+        
+        self.env['mail.activity.plan.template'].create({
+            'plan_id': plan.id,
+            'sequence': 30,
+            'activity_type_id': todo_type.id,
+            'summary': '准备发货',
+            'note': '<p>准备订单产品并安排发货。</p>',
+            'responsible_type': 'other',
+        })
+    
+    return plan</code></pre>
+    </div>
+    
+    <h3>应用活动计划</h3>
+    <div class="code-block">
+        <pre><code>def apply_sales_followup_plan(self):
+    """将销售跟进活动计划应用于选中的销售订单"""
+    self.ensure_one()
+    
+    # 查找销售订单跟进计划
+    plan = self.env['mail.activity.plan'].search([
+        ('name', '=', '销售订单跟进流程'),
+        ('res_model', '=', 'sale.order')
+    ], limit=1)
+    
+    if not plan:
+        raise UserError(_('未找到销售订单跟进活动计划'))
+    
+    # 应用计划
+    result = plan._apply_for_records(self)
+    
+    # 处理结果
+    if result.get('feedback', {}).get('error'):
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('错误'),
+                'message': '\n'.join(result['feedback']['error']),
+                'type': 'danger',
+                'sticky': True,
+            }
+        }
+    
+    # 显示成功消息
+    activities_count = len(result.get('activities', []))
+    return {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {
+            'title': _('活动计划已应用'),
+            'message': _('已为订单 %s 创建 %s 个活动') % (self.name, activities_count),
+            'type': 'success',
+        }
+    }</code></pre>
+    </div>
+    
+    <h2>XML定义示例</h2>
+    <div class="code-block">
+        <pre><code>&lt;record id="sales_followup_activity_plan" model="mail.activity.plan"&gt;
+    &lt;field name="name"&gt;销售订单跟进流程&lt;/field&gt;
+    &lt;field name="res_model"&gt;sale.order&lt;/field&gt;
+    &lt;field name="sequence"&gt;10&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;!-- 首次客户联系活动模板 --&gt;
+&lt;record id="sales_followup_call_template" model="mail.activity.plan.template"&gt;
+    &lt;field name="plan_id" ref="sales_followup_activity_plan"/&gt;
+    &lt;field name="sequence"&gt;10&lt;/field&gt;
+    &lt;field name="activity_type_id" ref="mail.mail_activity_data_call"/&gt;
+    &lt;field name="summary"&gt;首次客户联系&lt;/field&gt;
+    &lt;field name="note"&gt;&lt;![CDATA[&lt;p&gt;与客户电话确认订单细节，并介绍后续流程。&lt;/p&gt;]]&gt;&lt;/field&gt;
+    &lt;field name="responsible_type"&gt;specific&lt;/field&gt;
+    &lt;field name="responsible_id" ref="base.user_admin"/&gt;
+&lt;/record&gt;
+
+&lt;!-- 发送确认邮件活动模板 --&gt;
+&lt;record id="sales_followup_email_template" model="mail.activity.plan.template"&gt;
+    &lt;field name="plan_id" ref="sales_followup_activity_plan"/&gt;
+    &lt;field name="sequence"&gt;20&lt;/field&gt;
+    &lt;field name="activity_type_id" ref="mail.mail_activity_data_email"/&gt;
+    &lt;field name="summary"&gt;发送确认邮件&lt;/field&gt;
+    &lt;field name="note"&gt;&lt;![CDATA[&lt;p&gt;发送订单确认邮件，附上产品详情和交付时间。&lt;/p&gt;]]&gt;&lt;/field&gt;
+    &lt;field name="responsible_type"&gt;generic&lt;/field&gt;
+    &lt;field name="responsible_field_id" search="[('model', '=', 'sale.order'), ('name', '=', 'user_id')]"/&gt;
+&lt;/record&gt;
+
+&lt;!-- 准备发货活动模板 --&gt;
+&lt;record id="sales_followup_todo_template" model="mail.activity.plan.template"&gt;
+    &lt;field name="plan_id" ref="sales_followup_activity_plan"/&gt;
+    &lt;field name="sequence"&gt;30&lt;/field&gt;
+    &lt;field name="activity_type_id" ref="mail.mail_activity_data_todo"/&gt;
+    &lt;field name="summary"&gt;准备发货&lt;/field&gt;
+    &lt;field name="note"&gt;&lt;![CDATA[&lt;p&gt;准备订单产品并安排发货。&lt;/p&gt;]]&gt;&lt;/field&gt;
+    &lt;field name="responsible_type"&gt;other&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;!-- 添加活动计划按钮到销售订单表单 --&gt;
+&lt;record id="sale_order_form_inherit_activity_plan" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;sale.order.form.inherit.activity.plan&lt;/field&gt;
+    &lt;field name="model"&gt;sale.order&lt;/field&gt;
+    &lt;field name="inherit_id" ref="sale.view_order_form"/&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;button name="action_confirm" position="before"&gt;
+            &lt;button name="apply_sales_followup_plan" string="应用跟进计划" 
+                type="object" class="btn-primary" 
+                attrs="{'invisible': [('state', 'not in', ['draft', 'sent'])]}" 
+                groups="sales_team.group_sale_salesman"/&gt;
+        &lt;/button&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h2>责任人类型详解</h2>
+    <p>MailActivityPlanTemplate支持三种不同的责任人分配模式：</p>
+    
+    <div class="comparison">
+        <div class="compare-item">
+            <h3>特定用户 (Specific User)</h3>
+            <p>直接指定一个固定的用户作为活动负责人。</p>
+            <p><strong>适用场景</strong>：总是由同一个人负责的特定任务，如质检主管审核、财务总监批准等。</p>
+        </div>
+        <div class="compare-item">
+            <h3>记录通用用户 (Generic User From Record)</h3>
+            <p>从记录的字段中获取负责人，例如从销售订单的销售员字段。</p>
+            <p><strong>适用场景</strong>：活动应由记录的相关负责人完成，如客户的销售代表、项目的项目经理等。</p>
+        </div>
+        <div class="compare-item">
+            <h3>其他 (Other)</h3>
+            <p>默认使用当前用户(触发活动计划的用户)作为活动负责人。</p>
+            <p><strong>适用场景</strong>：应用计划的人也是执行活动的人，或者在应用时动态决定负责人。</p>
+        </div>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>MailActivityPlan与多个Odoo模块紧密集成：</p>
+    <ul>
+        <li><strong>mail</strong>：提供基础活动功能和活动类型</li>
+        <li><strong>sale</strong>：使用活动计划管理销售流程</li>
+        <li><strong>crm</strong>：使用活动计划管理潜在客户转化流程</li>
+        <li><strong>project</strong>：使用活动计划管理项目任务流程</li>
+        <li><strong>hr_recruitment</strong>：使用活动计划管理招聘流程</li>
+    </ul>
+    
+    <h2>性能考虑</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>对大量记录批量应用复杂活动计划可能导致性能问题</li>
+            <li>大量活动记录可能影响数据库性能</li>
+            <li>复杂的责任人计算逻辑可能导致应用计划速度变慢</li>
+            <li>应用计划时会锁定记录进行处理，可能影响并发操作</li>
+        </ul>
+    </div>
+    
+    <h2>活动计划最佳实践</h2>
+    <div class="best-practices">
+        <h3>设计活动计划时的建议</h3>
+        <ol>
+            <li><strong>保持简单</strong>：每个计划包含适量的活动，避免过于复杂的计划</li>
+            <li><strong>明确责任</strong>：确保每个活动模板的责任分配明确合理</li>
+            <li><strong>合理排序</strong>：合理设置活动顺序，确保工作流程顺畅</li>
+            <li><strong>提供清晰指导</strong>：在活动注释中提供详细说明，帮助执行者理解任务</li>
+            <li><strong>模型限制</strong>：计划和活动类型应与模型匹配，避免不兼容的活动类型</li>
+            <li><strong>分阶段应用</strong>：对大量记录，考虑分批应用活动计划，以避免性能问题</li>
+            <li><strong>定期维护</strong>：定期审核和更新活动计划，确保它们反映最新的业务流程</li>
+        </ol>
+    </div>
+    
+    <h2>实际业务场景应用</h2>
+    <div class="use-cases">
+        <h3>活动计划应用场景</h3>
+        <ul>
+            <li><strong>新客户入职</strong>：创建包含欢迎电话、介绍邮件、初次培训等活动的客户入职计划</li>
+            <li><strong>销售订单处理</strong>：定义从确认到交付的销售订单处理流程</li>
+            <li><strong>项目启动</strong>：创建包含启动会议、需求收集、初步设计等活动的项目启动计划</li>
+            <li><strong>员工入职</strong>：定义新员工入职流程，包括文档收集、培训安排等</li>
+            <li><strong>产品发布</strong>：规划产品发布流程，包括测试、文档准备、市场推广等</li>
+            <li><strong>客户投诉处理</strong>：标准化投诉处理流程，确保及时跟进和解决</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，MailActivityPlan具有以下新特性和改进：</p>
+    <ul>
+        <li>改进的错误处理和报告机制，提供更详细的应用结果反馈</li>
+        <li>更强大的责任人分配逻辑</li>
+        <li>更好的与其他模块的集成</li>
+        <li>增强的模型验证和约束</li>
+        <li>优化的性能，特别是对大量记录应用计划时</li>
+    </ul>
+    
+    <h2>开发者最佳实践</h2>
+    <ol>
+        <li><strong>错误处理</strong>：应用活动计划时务必处理返回的错误信息</li>
+        <li><strong>模型一致性</strong>：确保计划和活动类型与目标模型兼容</li>
+        <li><strong>批量应用</strong>：对大量记录应用计划时使用批处理</li>
+        <li><strong>定制界面</strong>：为应用活动计划提供友好的用户界面</li>
+        <li><strong>数据导入</strong>：开发活动计划数据导入工具，方便迁移和复制计划</li>
+    </ol>
+    
+    <h2>小结</h2>
+    <p>MailActivityPlan是Odoo活动系统的高级功能，它：</p>
+    <ul>
+        <li>提供了结构化方式定义和执行活动序列</li>
+        <li>支持复杂的责任人分配规则</li>
+        <li>允许一次性应用多个活动到记录</li>
+        <li>与Odoo的活动类型系统紧密集成</li>
+        <li>为工作流程自动化提供了强大工具</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>活动计划最适合标准化、重复性的业务流程。通过定义明确的活动序列和责任分配规则，可以显著提高工作效率，减少遗漏和错误，确保业务流程的一致执行。
+    </div>
+</body>
+</html> 

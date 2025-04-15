@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo HTTP模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo HTTP系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_http.py</code>是Odoo框架中的一个核心模块，它扩展了基础HTTP处理功能，管理会话信息、调试模式、请求预处理等。该模块是Odoo Web客户端与服务器通信的关键组件。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>HTTP模块负责处理所有Web请求，管理会话状态，提供Web客户端所需的会话信息，同时处理调试模式和机器人检测等功能。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>调试模式管理</strong>：处理各种调试模式的启用和管理</li>
+        <li><strong>会话信息提供</strong>：为Web客户端提供必要的会话信息</li>
+        <li><strong>机器人检测</strong>：识别搜索引擎和网络爬虫</li>
+        <li><strong>请求预处理</strong>：在路由分发前处理请求</li>
+        <li><strong>缓存哈希生成</strong>：为前端资源生成缓存控制哈希</li>
+        <li><strong>Cookie处理</strong>：处理和清理Cookie信息</li>
+    </ol>
+    
+    <h2>调试模式</h2>
+    <div class="code-block">
+        <pre><code>"""
+调试模式存储在会话中，应该始终是字符串。
+它可以通过URL查询字符串`debug=&lt;mode&gt;`激活，其中mode是：
+- 'tests'加载测试资产
+- 'assets'加载非压缩资产
+- 任何其他真值以启用简单调试模式（显示一些技术特性，在前端错误中显示完整跟踪等）
+- 任何假值以禁用调试模式
+
+你可以使用`str2bool`中的任何真值/假值（例如：'on'，'f'..）
+多个调试模式可以同时激活，用逗号分隔（例如：'tests, assets'）。
+"""
+ALLOWED_DEBUG_MODES = ['', '1', 'assets', 'tests', 'disable-t-cache']</code></pre>
+    </div>
+    <p>Odoo支持多种调试模式，可以通过URL查询参数设置。每种模式提供不同级别的调试信息和功能。</p>
+    
+    <table>
+        <tr>
+            <th>调试模式</th>
+            <th>描述</th>
+            <th>使用场景</th>
+        </tr>
+        <tr>
+            <td>''（空字符串）</td>
+            <td>禁用调试模式</td>
+            <td>生产环境</td>
+        </tr>
+        <tr>
+            <td>'1'</td>
+            <td>启用基本调试模式</td>
+            <td>查看错误跟踪、检查DOM等</td>
+        </tr>
+        <tr>
+            <td>'assets'</td>
+            <td>加载非压缩JS/CSS资产</td>
+            <td>前端开发调试</td>
+        </tr>
+        <tr>
+            <td>'tests'</td>
+            <td>加载测试资产</td>
+            <td>JS测试开发</td>
+        </tr>
+        <tr>
+            <td>'disable-t-cache'</td>
+            <td>禁用QWeb模板缓存</td>
+            <td>模板开发</td>
+        </tr>
+    </table>
+    
+    <h3>调试模式处理</h3>
+    <div class="code-block">
+        <pre><code>@classmethod
+def _handle_debug(cls):
+    debug = request.httprequest.args.get('debug')
+    if debug is not None:
+        request.session.debug = ','.join(
+                 mode if mode in ALLOWED_DEBUG_MODES
+            else '1' if str2bool(mode, mode)
+            else ''
+            for mode in (debug or '').split(',')
+        )</code></pre>
+    </div>
+    <p>该方法处理请求中的调试参数，将其转换为适当的调试模式字符串并存储在会话中。</p>
+    
+    <h2>机器人检测</h2>
+    <div class="code-block">
+        <pre><code>bots = ["bot", "crawl", "slurp", "spider", "curl", "wget", "facebookexternalhit", "whatsapp", "trendsmapresolver", "pinterest", "instagram"]
+
+@classmethod
+def is_a_bot(cls):
+    user_agent = request.httprequest.user_agent.string.lower()
+    # We don't use regexp and ustr voluntarily
+    # timeit has been done to check the optimum method
+    return any(bot in user_agent for bot in cls.bots)</code></pre>
+    </div>
+    <p>该功能通过检查用户代理字符串来识别常见的机器人和爬虫。这对于性能优化和分析很重要，可以区分真实用户和自动化爬虫。</p>
+    
+    <h2>Cookie处理</h2>
+    <div class="code-block">
+        <pre><code>@classmethod
+def _sanitize_cookies(cls, cookies):
+    super()._sanitize_cookies(cookies)
+    if cids := cookies.get('cids'):
+        cookies['cids'] = '-'.join(cids.split(','))</code></pre>
+    </div>
+    <p>该方法处理cookies，特别是将逗号分隔的公司ID列表转换为破折号分隔的格式。</p>
+    
+    <div class="code-block">
+        <pre><code>@classmethod
+def _post_logout(cls):
+    super()._post_logout()
+    request.future_response.set_cookie('cids', max_age=0)</code></pre>
+    </div>
+    <p>在用户注销后，该方法清除公司ID的cookie。</p>
+    
+    <h2>会话信息</h2>
+    <div class="code-block">
+        <pre><code>def session_info(self):
+    user = self.env.user
+    session_uid = request.session.uid
+    version_info = odoo.service.common.exp_version()
+    
+    # ... [部分代码省略以提高可读性] ...
+    
+    session_info = {
+        "uid": session_uid,
+        "is_system": user._is_system() if session_uid else False,
+        "is_admin": user._is_admin() if session_uid else False,
+        "is_public": user._is_public(),
+        "is_internal_user": is_internal_user,
+        "user_context": user_context,
+        "db": self.env.cr.dbname,
+        "user_settings": self.env['res.users.settings']._find_or_create_for_user(user)._res_users_settings_format(),
+        "server_version": version_info.get('server_version'),
+        "server_version_info": version_info.get('server_version_info'),
+        "support_url": "https://www.odoo.com/buy",
+        "name": user.name,
+        "username": user.login,
+        "partner_write_date": fields.Datetime.to_string(user.partner_id.write_date),
+        "partner_display_name": user.partner_id.display_name,
+        "partner_id": user.partner_id.id if session_uid and user.partner_id else None,
+        "web.base.url": IrConfigSudo.get_param('web.base.url', default=''),
+        "active_ids_limit": int(IrConfigSudo.get_param('web.active_ids_limit', default='20000')),
+        'profile_session': request.session.profile_session,
+        'profile_collectors': request.session.profile_collectors,
+        'profile_params': request.session.profile_params,
+        "max_file_upload_size": max_file_upload_size,
+        "home_action_id": user.action_id.id,
+        "cache_hashes": {
+            "translations": self.env['ir.http'].sudo().get_web_translations_hash(
+                mods, request.session.context['lang']
+            ) if session_uid else None,
+        },
+        "currencies": self.sudo().get_currencies(),
+        'bundle_params': {
+            'lang': request.session.context['lang'],
+        },
+        'test_mode': bool(config['test_enable'] or config['test_file']),
+        'view_info': self.env['ir.ui.view'].get_view_info(),
+    }</code></pre>
+    </div>
+    <p>这个方法是整个模块的核心，它提供了Web客户端所需的所有会话信息，包括用户权限、版本信息、用户设置、货币信息等。</p>
+    
+    <h3>会话信息字段详解</h3>
+    <table>
+        <tr>
+            <th>字段</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>uid</td>
+            <td>当前用户ID</td>
+            <td>识别当前登录用户</td>
+        </tr>
+        <tr>
+            <td>is_system</td>
+            <td>是否系统用户</td>
+            <td>控制特权访问</td>
+        </tr>
+        <tr>
+            <td>is_admin</td>
+            <td>是否管理员</td>
+            <td>控制管理权限</td>
+        </tr>
+        <tr>
+            <td>is_public</td>
+            <td>是否公共用户</td>
+            <td>区分匿名访问</td>
+        </tr>
+        <tr>
+            <td>user_context</td>
+            <td>用户上下文</td>
+            <td>包含语言、时区等信息</td>
+        </tr>
+        <tr>
+            <td>db</td>
+            <td>数据库名称</td>
+            <td>标识当前连接的数据库</td>
+        </tr>
+        <tr>
+            <td>server_version</td>
+            <td>服务器版本</td>
+            <td>显示当前Odoo版本</td>
+        </tr>
+        <tr>
+            <td>cache_hashes</td>
+            <td>缓存哈希值</td>
+            <td>用于资源缓存控制</td>
+        </tr>
+        <tr>
+            <td>currencies</td>
+            <td>货币信息</td>
+            <td>用于客户端货币格式化</td>
+        </tr>
+        <tr>
+            <td>user_companies</td>
+            <td>用户公司信息</td>
+            <td>用于多公司切换和显示</td>
+        </tr>
+    </table>
+    
+    <h2>前端会话信息</h2>
+    <div class="code-block">
+        <pre><code>@api.model
+def get_frontend_session_info(self):
+    user = self.env.user
+    session_uid = request.session.uid
+    session_info = {
+        'is_admin': user._is_admin() if session_uid else False,
+        'is_system': user._is_system() if session_uid else False,
+        'is_public': user._is_public(),
+        'is_website_user': user._is_public() if session_uid else False,
+        'uid': session_uid,
+        'is_frontend': True,
+        'profile_session': request.session.profile_session,
+        'profile_collectors': request.session.profile_collectors,
+        'profile_params': request.session.profile_params,
+        'show_effect': bool(request.env['ir.config_parameter'].sudo().get_param('base_setup.show_effect')),
+        'currencies': self.get_currencies(),
+        'bundle_params': {
+            'lang': request.session.context['lang'],
+        },
+        'test_mode': bool(config['test_enable'] or config['test_file']),
+    }</code></pre>
+    </div>
+    <p>该方法提供了前端（网站）特定的会话信息，与后端会话信息相比更加精简。</p>
+    
+    <h2>货币信息缓存</h2>
+    <div class="code-block">
+        <pre><code>@ormcache()
+def get_currencies(self):
+    Currency = self.env['res.currency']
+    currencies = Currency.search_fetch([], ['symbol', 'position', 'decimal_places'])
+    return {
+        c.id: {'symbol': c.symbol, 'position': c.position, 'digits': [69, c.decimal_places]}
+        for c in currencies
+    }</code></pre>
+    </div>
+    <p>该方法获取并缓存所有货币的信息，用于客户端的货币格式化。使用ORM缓存可以提高性能，避免频繁查询数据库。</p>
+    
+    <h2>预分发处理</h2>
+    <div class="code-block">
+        <pre><code>@classmethod
+def _pre_dispatch(cls, rule, args):
+    super()._pre_dispatch(rule, args)
+    cls._handle_debug()</code></pre>
+    </div>
+    <p>在请求分发到具体路由前，该方法会先处理调试模式。</p>
+    
+    <h2>使用示例</h2>
+    
+    <h3>获取当前会话信息</h3>
+    <div class="code-block">
+        <pre><code># 在控制器中获取会话信息
+@http.route('/my/custom/page', type='http', auth='user')
+def my_custom_page(self, **kw):
+    session_info = request.env['ir.http'].session_info()
+    return request.render('my_module.template', {
+        'session_info': session_info,
+    })</code></pre>
+    </div>
+    
+    <h3>检测机器人访问</h3>
+    <div class="code-block">
+        <pre><code># 在控制器中检测机器人访问
+@http.route('/my/page', type='http', auth='public')
+def my_page(self, **kw):
+    is_bot = request.env['ir.http'].is_a_bot()
+    if is_bot:
+        # 为机器人提供简化版内容
+        return request.render('my_module.bot_template')
+    else:
+        # 为真实用户提供完整内容
+        return request.render('my_module.full_template')</code></pre>
+    </div>
+    
+    <h3>激活调试模式</h3>
+    <div class="code-block">
+        <pre><code># 在浏览器URL中添加debug参数
+# http://localhost:8069/web?debug=1            # 基本调试模式
+# http://localhost:8069/web?debug=assets       # 资产调试模式
+# http://localhost:8069/web?debug=assets,tests # 多个调试模式</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的改进</h2>
+    <ul>
+        <li><strong>增强的调试模式</strong>：支持更多的调试选项和更好的控制</li>
+        <li><strong>优化的会话信息</strong>：会话信息结构更加合理，提供更多必要信息</li>
+        <li><strong>改进的机器人检测</strong>：支持更多常见的爬虫和自动化工具</li>
+        <li><strong>视图信息获取</strong>：新增了get_view_info方法，提供视图相关信息</li>
+        <li><strong>更好的多公司支持</strong>：包含祖先公司信息，改进公司层次结构处理</li>
+        <li><strong>性能优化</strong>：使用ormcache缓存频繁访问的数据</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>提示：</strong>在使用HTTP模块时，建议：
+        <ul>
+            <li>避免频繁调用session_info方法，因为它会执行多次数据库查询</li>
+            <li>在前端页面中使用get_frontend_session_info而不是完整的session_info</li>
+            <li>注意控制调试模式的使用，生产环境中应禁用调试模式</li>
+            <li>合理利用机器人检测功能，为爬虫提供适当的内容</li>
+            <li>如果需要修改会话信息，应通过继承ir_http模块而不是直接修改</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>ir_http模块是Odoo Web框架的核心组件，它提供了：</p>
+    <ul>
+        <li>完整的会话管理机制</li>
+        <li>灵活的调试模式控制</li>
+        <li>智能的机器人检测</li>
+        <li>缓存和性能优化</li>
+        <li>多公司支持</li>
+        <li>前后端一致的会话信息</li>
+    </ul>
+    
+    <p>通过这个模块，Odoo能够为Web客户端提供所需的全部会话上下文，同时处理各种HTTP请求的预处理和后处理工作，是连接前端和后端的重要桥梁。</p>
+</body>
+</html> 

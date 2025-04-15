@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件活动类型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件活动类型解析 (MailActivityType)</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_activity_type.py</code>是Odoo框架中定义活动类型的核心组件。活动类型定义了不同种类的活动，如电话、会议、待办事项等，每种类型可以有不同的配置和行为。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>活动类型是Odoo活动系统的基础，它们定义了不同种类的活动的行为、外观和其他属性。系统使用这些定义来创建、显示和处理活动。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>活动类型定义</strong>：定义不同种类的活动，如电话、会议、文档上传等</li>
+        <li><strong>截止日期计算</strong>：根据配置计算活动的默认截止日期</li>
+        <li><strong>活动链接</strong>：支持活动完成后自动建议或触发下一活动</li>
+        <li><strong>模型关联</strong>：可以将活动类型限制在特定模型上使用</li>
+        <li><strong>UI定制</strong>：通过图标和装饰类型定制活动在界面中的显示方式</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>MailActivityType模型定义了丰富的字段集，让我们来详细分析：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailActivityType(models.Model):
+    """ Activity Types are used to categorize activities. Each type is a different
+    kind of activity e.g. call, mail, meeting. An activity can be generic i.e.
+    available for all models using activities; or specific to a model in which
+    case res_model field should be used. """
+    _name = 'mail.activity.type'
+    _description = 'Activity Type'
+    _rec_name = 'name'
+    _order = 'sequence, id'</code></pre>
+    </div>
+    
+    <h3>属性方法</h3>
+    <div class="code-block">
+        <pre><code>    def _get_model_selection(self):
+        return [
+            (model.model, model.name)
+            for model in self.env['ir.model'].sudo().search(
+                ['&', ('is_mail_thread', '=', True), ('transient', '=', False)])
+        ]</code></pre>
+    </div>
+    
+    <h3>主要字段</h3>
+    <div class="code-block">
+        <pre><code>    name = fields.Char('Name', required=True, translate=True)
+    summary = fields.Char('Default Summary', translate=True)
+    sequence = fields.Integer('Sequence', default=10)
+    active = fields.Boolean(default=True)
+    create_uid = fields.Many2one('res.users', index=True)
+    delay_count = fields.Integer(
+        'Schedule', default=0,
+        help='Number of days/week/month before executing the action. It allows to plan the action deadline.')
+    delay_unit = fields.Selection([
+        ('days', 'days'),
+        ('weeks', 'weeks'),
+        ('months', 'months')], string="Delay units", help="Unit of delay", required=True, default='days')
+    delay_label = fields.Char(compute='_compute_delay_label')
+    delay_from = fields.Selection([
+        ('current_date', 'after completion date'),
+        ('previous_activity', 'after previous activity deadline')], string="Delay Type", help="Type of delay", required=True, default='previous_activity')
+    icon = fields.Char('Icon', help="Font awesome icon e.g. fa-tasks")
+    decoration_type = fields.Selection([
+        ('warning', 'Alert'),
+        ('danger', 'Error')], string="Decoration Type",
+        help="Change the background color of the related activities of this type.")
+    res_model = fields.Selection(selection=_get_model_selection, string="Model",
+        help='Specify a model if the activity should be specific to a model'
+             ' and not available when managing activities for other models.')
+    chaining_type = fields.Selection([
+        ('suggest', 'Suggest Next Activity'), ('trigger', 'Trigger Next Activity')
+    ], string="Chaining Type", required=True, default="suggest")
+    triggered_next_type_id = fields.Many2one(
+        'mail.activity.type', string='Trigger', compute='_compute_triggered_next_type_id',
+        inverse='_inverse_triggered_next_type_id', store=True, readonly=False,
+        domain="['|', ('res_model', '=', False), ('res_model', '=', res_model)]", ondelete='restrict',
+        help="Automatically schedule this activity once the current one is marked as done.")
+    suggested_next_type_ids = fields.Many2many(
+        'mail.activity.type', 'mail_activity_rel', 'activity_id', 'recommended_id', string='Suggest',
+        domain="['|', ('res_model', '=', False), ('res_model', '=', res_model)]",
+        compute='_compute_suggested_next_type_ids', inverse='_inverse_suggested_next_type_ids', store=True, readonly=False,
+        help="Suggest these activities once the current one is marked as done.")
+    previous_type_ids = fields.Many2many(
+        'mail.activity.type', 'mail_activity_rel', 'recommended_id', 'activity_id',
+        domain="['|', ('res_model', '=', False), ('res_model', '=', res_model)]",
+        string='Preceding Activities')
+    category = fields.Selection([
+        ('default', 'None'),
+        ('upload_file', 'Upload Document'),
+        ('phonecall', 'Phonecall')
+    ], default='default', string='Action',
+        help='Actions may trigger specific behavior like opening calendar view or automatically mark as done when a document is uploaded')
+    mail_template_ids = fields.Many2many('mail.template', string='Email templates')
+    default_user_id = fields.Many2one("res.users", string="Default User")
+    default_note = fields.Html(string="Default Note", translate=True)
+    keep_done = fields.Boolean(string="Keep Done", help='Keep activities marked as done in the activity view')</code></pre>
+    </div>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>活动类型名称</td>
+            <td>显示活动类型的名称，如"会议"、"电话"等</td>
+        </tr>
+        <tr>
+            <td>summary</td>
+            <td>Char</td>
+            <td>默认摘要</td>
+            <td>创建此类活动时的默认摘要文本</td>
+        </tr>
+        <tr>
+            <td>delay_count & delay_unit</td>
+            <td>Integer & Selection</td>
+            <td>延迟数量和单位</td>
+            <td>定义活动截止日期计算方式</td>
+        </tr>
+        <tr>
+            <td>delay_from</td>
+            <td>Selection</td>
+            <td>延迟起算点</td>
+            <td>决定延迟从当前日期还是上一活动截止日期开始计算</td>
+        </tr>
+        <tr>
+            <td>icon</td>
+            <td>Char</td>
+            <td>图标</td>
+            <td>活动在UI中显示的Font Awesome图标</td>
+        </tr>
+        <tr>
+            <td>decoration_type</td>
+            <td>Selection</td>
+            <td>装饰类型</td>
+            <td>在UI中以特定颜色高亮显示活动(警告或错误)</td>
+        </tr>
+        <tr>
+            <td>res_model</td>
+            <td>Selection</td>
+            <td>模型限制</td>
+            <td>将活动类型限制在特定模型上使用</td>
+        </tr>
+        <tr>
+            <td>chaining_type</td>
+            <td>Selection</td>
+            <td>链接类型</td>
+            <td>定义活动完成后是建议还是自动触发下一活动</td>
+        </tr>
+        <tr>
+            <td>category</td>
+            <td>Selection</td>
+            <td>活动类别</td>
+            <td>特殊活动类别，可触发特定行为</td>
+        </tr>
+    </table>
+    
+    <h3>计算方法</h3>
+    <p>MailActivityType提供了几个计算方法来处理互动字段和标签：</p>
+    <div class="code-block">
+        <pre><code>    @api.depends('delay_unit', 'delay_count')
+    def _compute_delay_label(self):
+        selection_description_values = {
+            e[0]: e[1] for e in self._fields['delay_unit']._description_selection(self.env)}
+        for activity_type in self:
+            unit = selection_description_values[activity_type.delay_unit]
+            activity_type.delay_label = '%s %s' % (activity_type.delay_count, unit)
+
+    @api.depends('chaining_type')
+    def _compute_suggested_next_type_ids(self):
+        """suggested_next_type_ids and triggered_next_type_id should be mutually exclusive"""
+        for activity_type in self:
+            if activity_type.chaining_type == 'trigger':
+                activity_type.suggested_next_type_ids = False
+
+    def _inverse_suggested_next_type_ids(self):
+        for activity_type in self:
+            if activity_type.suggested_next_type_ids:
+                activity_type.chaining_type = 'suggest'
+
+    @api.depends('chaining_type')
+    def _compute_triggered_next_type_id(self):
+        """suggested_next_type_ids and triggered_next_type_id should be mutually exclusive"""
+        for activity_type in self:
+            if activity_type.chaining_type == 'suggest':
+                activity_type.triggered_next_type_id = False
+
+    def _inverse_triggered_next_type_id(self):
+        for activity_type in self:
+            if activity_type.triggered_next_type_id:
+                activity_type.chaining_type = 'trigger'
+            else:
+                activity_type.chaining_type = 'suggest'</code></pre>
+    </div>
+    
+    <h3>约束和监听器</h3>
+    <div class="code-block">
+        <pre><code>    @api.constrains('res_model')
+    def _check_activity_type_res_model(self):
+        self.env['mail.activity.plan.template'].search(
+            [('activity_type_id', 'in', self.ids)])._check_activity_type_res_model()
+
+    @api.onchange('res_model')
+    def _onchange_res_model(self):
+        self.mail_template_ids = self.sudo().mail_template_ids.filtered(lambda template: template.model_id.model == self.res_model)
+        self.res_model_change = self.initial_res_model and self.initial_res_model != self.res_model
+
+    def _compute_initial_res_model(self):
+        for activity_type in self:
+            activity_type.initial_res_model = activity_type.res_model</code></pre>
+    </div>
+    
+    <h3>删除保护</h3>
+    <div class="code-block">
+        <pre><code>    @api.ondelete(at_uninstall=False)
+    def _unlink_except_todo(self):
+        if self.env.ref('mail.mail_activity_data_todo') in self:
+            raise UserError(_("The 'To-Do' activity type is used to create reminders from the top bar menu and the command palette. Consequently, it cannot be archived or deleted."))
+
+    def action_archive(self):
+        if self.env.ref('mail.mail_activity_data_todo') in self:
+            raise UserError(_("The 'To-Do' activity type is used to create reminders from the top bar menu and the command palette. Consequently, it cannot be archived or deleted."))
+        return super().action_archive()</code></pre>
+    </div>
+    
+    <h3>截止日期计算</h3>
+    <div class="code-block">
+        <pre><code>    def _get_date_deadline(self):
+        """ Return the activity deadline computed from today or from activity_previous_deadline context variable. """
+        self.ensure_one()
+        if self.delay_from == 'previous_activity' and 'activity_previous_deadline' in self.env.context:
+            base = fields.Date.from_string(self.env.context.get('activity_previous_deadline'))
+        else:
+            base = fields.Date.context_today(self)
+        return base + relativedelta(**{self.delay_unit: self.delay_count})</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>MailActivityType的工作原理可以概括为：</p>
+    
+    <div class="workflow">
+        <h3>活动类型应用流程</h3>
+        <ol>
+            <li><strong>类型定义</strong>：管理员定义不同类型的活动和它们的属性</li>
+            <li><strong>活动创建</strong>：用户创建活动时，选择活动类型，系统根据类型设置默认值</li>
+            <li><strong>截止日期计算</strong>：系统根据活动类型的delay_count、delay_unit和delay_from计算截止日期</li>
+            <li><strong>活动显示</strong>：UI根据活动类型的icon和decoration_type以特定方式显示活动</li>
+            <li><strong>活动完成</strong>：活动标记为完成时，根据chaining_type推荐或触发下一个活动</li>
+        </ol>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>以下是如何在代码中创建和使用自定义活动类型的例子：</p>
+    
+    <div class="code-block">
+        <pre><code># 创建自定义活动类型
+def _create_custom_activity_types(self):
+    # 检查类型是否已存在
+    review_type = self.env['mail.activity.type'].search([
+        ('name', '=', '文档审核'),
+        ('res_model', '=', 'document.document')
+    ], limit=1)
+    
+    if not review_type:
+        # 创建文档审核活动类型
+        review_type = self.env['mail.activity.type'].create({
+            'name': '文档审核',
+            'summary': '审核文档内容',
+            'delay_count': 3,
+            'delay_unit': 'days',
+            'delay_from': 'current_date',
+            'icon': 'fa-check-square-o',
+            'decoration_type': 'warning',
+            'res_model': 'document.document',
+            'category': 'default',
+            'default_note': '<p>请审核该文档的内容，确保符合公司标准。</p>',
+        })
+        
+    # 创建文档批准活动类型
+    approval_type = self.env['mail.activity.type'].search([
+        ('name', '=', '文档批准'),
+        ('res_model', '=', 'document.document')
+    ], limit=1)
+    
+    if not approval_type:
+        approval_type = self.env['mail.activity.type'].create({
+            'name': '文档批准',
+            'summary': '批准文档发布',
+            'delay_count': 2,
+            'delay_unit': 'days',
+            'delay_from': 'previous_activity',
+            'icon': 'fa-thumbs-up',
+            'decoration_type': 'danger',
+            'res_model': 'document.document',
+            'category': 'default',
+            'default_note': '<p>请审查并批准此文档的发布。</p>',
+        })
+    
+    # 设置链接关系
+    if review_type and approval_type:
+        # 审核后触发批准活动
+        review_type.write({
+            'chaining_type': 'trigger',
+            'triggered_next_type_id': approval_type.id,
+        })</code></pre>
+    </div>
+    
+    <h3>使用活动类型安排活动</h3>
+    <div class="code-block">
+        <pre><code>def request_review(self):
+    """请求文档审核"""
+    self.ensure_one()
+    
+    # 查找审核活动类型
+    review_type = self.env['mail.activity.type'].search([
+        ('name', '=', '文档审核'),
+        ('res_model', '=', 'document.document')
+    ], limit=1)
+    
+    if not review_type:
+        raise UserError('未找到文档审核活动类型')
+    
+    # 安排审核活动
+    self.activity_schedule(
+        activity_type_id=review_type.id,
+        user_id=self.reviewer_id.id,
+        summary=f'审核文档: {self.name}',
+        note=f'<p>请审核文档 "{self.name}" 的内容。</p><p>版本: {self.version}</p>'
+    )
+    
+    return {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {
+            'title': '审核请求已发送',
+            'message': f'已向 {self.reviewer_id.name} 发送审核请求',
+            'type': 'success',
+        }
+    }</code></pre>
+    </div>
+    
+    <h2>XML定义示例</h2>
+    <div class="code-block">
+        <pre><code>&lt;record id="mail_activity_type_document_review" model="mail.activity.type"&gt;
+    &lt;field name="name"&gt;文档审核&lt;/field&gt;
+    &lt;field name="summary"&gt;审核文档内容&lt;/field&gt;
+    &lt;field name="delay_count"&gt;3&lt;/field&gt;
+    &lt;field name="delay_unit"&gt;days&lt;/field&gt;
+    &lt;field name="delay_from"&gt;current_date&lt;/field&gt;
+    &lt;field name="icon"&gt;fa-check-square-o&lt;/field&gt;
+    &lt;field name="decoration_type"&gt;warning&lt;/field&gt;
+    &lt;field name="res_model"&gt;document.document&lt;/field&gt;
+    &lt;field name="category"&gt;default&lt;/field&gt;
+    &lt;field name="default_note"&gt;&lt;![CDATA[&lt;p&gt;请审核该文档的内容，确保符合公司标准。&lt;/p&gt;]]&gt;&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;record id="mail_activity_type_document_approval" model="mail.activity.type"&gt;
+    &lt;field name="name"&gt;文档批准&lt;/field&gt;
+    &lt;field name="summary"&gt;批准文档发布&lt;/field&gt;
+    &lt;field name="delay_count"&gt;2&lt;/field&gt;
+    &lt;field name="delay_unit"&gt;days&lt;/field&gt;
+    &lt;field name="delay_from"&gt;previous_activity&lt;/field&gt;
+    &lt;field name="icon"&gt;fa-thumbs-up&lt;/field&gt;
+    &lt;field name="decoration_type"&gt;danger&lt;/field&gt;
+    &lt;field name="res_model"&gt;document.document&lt;/field&gt;
+    &lt;field name="category"&gt;default&lt;/field&gt;
+    &lt;field name="default_note"&gt;&lt;![CDATA[&lt;p&gt;请审查并批准此文档的发布。&lt;/p&gt;]]&gt;&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;!-- 设置活动类型链接关系 --&gt;
+&lt;function model="mail.activity.type" name="write"&gt;
+    &lt;value eval="[ref('mail_activity_type_document_review')]"/&gt;
+    &lt;value eval="{
+        'chaining_type': 'trigger',
+        'triggered_next_type_id': ref('mail_activity_type_document_approval')
+    }"/&gt;
+&lt;/function&gt;</code></pre>
+    </div>
+    
+    <h2>特殊活动类别说明</h2>
+    <div class="feature-box">
+        <h3>活动类别(category)功能说明</h3>
+        <table>
+            <tr>
+                <th>类别</th>
+                <th>行为</th>
+                <th>使用场景</th>
+            </tr>
+            <tr>
+                <td>default</td>
+                <td>标准活动行为</td>
+                <td>一般任务和提醒</td>
+            </tr>
+            <tr>
+                <td>upload_file</td>
+                <td>提供文件上传功能，上传后可自动完成活动</td>
+                <td>需要用户提交文档的场景</td>
+            </tr>
+            <tr>
+                <td>phonecall</td>
+                <td>提供电话功能集成，可记录通话时长和结果</td>
+                <td>销售和客服场景中的电话跟进</td>
+            </tr>
+        </table>
+    </div>
+    
+    <h2>活动链接功能详解</h2>
+    <p>MailActivityType提供了两种链接活动的方式：</p>
+    
+    <div class="comparison">
+        <div class="compare-item">
+            <h3>建议下一活动 (Suggest)</h3>
+            <p>当活动完成时，系统会<strong>建议</strong>用户创建下一个活动，但不会自动创建。</p>
+            <p><strong>适用场景</strong>：流程中的可选步骤，或需要人工判断是否继续的场景。</p>
+        </div>
+        <div class="compare-item">
+            <h3>触发下一活动 (Trigger)</h3>
+            <p>当活动完成时，系统会<strong>自动创建</strong>下一个预定义的活动。</p>
+            <p><strong>适用场景</strong>：强制性工作流程，或总是需要按顺序完成的步骤。</p>
+        </div>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>MailActivityType与多个Odoo模块紧密集成：</p>
+    <ul>
+        <li><strong>mail</strong>：提供基础的邮件和活动功能</li>
+        <li><strong>mail_activity_plan</strong>：使用活动类型构建活动计划</li>
+        <li><strong>calendar</strong>：某些活动类型可以创建日历事件</li>
+        <li><strong>documents</strong>：文档上传类型活动与文档管理集成</li>
+    </ul>
+    
+    <h2>性能考虑</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>活动类型的selection_add机制可能会影响有大量模型时的UI性能</li>
+            <li>过多的自动触发活动可能导致数据库中活动记录爆炸性增长</li>
+            <li>复杂的活动类型约束和计算可能影响活动创建的性能</li>
+            <li>对于大型系统，考虑限制每个模型的活动类型数量</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，MailActivityType具有以下新特性和改进：</p>
+    <ul>
+        <li>增强的活动类型保护机制，防止删除关键活动类型</li>
+        <li>与活动计划系统更紧密的集成</li>
+        <li>改进的默认值处理，支持更丰富的配置选项</li>
+        <li>扩展的装饰类型支持，提供更多视觉差异化选项</li>
+        <li>更好的模型限制支持，确保活动类型与模型兼容</li>
+    </ul>
+    
+    <h2>开发者最佳实践</h2>
+    <ol>
+        <li><strong>适当命名</strong>：为活动类型使用清晰、简洁的名称，帮助用户理解其用途</li>
+        <li><strong>合理设置截止日期</strong>：根据业务需求设置合理的默认延迟</li>
+        <li><strong>使用图标区分</strong>：选择直观的图标，帮助用户快速识别活动类型</li>
+        <li><strong>注意活动链</strong>：谨慎设计活动链，避免创建过长或不必要的活动序列</li>
+        <li><strong>维护模型兼容性</strong>：确保活动类型与指定模型兼容，特别是创建模型特定活动类型时</li>
+    </ol>
+    
+    <h2>小结</h2>
+    <p>MailActivityType是Odoo活动系统的基础，它：</p>
+    <ul>
+        <li>定义了不同种类的活动及其行为</li>
+        <li>提供了活动链接机制，支持工作流程自动化</li>
+        <li>通过截止日期计算、UI定制等功能增强用户体验</li>
+        <li>支持模型特定的活动类型，提高相关性</li>
+        <li>提供了特殊类别的活动，支持特定业务场景</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计活动类型时，应注重用户体验，确保类型直观、有意义，并且与业务流程紧密集成。通过合理使用图标、装饰和链接功能，可以创建流畅、高效的活动工作流。
+    </div>
+</body>
+</html> 

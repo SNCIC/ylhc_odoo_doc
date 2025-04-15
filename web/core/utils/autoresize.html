@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo自动调整尺寸工具详解</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo自动调整尺寸工具详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>autoresize.js</code>是Odoo框架中用于自动调整文本输入框和文本区域尺寸的实用工具。该模块提供了两个主要功能：自动调整文本输入的宽度以匹配其内容，以及自动调整文本区域的高度以适应其内容。这使得用户界面元素可以动态地适应不同长度的文本内容，从而提高用户体验和界面美观性。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>autoresize工具主要通过OWL框架的效果钩子(effect hook)实现，它会监听输入元素的变化，并根据内容动态调整元素的尺寸，避免出现滚动条或截断内容的情况。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>文本输入框宽度自动调整</strong>：根据输入内容自动调整输入框宽度，避免内容溢出或宽度过大</li>
+        <li><strong>文本区域高度自动调整</strong>：随着用户输入的增加，文本区域会自动增加高度，避免显示滚动条</li>
+        <li><strong>响应式更新</strong>：不仅在输入时调整，也在容器大小变化时调整尺寸</li>
+        <li><strong>可配置的最小高度</strong>：支持为文本区域设置最小高度，确保界面的一致性</li>
+    </ol>
+    
+    <h2>核心函数详解</h2>
+    
+    <h3>useAutoresize</h3>
+    <div class="code-block">
+        <pre><code>export function useAutoresize(ref, options = {}) {
+    let wasProgrammaticallyResized = false;
+    let resize = null;
+    useEffect(
+        (el) => {
+            if (el) {
+                resize = (programmaticResize = false) => {
+                    wasProgrammaticallyResized = programmaticResize;
+                    if (el instanceof HTMLInputElement) {
+                        resizeInput(el, options);
+                    } else {
+                        resizeTextArea(el, options);
+                    }
+                    options.onResize?.(el, options);
+                };
+                el.addEventListener("input", () => resize(true));
+                const resizeObserver = new ResizeObserver(() => {
+                    // This ensures that the resize function is not called twice on input or page load
+                    if (wasProgrammaticallyResized) {
+                        wasProgrammaticallyResized = false;
+                        return;
+                    }
+                    resize();
+                });
+                resizeObserver.observe(el);
+                return () => {
+                    el.removeEventListener("input", resize);
+                    resizeObserver.unobserve(el);
+                    resizeObserver.disconnect();
+                    resize = null;
+                };
+            }
+        },
+        () => [ref.el]
+    );
+    useEffect(() => {
+        if (resize) {
+            resize(true);
+        }
+    });
+}</code></pre>
+    </div>
+    <p><code>useAutoresize</code>是一个OWL效果钩子(Effect Hook)，用于为文本输入元素添加自动调整尺寸的功能。</p>
+    <p><strong>核心功能：</strong></p>
+    <ul>
+        <li>接收元素引用和可选配置项作为参数</li>
+        <li>根据元素类型自动选择合适的调整函数（输入框或文本区域）</li>
+        <li>使用ResizeObserver监听元素大小变化，触发调整函数</li>
+        <li>为元素添加input事件监听器，在用户输入时调整尺寸</li>
+        <li>提供清理函数，确保在组件卸载时释放资源</li>
+    </ul>
+    <p><strong>参数说明：</strong></p>
+    <ul>
+        <li><code>ref</code>：指向需要自动调整尺寸的元素的引用</li>
+        <li><code>options</code>：可选配置对象，包含：
+            <ul>
+                <li><code>minimumHeight</code>：文本区域的最小高度</li>
+                <li><code>onResize</code>：尺寸调整后的回调函数</li>
+            </ul>
+        </li>
+    </ul>
+    <p><strong>使用示例：</strong></p>
+    <div class="code-block">
+        <pre><code>import { Component, useRef } from "@odoo/owl";
+import { useAutoresize } from "@web/core/utils/autoresize";
+
+class CommentBox extends Component {
+    setup() {
+        this.textareaRef = useRef("textarea");
+        
+        // 应用自动调整尺寸效果，设置最小高度为100px
+        useAutoresize(this.textareaRef, { 
+            minimumHeight: 100,
+            onResize: (el) => console.log(`元素调整为: ${el.style.height}`)
+        });
+    }
+}
+
+CommentBox.template = xml`
+    <div class="comment-box">
+        <textarea t-ref="textarea" placeholder="请输入评论..."/>
+    </div>
+`;</code></pre>
+    </div>
+    
+    <h3>resizeInput</h3>
+    <div class="code-block">
+        <pre><code>function resizeInput(input) {
+    // This mesures the maximum width of the input which can get from the flex layout.
+    input.style.width = "100%";
+    const maxWidth = input.clientWidth;
+    // Somehow Safari 16 computes input sizes incorrectly. This is fixed in Safari 17
+    const isSafari16 = /Version\/16.+Safari/i.test(browser.navigator.userAgent);
+    // Minimum width of the input
+    input.style.width = "10px";
+    if (input.value === "" && input.placeholder !== "") {
+        input.style.width = "auto";
+        return;
+    }
+    if (input.scrollWidth + 5 + (isSafari16 ? 8 : 0) > maxWidth) {
+        input.style.width = "100%";
+        return;
+    }
+    input.style.width = input.scrollWidth + 5 + (isSafari16 ? 8 : 0) + "px";
+}</code></pre>
+    </div>
+    <p>该函数用于调整输入框的宽度以匹配其内容。</p>
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>首先将输入框宽度设为100%，获取其最大可用宽度</li>
+        <li>然后将宽度设为最小值(10px)作为基准</li>
+        <li>对于空值但有占位符的情况，使用auto宽度</li>
+        <li>计算内容宽度(scrollWidth)，加上一些额外的间距，并检查是否超过最大宽度
+            <ul>
+                <li>如果超过最大宽度，则使用100%宽度</li>
+                <li>如果不超过，则设置为内容宽度加上额外间距</li>
+            </ul>
+        </li>
+        <li>特别处理Safari 16的计算错误问题，为其添加额外空间</li>
+    </ol>
+    <p><strong>应用场景：</strong>适用于需要根据内容自动调整宽度的输入框，如标签输入、搜索框等。</p>
+    
+    <h3>resizeTextArea</h3>
+    <div class="code-block">
+        <pre><code>export function resizeTextArea(textarea, options = {}) {
+    const minimumHeight = options.minimumHeight || 0;
+    let heightOffset = 0;
+    const style = window.getComputedStyle(textarea);
+    if (style.boxSizing === "border-box") {
+        const paddingHeight = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const borderHeight = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        heightOffset = borderHeight + paddingHeight;
+    }
+    const previousStyle = {
+        borderTopWidth: style.borderTopWidth,
+        borderBottomWidth: style.borderBottomWidth,
+        padding: style.padding,
+    };
+    Object.assign(textarea.style, {
+        height: "auto",
+        borderTopWidth: 0,
+        borderBottomWidth: 0,
+        paddingTop: 0,
+        paddingRight: style.paddingRight,
+        paddingBottom: 0,
+        paddingLeft: style.paddingLeft,
+    });
+    textarea.style.height = "auto";
+    const height = Math.max(minimumHeight, textarea.scrollHeight + heightOffset);
+    Object.assign(textarea.style, previousStyle, { height: `${height}px` });
+    textarea.parentElement.style.height = `${height}px`;
+}</code></pre>
+    </div>
+    <p>该函数用于根据内容自动调整文本区域的高度。</p>
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>首先获取最小高度参数，默认为0</li>
+        <li>计算边框和内边距导致的高度偏移量
+            <ul>
+                <li>如果盒模型是border-box，则需要考虑这些因素</li>
+            </ul>
+        </li>
+        <li>保存原始样式值，以便后续恢复</li>
+        <li>临时移除影响高度计算的样式（边框和内边距），同时保持水平方向的内边距</li>
+        <li>设置height为auto，让浏览器自动计算内容高度</li>
+        <li>获取内容滚动高度，加上之前计算的偏移量，并确保不低于最小高度</li>
+        <li>恢复原始样式，同时设置新的计算高度</li>
+        <li>调整父元素的高度，确保整个布局一致</li>
+    </ol>
+    <p><strong>应用场景：</strong>适用于需要根据内容自动调整高度的文本区域，如评论框、描述输入等。</p>
+    <p><strong>使用示例：</strong></p>
+    <div class="code-block">
+        <pre><code>// 直接调用样式
+const textarea = document.querySelector('textarea');
+resizeTextArea(textarea, { minimumHeight: 80 });
+
+// 结合input事件使用
+textarea.addEventListener('input', () => {
+    resizeTextArea(textarea, { minimumHeight: 80 });
+});</code></pre>
+    </div>
+    
+    <h2>使用案例解析</h2>
+    <p>下面是几个在Odoo中使用autoresize的典型场景：</p>
+    
+    <h3>场景一：动态标签输入框</h3>
+    <div class="example-block">
+        <p>在Odoo的标签输入组件中，用户可以键入长度不同的标签文本。使用<code>useAutoresize</code>可以确保输入框宽度刚好适应输入内容：</p>
+        <div class="code-block">
+            <pre><code>class TagInput extends Component {
+    setup() {
+        this.inputRef = useRef("input");
+        useAutoresize(this.inputRef);
+    }
+    
+    onInputChange(ev) {
+        // 处理输入变化
+        // 输入框会自动调整宽度以适应内容
+    }
+}
+
+TagInput.template = xml`
+    <div class="tag-input-container">
+        <input t-ref="input" t-on-input="onInputChange" placeholder="添加标签..."/>
+    </div>
+`;</code></pre>
+        </div>
+    </div>
+    
+    <h3>场景二：自适应评论框</h3>
+    <div class="example-block">
+        <p>在Odoo的沟通模块中，评论框需要随着用户输入的增加自动扩展，给用户足够的空间查看已输入的内容：</p>
+        <div class="code-block">
+            <pre><code>class CommentComponent extends Component {
+    setup() {
+        this.textareaRef = useRef("commentArea");
+        
+        // 设置最小高度并添加尺寸变化回调
+        useAutoresize(this.textareaRef, {
+            minimumHeight: 60,
+            onResize: (el) => {
+                // 在尺寸变化时可能需要调整其他UI元素
+                this.adjustUILayout(el.style.height);
+            }
+        });
+    }
+    
+    adjustUILayout(height) {
+        // 根据新高度调整其他UI元素
+    }
+}
+
+CommentComponent.template = xml`
+    <div class="comment-component">
+        <div class="comment-header">添加评论</div>
+        <textarea 
+            t-ref="commentArea" 
+            placeholder="请输入您的评论..."
+            class="comment-textarea"
+        />
+        <div class="comment-actions">
+            <button class="btn btn-primary">提交</button>
+        </div>
+    </div>
+`;</code></pre>
+        </div>
+    </div>
+
+    <h3>场景三：自动调整的编辑字段</h3>
+    <div class="example-block">
+        <p>在Odoo的表单视图中，某些文本字段需要在编辑时自动调整大小：</p>
+        <div class="code-block">
+            <pre><code>// 在field_text.js组件中
+class TextField extends Component {
+    setup() {
+        this.textareaRef = useRef("textarea");
+        
+        if (this.props.autoresize) {
+            useAutoresize(this.textareaRef, {
+                minimumHeight: this.props.minHeight || 50
+            });
+        }
+    }
+}
+
+// 使用方式（XML视图定义）
+&lt;field name="description" widget="text" options="{'autoresize': true, 'minHeight': 100}"/&gt;</code></pre>
+        </div>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>使用自动调整尺寸功能时需要注意以下性能考虑：</p>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li><strong>强制重排</strong>：autoresize功能会强制浏览器进行布局重排(reflow)，这在性能上可能会有一定开销</li>
+            <li><strong>频繁调用</strong>：在输入事件中频繁调用可能导致性能问题，特别是在老旧设备上</li>
+            <li><strong>大量元素</strong>：同时对大量元素应用此功能可能会影响性能</li>
+            <li><strong>复杂布局</strong>：在嵌套较深或复杂布局中使用时，重排成本更高</li>
+        </ul>
+    </div>
+    
+    <h3>性能优化策略</h3>
+    <ul>
+        <li><strong>节流技术</strong>：可以考虑对调整函数应用节流(throttle)或防抖(debounce)，减少调用频率</li>
+        <li><strong>选择性应用</strong>：只在真正需要动态尺寸的元素上应用此功能</li>
+        <li><strong>延迟启用</strong>：考虑在页面初始加载和关键交互完成后再启用此功能</li>
+        <li><strong>设置合理的最小高度</strong>：避免频繁的小幅度调整</li>
+    </ul>
+    
+    <h2>浏览器兼容性考虑</h2>
+    <p>autoresize.js模块在设计时考虑了浏览器兼容性问题：</p>
+    
+    <div class="compatibility">
+        <p><strong>浏览器特定处理：</strong>代码中专门处理了Safari 16中输入框大小计算错误的问题：</p>
+        <div class="code-block">
+            <pre><code>// 为Safari 16添加额外的间距
+const isSafari16 = /Version\/16.+Safari/i.test(browser.navigator.userAgent);
+input.style.width = input.scrollWidth + 5 + (isSafari16 ? 8 : 0) + "px";</code></pre>
+        </div>
+        <p><strong>使用现代API：</strong>代码使用了ResizeObserver API，这是现代浏览器提供的接口，支持监视元素尺寸变化。所有现代浏览器都支持此API，但非常老旧的浏览器可能不支持。</p>
+    </div>
+    
+    <h2>相关模块和集成</h2>
+    <p>autoresize.js与Odoo中的其他模块有以下集成：</p>
+    <ul>
+        <li><strong>表单字段组件</strong>：多行文本字段可以配置使用autoresize功能</li>
+        <li><strong>聊天组件</strong>：消息输入区域使用autoresize来提供更好的用户体验</li>
+        <li><strong>笔记和评论组件</strong>：用于动态调整用户输入区域</li>
+        <li><strong>搜索框组件</strong>：动态调整搜索输入的宽度</li>
+        <li><strong>过滤器标签输入</strong>：动态调整标签输入框大小</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>autoresize.js提供了一种简单而有效的方式来增强Odoo中输入界面的用户体验：</p>
+    <ul>
+        <li><strong>自适应内容</strong>：输入元素的尺寸会自动适应用户输入的内容</li>
+        <li><strong>无缝集成</strong>：通过OWL的效果钩子机制，易于在组件中集成</li>
+        <li><strong>配置灵活</strong>：支持定制最小高度和尺寸变化回调</li>
+        <li><strong>浏览器兼容</strong>：考虑了不同浏览器的兼容性问题</li>
+        <li><strong>性能考虑</strong>：通过合理的实现减少性能开销</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在需要动态适应用户输入的界面元素中，useAutoresize是提升用户体验的有效工具。但需要注意性能影响，在恰当的场景中有选择地应用，并考虑设置合理的约束条件。
+    </div>
+</body>
+</html> 

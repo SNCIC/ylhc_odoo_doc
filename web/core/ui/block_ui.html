@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo - block_ui.js 解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 界面阻塞模块 (block_ui.js) 解析</h1>
+
+    <h2>文件概述</h2>
+    <p><code>block_ui.js</code> 文件定义了一个名为 <code>BlockUI</code> 的 Owl 组件。这个组件的作用是在 Odoo 执行耗时操作（比如加载数据、处理请求）时，在界面上显示一个遮罩层和提示信息（通常是"加载中..."的旋转图标和文字），防止用户在这期间进行其他操作，同时告知用户系统正在处理中。</p>
+    <p>你可以把它想象成游戏中常见的"加载中"画面，告诉你游戏正在努力加载资源，请稍等。</p>
+
+    <div class="note">
+        <strong>核心功能：</strong> 提供一个标准的、可复用的界面阻塞（加载提示）组件。
+    </div>
+
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>显示/隐藏遮罩层</strong>：根据需要覆盖整个屏幕或特定区域。</li>
+        <li><strong>显示加载动画和提示信息</strong>：通常是一个旋转的 SVG 图标和文字。</li>
+        <li><strong>动态消息</strong>：加载时间过长时，可以自动更换提示语，安抚用户情绪。</li>
+        <li><strong>可配置延迟显示</strong>：对于非常快速的操作，可以设置延迟显示遮罩，避免界面闪烁。</li>
+        <li><strong>事件驱动</strong>：通过 Odoo 的事件总线（EventBus）来触发显示和隐藏。</li>
+    </ol>
+
+    <h2>代码解析</h2>
+    <p><code>BlockUI</code> 是一个 Owl 组件，让我们看看它的关键部分：</p>
+
+    <div class="code-block">
+        <pre><code>import { _t } from "@web/core/l10n/translation"; // 用于翻译文字
+import { browser } from "@web/core/browser/browser"; // 浏览器相关工具，如 setTimeout
+import { EventBus, Component, useState, xml } from "@odoo/owl"; // Owl 框架核心
+
+export class BlockUI extends Component {
+    static props = { // 组件接收的属性
+        bus: EventBus, // 一个事件总线，用于接收 BLOCK 和 UNBLOCK 事件
+    };
+
+    static template = xml\`...模板代码...\`; // 定义组件的 HTML 结构
+
+    setup() {
+        // 定义不同等待时间显示的消息
+        this.messagesByDuration = [
+            { time: 20, l1: _t("Loading...") },
+            { time: 40, l1: _t("Still loading...") },
+            // ... 更多消息
+        ];
+        // 定义阻塞状态
+        this.BLOCK_STATES = { UNBLOCKED: 0, BLOCKED: 1, VISIBLY_BLOCKED: 2 };
+        // 使用 useState 创建响应式状态
+        this.state = useState({
+            blockState: this.BLOCK_STATES.UNBLOCKED, // 初始状态：未阻塞
+            line1: "", // 提示信息第一行
+            line2: "", // 提示信息第二行
+        });
+
+        // 监听事件总线上的 BLOCK 和 UNBLOCK 事件
+        this.props.bus.addEventListener("BLOCK", this.block.bind(this));
+        this.props.bus.addEventListener("UNBLOCK", this.unblock.bind(this));
+    }
+
+    // ... 其他方法 ...
+}
+</code></pre>
+    </div>
+
+    <h3>关键属性和方法</h3>
+    <ul>
+        <li><code>props.bus</code>: 这是 <code>BlockUI</code> 组件与 Odoo 系统其他部分沟通的桥梁。其他代码可以通过这个 `bus` 发送 `BLOCK` 或 `UNBLOCK` 事件来控制加载提示的显示和隐藏。</li>
+        <li><code>template</code>: 定义了加载提示的 HTML 结构。它会根据 <code>state.blockState</code> 的值来决定是否显示遮罩层、旋转图标和文字。使用了 `t-if` 和 `t-att-class` 等 Owl 指令。</li>
+        <li><code>setup()</code>: 组件初始化的地方。
+            <ul>
+                <li><code>messagesByDuration</code>: 一个数组，定义了不同等待时长下显示的提示文字。比如等待20秒显示"Loading..."，再等40秒显示"Still loading..."。</li>
+                <li><code>BLOCK_STATES</code>: 定义了三种状态：
+                    <ul>
+                        <li><code>UNBLOCKED</code> (0): 界面未被阻塞。</li>
+                        <li><code>BLOCKED</code> (1): 界面已被请求阻塞，但可能设置了延迟，尚未可见。</li>
+                        <li><code>VISIBLY_BLOCKED</code> (2): 界面已被阻塞，并且遮罩层已可见。</li>
+                    </ul>
+                </li>
+                <li><code>state</code>: 使用 <code>useState</code> 创建的响应式对象。当 <code>state</code> 中的值改变时，组件会自动重新渲染。</li>
+                <li><code>addEventListener</code>: 监听 `BLOCK` 和 `UNBLOCK` 事件，分别调用 `block` 和 `unblock` 方法。</li>
+            </ul>
+        </li>
+        <li><code>replaceMessage(index)</code>: 这是一个递归函数，用于根据 <code>messagesByDuration</code> 数组按顺序、按时间间隔更新提示信息。它使用 <code>browser.setTimeout</code> 来安排下一次消息更新。</li>
+        <li><code>block(ev)</code>: 处理 `BLOCK` 事件的方法。
+            <ul>
+                <li>它可以接收一个可选的 <code>delay</code> 参数。如果提供了 `delay`，则会先将状态设为 <code>BLOCKED</code>，并使用 `setTimeout` 延迟一段时间后再将状态改为 <code>VISIBLY_BLOCKED</code>，使得遮罩层可见。如果没有 `delay`，则立即设为 <code>VISIBLY_BLOCKED</code>。</li>
+                <li>它也可以接收一个可选的 <code>message</code> 参数，用于显示自定义的加载信息。如果没有提供，则调用 <code>replaceMessage(0)</code> 开始显示默认的随时间变化的消息序列。</li>
+            </ul>
+        </li>
+        <li><code>unblock()</code>: 处理 `UNBLOCK` 事件的方法。
+            <ul>
+                <li>将状态重置为 <code>UNBLOCKED</code>。</li>
+                <li>使用 `clearTimeout` 清除可能存在的延迟显示定时器和消息更新定时器。</li>
+                <li>清空提示信息。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>工作流程</h2>
+    <div class="flow-diagram">
+        <h3>显示加载提示</h3>
+        <ol>
+            <li>其他 JS 代码需要进行耗时操作前，通过 `bus` 发送 `BLOCK` 事件，可以附带 `delay` 或 `message`。</li>
+            <li><code>BlockUI</code> 组件监听到 `BLOCK` 事件，调用 <code>block()</code> 方法。</li>
+            <li><code>block()</code> 方法根据是否有 `delay` 设置状态为 `BLOCKED` 或直接 `VISIBLY_BLOCKED`。</li>
+            <li>如果设置了 `delay`，则在延迟时间后将状态改为 `VISIBLY_BLOCKED`。</li>
+            <li>状态变为 `VISIBLY_BLOCKED` 后，模板重新渲染，显示遮罩层、旋转图标。</li>
+            <li>根据是否提供了 `message`，显示自定义消息或启动 <code>replaceMessage</code> 显示默认消息序列。</li>
+        </ol>
+        <h3>隐藏加载提示</h3>
+        <ol>
+            <li>耗时操作完成后，发送 `UNBLOCK` 事件。</li>
+            <li><code>BlockUI</code> 组件监听到 `UNBLOCK` 事件，调用 <code>unblock()</code> 方法。</li>
+            <li><code>unblock()</code> 方法将状态重置为 `UNBLOCKED`，清除定时器和消息。</li>
+            <li>模板重新渲染，遮罩层和提示信息消失。</li>
+        </ol>
+    </div>
+
+    <h2>使用实例</h2>
+    <p>虽然我们通常不会直接使用 <code>BlockUI</code> 组件，而是通过 <code>uiService</code> 来间接触发它，但理解其原理有助于调试。假设我们有一个 `uiService`（下面会讲到），它的 `block()` 和 `unblock()` 方法内部就是通过 `bus` 来触发事件的。</p>
+
+    <div class="code-block">
+        <pre><code>// 假设有一个 uiService
+const ui = useService("ui");
+
+async function fetchData() {
+    // 操作开始前，显示加载提示 (无延迟，使用默认消息)
+    ui.block();
+    try {
+        // 模拟一个耗时操作
+        await longRunningTask();
+        console.log("数据加载完成！");
+    } catch (error) {
+        console.error("加载失败:", error);
+    } finally {
+        // 操作结束后（无论成功或失败），隐藏加载提示
+        ui.unblock();
+    }
+}
+
+async function quickOperation() {
+    // 对于可能很快完成的操作，可以设置延迟显示
+    // 如果操作在 200ms 内完成，用户甚至不会看到加载提示
+    ui.block({ delay: 200, message: "正在快速处理..." });
+    try {
+        await veryQuickTask();
+    } finally {
+        ui.unblock();
+    }
+}
+</code></pre>
+    </div>
+
+    <h2>小结</h2>
+    <p><code>block_ui.js</code> 提供了一个标准的、健壮的界面阻塞解决方案，具有以下优点：</p>
+    <ul>
+        <li><strong>用户体验</strong>：通过明确的加载提示告知用户系统状态，避免用户因等待而困惑或重复操作。</li>
+        <li><strong>防止误操作</strong>：在后台处理期间阻止用户与界面交互。</li>
+        <li><strong>可配置性</strong>：支持自定义消息和延迟显示。</li>
+        <li><strong>动态提示</strong>：长时间等待时自动更新消息，提升用户耐心。</li>
+        <li><strong>解耦</strong>：通过事件总线与其他模块通信，易于集成。</li>
+    </ul>
+
+    <div class="note">
+        <strong>开发者提示：</strong> 通常你会通过 Odoo 提供的 `ui` 服务来调用 `block()` 和 `unblock()` 方法，而不是直接与 `BlockUI` 组件交互。
+    </div>
+</body>
+</html> 

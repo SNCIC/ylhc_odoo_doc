@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo预设回复系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo预设回复系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_canned_response.py</code>是Odoo邮件模块中的一个实用组件，它实现了预设回复（快捷短语）功能。这个功能允许用户定义快捷短语，在撰写邮件或消息时通过输入简短的代码自动替换为预先设定的完整内容，大大提高沟通效率。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>预设回复系统类似于文本扩展或模板功能，用户只需输入简短的快捷方式（如":你好"），系统会自动将其展开为预先定义的完整内容（如"尊敬的客户，您好！感谢您的咨询..."）。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>快捷短语定义</strong>：允许用户创建和管理预设回复内容</li>
+        <li><strong>权限控制</strong>：可以限制特定预设回复仅对特定用户组可用</li>
+        <li><strong>使用跟踪</strong>：记录预设回复的最后使用时间</li>
+        <li><strong>实时更新</strong>：通过总线机制实时向前端广播预设回复的变更</li>
+        <li><strong>数据存储管理</strong>：支持将预设回复信息传输到前端Store系统</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>MailCannedResponse类定义了预设回复的数据模型和核心功能：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailCannedResponse(models.Model):
+    """
+    Canned Response: content that will automatically replace the shortcut of your choosing. This content can still be adapted before sending your message.
+    """
+
+    _name = "mail.canned.response"
+    _description = "Canned Response"
+    _order = "id desc"
+    _rec_name = "source"</code></pre>
+    </div>
+    
+    <h3>关键字段解释</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>source</td>
+            <td>Char</td>
+            <td>快捷方式文本</td>
+            <td>用户需要输入的短代码，通常以冒号开头</td>
+        </tr>
+        <tr>
+            <td>substitution</td>
+            <td>Text</td>
+            <td>替换内容</td>
+            <td>快捷方式将被自动替换的完整文本内容</td>
+        </tr>
+        <tr>
+            <td>description</td>
+            <td>Char</td>
+            <td>描述信息</td>
+            <td>说明该预设回复的用途，帮助用户选择</td>
+        </tr>
+        <tr>
+            <td>last_used</td>
+            <td>Datetime</td>
+            <td>最后使用时间</td>
+            <td>记录该预设回复最后一次被使用的时间</td>
+        </tr>
+        <tr>
+            <td>group_ids</td>
+            <td>Many2many</td>
+            <td>授权用户组</td>
+            <td>限制哪些用户组可以使用该预设回复</td>
+        </tr>
+        <tr>
+            <td>is_shared</td>
+            <td>Boolean</td>
+            <td>是否共享</td>
+            <td>计算字段，表示预设回复是否与其他用户共享</td>
+        </tr>
+        <tr>
+            <td>is_editable</td>
+            <td>Boolean</td>
+            <td>是否可编辑</td>
+            <td>计算字段，表示当前用户是否可以编辑该预设回复</td>
+        </tr>
+    </table>
+    
+    <h3>核心方法详解</h3>
+    
+    <h4>1. 计算共享状态方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends("group_ids")
+def _compute_is_shared(self):
+    for canned_response in self:
+        canned_response.is_shared = bool(canned_response.group_ids)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法根据用户组设置计算预设回复是否为共享：</p>
+    <ul>
+        <li>当group_ids字段有值时，表示预设回复被共享给特定用户组</li>
+        <li>空的group_ids表示预设回复是个人私有的</li>
+        <li>is_shared字段用于前端UI显示和逻辑处理</li>
+    </ul>
+    
+    <h4>2. 计算可编辑状态方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends_context('uid')
+@api.depends("create_uid")
+def _compute_is_editable(self):
+    creating = self.filtered(lambda c: not c.id)
+    updating = self - creating
+    editable = creating._filtered_access("create") + updating._filtered_access("write")
+    editable.is_editable = True
+    (self - editable).is_editable = False</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法判断当前用户是否可以编辑预设回复：</p>
+    <ul>
+        <li>区分正在创建的记录和已存在的记录</li>
+        <li>使用_filtered_access检查用户对记录的访问权限</li>
+        <li>如果用户有创建或写入权限，则设置is_editable为True</li>
+        <li>这影响UI中的编辑选项是否显示给用户</li>
+    </ul>
+    
+    <h4>3. 创建与更新广播方法</h4>
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    res = super().create(vals_list)
+    res._broadcast()
+    return res
+
+def write(self, vals):
+    res = super().write(vals)
+    self._broadcast()
+    return res
+
+def unlink(self):
+    self._broadcast(delete=True)
+    return super().unlink()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>这些方法确保预设回复的变更实时广播给相关用户：</p>
+    <ul>
+        <li>重写标准的create、write和unlink方法</li>
+        <li>在执行标准操作后调用_broadcast方法</li>
+        <li>对于删除操作，传递delete=True参数标记删除动作</li>
+        <li>这确保了前端UI能实时反映预设回复的更改</li>
+    </ul>
+    
+    <h4>4. 总线广播方法</h4>
+    <div class="code-block">
+        <pre><code>def _broadcast(self, /, *, delete=False):
+    for canned_response in self:
+        store = Store(canned_response, delete=delete)
+        (self.env.user | canned_response.create_uid)._bus_send_store(store)
+        canned_response.group_ids._bus_send_store(store)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法负责将预设回复的变更实时推送给相关用户：</p>
+    <ul>
+        <li>为每个预设回复创建一个Store对象</li>
+        <li>将更新推送给当前用户和预设回复的创建者</li>
+        <li>同时推送给所有被授权的用户组成员</li>
+        <li>确保所有相关用户的界面能实时更新预设回复</li>
+    </ul>
+    
+    <h4>5. 数据存储方法</h4>
+    <div class="code-block">
+        <pre><code>def _to_store(self, store: Store, /, *, fields=None):
+    if fields is None:
+        fields = ["source", "substitution"]
+    store.add(self._name, self._read_format(fields))</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法定义了如何将预设回复数据添加到Store对象：</p>
+    <ul>
+        <li>默认包含source和substitution两个关键字段</li>
+        <li>可以通过fields参数指定需要存储的字段</li>
+        <li>使用_read_format方法格式化数据</li>
+        <li>最终将数据添加到Store对象中供前端使用</li>
+    </ul>
+    
+    <h2>预设回复系统工作原理</h2>
+    <p>Odoo的预设回复系统通过以下流程工作：</p>
+    
+    <div class="workflow">
+        <h3>预设回复使用流程</h3>
+        <ol>
+            <li>用户创建预设回复，设定短代码(source)和完整内容(substitution)</li>
+            <li>系统将预设回复数据通过总线推送给有权访问的用户</li>
+            <li>用户在撰写消息时输入冒号(:)开头的短代码</li>
+            <li>前端检测到匹配的短代码，显示预设回复选项</li>
+            <li>用户选择预设回复后，短代码自动替换为完整内容</li>
+            <li>用户可以进一步编辑替换后的内容后发送</li>
+            <li>系统更新预设回复的最后使用时间</li>
+        </ol>
+    </div>
+    
+    <h3>权限控制机制</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>个人预设回复</h4>
+            <p>不设置用户组的预设回复：</p>
+            <ul>
+                <li>只有创建者可以看到和使用</li>
+                <li>其他用户无法访问</li>
+                <li>适合个人化的快捷回复</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>部门预设回复</h4>
+            <p>设置特定部门用户组的预设回复：</p>
+            <ul>
+                <li>部门内所有成员可以使用</li>
+                <li>部门外成员无法访问</li>
+                <li>适合部门标准回复</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>全公司预设回复</h4>
+            <p>设置基础用户组的预设回复：</p>
+            <ul>
+                <li>所有用户都可以访问</li>
+                <li>统一公司的沟通标准</li>
+                <li>适合公司通用回复</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中扩展或使用预设回复功能？下面提供了几种方法：</p>
+    
+    <h3>1. 添加预定义的预设回复</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="canned_response_welcome" model="mail.canned.response"&gt;
+    &lt;field name="source"&gt;welcome&lt;/field&gt;
+    &lt;field name="substitution"&gt;欢迎使用我们的产品！如有任何问题，请随时联系我们的客服团队。&lt;/field&gt;
+    &lt;field name="description"&gt;欢迎新客户&lt;/field&gt;
+    &lt;field name="group_ids" eval="[(4, ref('base.group_user'))]"/&gt;
+&lt;/record&gt;
+
+&lt;record id="canned_response_support" model="mail.canned.response"&gt;
+    &lt;field name="source"&gt;support&lt;/field&gt;
+    &lt;field name="substitution"&gt;感谢您的反馈。我们的技术支持团队将尽快处理您的问题，通常响应时间为24小时内。您的支持编号是：${object.name}&lt;/field&gt;
+    &lt;field name="description"&gt;技术支持回复&lt;/field&gt;
+    &lt;field name="group_ids" eval="[(4, ref('support_team.group_support'))]"/&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>2. 在Python代码中创建预设回复</h3>
+    <div class="code-block">
+        <pre><code>def _create_default_canned_responses(self):
+    """在模块安装时创建默认预设回复"""
+    support_group = self.env.ref('support_team.group_support')
+    self.env['mail.canned.response'].create([
+        {
+            'source': 'thanks',
+            'substitution': '感谢您的反馈，我们非常重视您的意见！',
+            'description': '感谢客户反馈',
+            'group_ids': [(4, self.env.ref('base.group_user').id)],
+        },
+        {
+            'source': 'ticket',
+            'substitution': '您的工单已创建，编号：${object.name}。我们将尽快处理。',
+            'description': '新工单回复',
+            'group_ids': [(4, support_group.id)],
+        },
+    ])</code></pre>
+    </div>
+    
+    <h3>3. 在聊天客户端中使用预设回复</h3>
+    <p>前端代码示例（JavaScript）：</p>
+    <div class="code-block">
+        <pre><code>// 在消息输入框中监听输入事件
+inputField.addEventListener('input', function(event) {
+    const text = event.target.value;
+    const lastWord = getLastWord(text);
+    
+    // 检查是否以冒号开头
+    if (lastWord.startsWith(':')) {
+        const shortcut = lastWord.substring(1);
+        // 查找匹配的预设回复
+        const cannedResponses = findMatchingCannedResponses(shortcut);
+        if (cannedResponses.length > 0) {
+            // 显示预设回复建议
+            showCannedResponseSuggestions(cannedResponses);
+        }
+    }
+});
+
+// 当用户选择一个预设回复时
+function selectCannedResponse(cannedResponse) {
+    // 替换文本
+    const newText = replaceLastWord(inputField.value, 
+                                    ':' + cannedResponse.source, 
+                                    cannedResponse.substitution);
+    inputField.value = newText;
+    
+    // 更新使用时间
+    updateLastUsed(cannedResponse.id);
+}</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>使用预设回复功能时请注意以下几点：
+        <ul>
+            <li>短代码(source)应当简短且有描述性，便于记忆</li>
+            <li>考虑在替换内容(substitution)中使用变量(如${object.name})增加灵活性</li>
+            <li>谨慎设置用户组权限，避免敏感回复内容泄露</li>
+            <li>定期审查和更新预设回复，保持内容的时效性</li>
+            <li>如需在多语言环境使用，考虑为不同语言创建不同的预设回复</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>在Odoo 18中，预设回复系统有以下改进：</p>
+    <ul>
+        <li>实时总线广播机制，确保预设回复变更立即同步</li>
+        <li>更精细的权限控制，支持用户组级别的访问限制</li>
+        <li>增强的前端集成，提供更流畅的用户体验</li>
+        <li>使用Store机制优化数据传输和前端状态管理</li>
+        <li>支持跟踪最后使用时间，便于分析使用情况</li>
+    </ul>
+    
+    <h2>实际应用场景</h2>
+    <p>预设回复功能在以下场景中特别有用：</p>
+    <ul>
+        <li><strong>客户支持</strong>：快速回应常见问题，保持回复一致性</li>
+        <li><strong>销售沟通</strong>：提供标准产品描述和促销信息</li>
+        <li><strong>内部协作</strong>：团队内部使用标准化回复格式</li>
+        <li><strong>项目管理</strong>：状态更新和标准反馈</li>
+        <li><strong>招聘流程</strong>：向应聘者发送标准回复和后续步骤</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>mail_canned_response.py实现的预设回复系统为Odoo提供了重要的沟通效率工具：</p>
+    <ul>
+        <li>简化重复性沟通，节省用户输入时间</li>
+        <li>确保回复内容的一致性和专业性</li>
+        <li>灵活的权限控制，适应不同级别的共享需求</li>
+        <li>实时更新机制，确保所有用户获得最新内容</li>
+        <li>可扩展的架构，便于定制和集成到业务流程</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>为不同部门和沟通场景创建一套标准化的预设回复库，并定期更新维护。对于常用的回复内容，选择简短易记的短代码，并在团队内部进行培训，确保所有成员都能高效地使用这一功能，提高沟通效率和质量。
+    </div>
+</body>
+</html> 

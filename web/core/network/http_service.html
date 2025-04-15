@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo HTTP服务解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 HTTP服务解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>http_service.js</code>是Odoo框架中提供HTTP请求功能的简洁服务模块。它封装了浏览器的Fetch API，提供了简单易用的GET和POST方法，用于与服务器进行非RPC形式的HTTP通信，特别适用于表单提交、文件上传和简单数据获取等场景。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>HTTP服务提供了比RPC更底层的网络请求能力，主要用于处理非标准JSON-RPC请求，如文件上传、表单提交等。它基于浏览器的Fetch API实现，提供GET和POST两种基本请求方法。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>HTTP GET请求</strong>：用于获取资源数据</li>
+        <li><strong>HTTP POST请求</strong>：用于提交数据和表单</li>
+        <li><strong>FormData处理</strong>：自动将对象转换为FormData格式</li>
+        <li><strong>响应处理</strong>：支持多种响应数据格式（如JSON、文本、二进制等）</li>
+        <li><strong>错误检查</strong>：检测常见的HTTP错误状态</li>
+    </ol>
+    
+    <h2>模块架构</h2>
+    <p>HTTP服务由以下几个关键部分组成：</p>
+    <ul>
+        <li><code>get()</code>函数：执行HTTP GET请求</li>
+        <li><code>post()</code>函数：执行HTTP POST请求</li>
+        <li><code>httpService</code>：将get和post方法注册为Odoo服务</li>
+        <li><code>checkResponseStatus</code>：检查响应状态</li>
+    </ul>
+    
+    <h2>HTTP服务API详解</h2>
+    
+    <h3>GET方法</h3>
+    <div class="code-block">
+        <pre><code>export async function get(route, readMethod = "json") {
+    const response = await browser.fetch(route, { method: "GET" });
+    checkResponseStatus(response);
+    return response[readMethod]();
+}</code></pre>
+    </div>
+    
+    <table>
+        <tr>
+            <th>参数</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>route</td>
+            <td>String</td>
+            <td>无（必填）</td>
+            <td>请求的URL路径</td>
+        </tr>
+        <tr>
+            <td>readMethod</td>
+            <td>String</td>
+            <td>"json"</td>
+            <td>响应数据的读取方法，可选值：json、text、blob、arrayBuffer等</td>
+        </tr>
+    </table>
+    
+    <h3>POST方法</h3>
+    <div class="code-block">
+        <pre><code>export async function post(route, params = {}, readMethod = "json") {
+    let formData = params;
+    if (!(formData instanceof FormData)) {
+        formData = new FormData();
+        for (const key in params) {
+            const value = params[key];
+            if (Array.isArray(value) && value.length) {
+                for (const val of value) {
+                    formData.append(key, val);
+                }
+            } else {
+                formData.append(key, value);
+            }
+        }
+    }
+    const response = await browser.fetch(route, {
+        body: formData,
+        method: "POST",
+    });
+    checkResponseStatus(response);
+    return response[readMethod]();
+}</code></pre>
+    </div>
+    
+    <table>
+        <tr>
+            <th>参数</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>route</td>
+            <td>String</td>
+            <td>无（必填）</td>
+            <td>请求的URL路径</td>
+        </tr>
+        <tr>
+            <td>params</td>
+            <td>Object或FormData</td>
+            <td>{}</td>
+            <td>请求参数，可以是普通对象或FormData实例</td>
+        </tr>
+        <tr>
+            <td>readMethod</td>
+            <td>String</td>
+            <td>"json"</td>
+            <td>响应数据的读取方法，可选值：json、text、blob、arrayBuffer等</td>
+        </tr>
+    </table>
+    
+    <h3>参数处理细节</h3>
+    <p>POST方法对参数的处理有以下特点：</p>
+    <ul>
+        <li>如果params已经是FormData实例，则直接使用</li>
+        <li>否则，创建新的FormData并填充参数</li>
+        <li>对于数组类型的参数，会将每个元素作为单独的值添加到同名字段</li>
+        <li>自动处理各种数据类型，包括文件、字符串、数字等</li>
+    </ul>
+    
+    <h3>HTTP服务注册</h3>
+    <div class="code-block">
+        <pre><code>export const httpService = {
+    start() {
+        return { get, post };
+    },
+};
+
+registry.category("services").add("http", httpService);</code></pre>
+    </div>
+    
+    <p>HTTP服务被注册到Odoo的服务注册表中，可以在组件中通过<code>useService</code>访问：</p>
+    
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        this.http = useService("http");
+    }
+}</code></pre>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本使用 - 获取数据</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { Component } from "@odoo/owl";
+
+class DataFetcher extends Component {
+    setup() {
+        this.http = useService("http");
+        this.state = useState({
+            data: null,
+            loading: false,
+            error: null
+        });
+    }
+    
+    async fetchData() {
+        this.state.loading = true;
+        this.state.error = null;
+        
+        try {
+            // 发送GET请求获取数据
+            const data = await this.http.get('/api/some_data');
+            this.state.data = data;
+        } catch (error) {
+            this.state.error = error.message;
+            console.error("获取数据失败:", error);
+        } finally {
+            this.state.loading = false;
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 文件上传示例</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { Component } from "@odoo/owl";
+
+class FileUploader extends Component {
+    setup() {
+        this.http = useService("http");
+    }
+    
+    async uploadFile(event) {
+        const fileInput = event.target;
+        if (!fileInput.files.length) {
+            return;
+        }
+        
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('filename', file.name);
+        formData.append('model', 'ir.attachment');
+        
+        try {
+            // 直接使用FormData实例
+            const result = await this.http.post('/web/binary/upload', formData);
+            if (result.success) {
+                console.log("文件上传成功，ID:", result.id);
+            }
+        } catch (error) {
+            console.error("文件上传失败:", error);
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 非JSON响应处理示例</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { Component } from "@odoo/owl";
+
+class ReportDownloader extends Component {
+    setup() {
+        this.http = useService("http");
+    }
+    
+    async downloadPDF(reportId) {
+        try {
+            // 请求PDF并获取Blob响应
+            const pdfBlob = await this.http.get(
+                `/report/pdf/${reportId}`, 
+                'blob'  // 使用blob作为readMethod
+            );
+            
+            // 创建下载链接
+            const url = URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report_${reportId}.pdf`;
+            a.click();
+            
+            // 清理URL对象
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+        } catch (error) {
+            console.error("下载报表失败:", error);
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>4. 表单提交示例</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { Component } from "@odoo/owl";
+
+class ContactForm extends Component {
+    setup() {
+        this.http = useService("http");
+        this.state = useState({
+            name: "",
+            email: "",
+            message: ""
+        });
+    }
+    
+    async submitForm() {
+        try {
+            // 使用对象参数，将自动转换为FormData
+            const result = await this.http.post('/submit_contact', {
+                name: this.state.name,
+                email: this.state.email,
+                message: this.state.message,
+                company_id: this.env.company.id
+            });
+            
+            if (result.success) {
+                // 处理成功提交
+                this.showSuccessMessage();
+                this.resetForm();
+            }
+        } catch (error) {
+            console.error("表单提交失败:", error);
+        }
+    }
+    
+    resetForm() {
+        this.state.name = "";
+        this.state.email = "";
+        this.state.message = "";
+    }
+}</code></pre>
+    </div>
+    
+    <h2>与RPC服务的对比</h2>
+    <p>HTTP服务与RPC服务在用途上有明显区别：</p>
+    
+    <table>
+        <tr>
+            <th>特性</th>
+            <th>HTTP服务</th>
+            <th>RPC服务</th>
+        </tr>
+        <tr>
+            <td>主要用途</td>
+            <td>文件上传/下载、表单提交、非JSON数据获取</td>
+            <td>模型方法调用、数据读写操作</td>
+        </tr>
+        <tr>
+            <td>请求格式</td>
+            <td>FormData</td>
+            <td>JSON-RPC</td>
+        </tr>
+        <tr>
+            <td>响应处理</td>
+            <td>灵活（json、text、blob等）</td>
+            <td>主要处理JSON</td>
+        </tr>
+        <tr>
+            <td>错误处理</td>
+            <td>基本HTTP错误检查</td>
+            <td>详细的错误类型和处理机制</td>
+        </tr>
+        <tr>
+            <td>适用场景</td>
+            <td>二进制数据操作、直接控制器访问</td>
+            <td>业务逻辑操作、数据CRUD</td>
+        </tr>
+    </table>
+    
+    <h2>注意事项与最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用HTTP服务时，请注意以下几点：
+        <ul>
+            <li>对于与模型相关的CRUD操作，优先使用ORM服务而不是HTTP服务</li>
+            <li>处理大文件时注意内存使用，考虑使用流式处理</li>
+            <li>总是包含适当的错误处理，特别是网络可能不稳定的情况</li>
+            <li>根据需要选择正确的响应处理方法（json、text、blob等）</li>
+            <li>注意CSRF保护，Odoo的控制器可能需要正确的CSRF令牌</li>
+        </ul>
+    </div>
+    
+    <h3>适用场景</h3>
+    <p>HTTP服务特别适用于以下场景：</p>
+    <ul>
+        <li>文件上传和下载</li>
+        <li>报表生成和获取</li>
+        <li>图片和媒体资源获取</li>
+        <li>直接访问自定义控制器</li>
+        <li>非JSON格式数据的处理</li>
+    </ul>
+    
+    <h3>安全考虑</h3>
+    <p>使用HTTP服务时，需要注意以下安全问题：</p>
+    <ul>
+        <li>验证上传文件类型和大小，防止恶意文件上传</li>
+        <li>确保敏感操作有适当的用户权限检查</li>
+        <li>处理用户输入时防止XSS和注入攻击</li>
+        <li>避免在URL中包含敏感信息</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>虽然HTTP服务提供了更底层的网络请求能力，但在大多数业务场景中，应优先考虑使用更高级的ORM服务或特定功能服务（如文件上传组件）。HTTP服务主要用于特殊情况，如自定义控制器访问或特殊格式数据处理。
+    </div>
+</body>
+</html> 

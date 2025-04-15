@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo QWeb安全渲染系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo QWeb安全渲染系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_qweb.py</code>是Odoo邮件模块中的一个重要组件，它扩展了Odoo的QWeb模板引擎，添加了针对邮件模板渲染的安全机制。这个文件定义了一套用于限制QWeb表达式执行范围的机制，防止在邮件模板中执行危险代码。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>QWeb安全渲染系统是Odoo防止邮件模板中代码注入和越权访问的安全防线，确保邮件渲染过程不会执行未授权的代码或访问敏感数据。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>QWeb指令白名单</strong>：限制可在特定模式下使用的QWeb指令</li>
+        <li><strong>表达式安全验证</strong>：校验QWeb表达式是否在允许范围内</li>
+        <li><strong>编译时安全检查</strong>：在模板编译阶段拦截不安全表达式</li>
+        <li><strong>渲染上下文隔离</strong>：提供一种机制隔离渲染上下文，确保安全性</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>IrQweb类继承了ir.qweb模型，添加了针对安全渲染的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>class IrQweb(models.AbstractModel):
+    """Add ``raise_on_forbidden_code_for_model`` option for qweb.
+
+    When this option is activated, only a whitelist of expressions
+    is allowed for the given model.
+    """
+
+    _inherit = "ir.qweb"
+
+    allowed_directives = (
+        "out",
+        "inner-content",
+        "att",
+        "tag-open",
+        "tag-close",
+    )</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>allowed_directives</code>：定义了安全模式下允许使用的QWeb指令白名单</li>
+    </ul>
+    
+    <h3>核心方法详解</h3>
+    
+    <h4>1. _get_template_cache_keys方法</h4>
+    <div class="code-block">
+        <pre><code>def _get_template_cache_keys(self):
+    return super()._get_template_cache_keys() + ["raise_on_forbidden_code_for_model"]</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法扩展了模板缓存键：</p>
+    <ul>
+        <li>将"raise_on_forbidden_code_for_model"添加到缓存键列表</li>
+        <li>确保不同安全设置下的模板被单独缓存</li>
+        <li>防止安全模式和普通模式模板缓存混淆</li>
+    </ul>
+    
+    <h4>2. _compile_directive方法</h4>
+    <div class="code-block">
+        <pre><code>def _compile_directive(self, el, compile_context, directive, level):
+    if (
+        "raise_on_forbidden_code_for_model" in compile_context
+        and directive not in self.allowed_directives
+    ):
+        raise PermissionError("This directive is not allowed for this rendering mode.")
+    return super()._compile_directive(el, compile_context, directive, level)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法在编译QWeb指令时进行安全检查：</p>
+    <ul>
+        <li>当启用安全模式时，检查当前指令是否在白名单中</li>
+        <li>如果指令不在白名单中，抛出PermissionError异常</li>
+        <li>拦截潜在危险的QWeb指令，如eval, foreach等</li>
+        <li>确保只有安全的展示类指令可以在邮件模板中使用</li>
+    </ul>
+    
+    <h4>3. _compile_directive_att方法</h4>
+    <div class="code-block">
+        <pre><code>def _compile_directive_att(self, el, compile_context, level):
+    if "raise_on_forbidden_code_for_model" in compile_context:
+        if set(el.attrib) - {"t-out", "t-tag-open", "t-tag-close", "t-inner-content"}:
+            raise PermissionError("This directive is not allowed for this rendering mode.")
+    return super()._compile_directive_att(el, compile_context, level)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>专门处理属性指令的安全检查：</p>
+    <ul>
+        <li>在安全模式下，限制元素可以使用的属性</li>
+        <li>只允许安全白名单中的属性：t-out, t-tag-open, t-tag-close, t-inner-content</li>
+        <li>如果使用了其他属性，抛出权限错误</li>
+        <li>防止在元素属性中执行未授权的代码</li>
+    </ul>
+    
+    <h4>4. _compile_expr方法</h4>
+    <div class="code-block">
+        <pre><code>def _compile_expr(self, expr, raise_on_missing=False):
+    model = self.env.context.get("raise_on_forbidden_code_for_model")
+    if model is not None and not self._is_expression_allowed(expr, model):
+        raise PermissionError("This directive is not allowed for this rendering mode.")
+    return super()._compile_expr(expr, raise_on_missing)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法验证QWeb表达式的安全性：</p>
+    <ul>
+        <li>从上下文中获取指定的模型</li>
+        <li>调用_is_expression_allowed方法检查表达式是否被允许</li>
+        <li>如果表达式不被允许，抛出PermissionError异常</li>
+        <li>拦截潜在的不安全Python表达式</li>
+    </ul>
+    
+    <h4>5. _compile_directive_out方法</h4>
+    <div class="code-block">
+        <pre><code>def _compile_directive_out(self, el, compile_context, level):
+    if "raise_on_forbidden_code_for_model" in compile_context:
+        if len(el) != 0:
+            raise PermissionError("No child allowed for t-out.")
+        if set(el.attrib) - {'t-out', 't-tag-open', 't-tag-close'}:
+            raise PermissionError("No other attribute allowed for t-out.")
+    return super()._compile_directive_out(el, compile_context, level)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>专门处理输出指令(t-out)的安全检查：</p>
+    <ul>
+        <li>在安全模式下，t-out元素不允许有子元素</li>
+        <li>在安全模式下，t-out元素只能有限定的属性</li>
+        <li>这些限制防止通过嵌套结构实现复杂的代码注入</li>
+        <li>确保输出指令的使用符合安全规范</li>
+    </ul>
+    
+    <h4>6. _is_expression_allowed方法</h4>
+    <div class="code-block">
+        <pre><code>def _is_expression_allowed(self, expression, model):
+    return model and expression.strip() in self.env[model].mail_allowed_qweb_expressions()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法判断表达式是否在允许列表中：</p>
+    <ul>
+        <li>调用模型的mail_allowed_qweb_expressions方法获取允许的表达式列表</li>
+        <li>检查当前表达式是否在该列表中</li>
+        <li>允许每个模型自定义其安全表达式白名单</li>
+        <li>提供了细粒度的表达式控制机制</li>
+    </ul>
+    
+    <h2>QWeb安全渲染工作原理</h2>
+    <p>Odoo的QWeb安全渲染系统工作流程如下：</p>
+    
+    <div class="workflow">
+        <h3>安全渲染流程</h3>
+        <ol>
+            <li>邮件模板渲染时，系统设置上下文参数raise_on_forbidden_code_for_model为目标模型</li>
+            <li>QWeb引擎检测到这个参数，进入安全渲染模式</li>
+            <li>安全模式下，模板编译过程会检查每个指令和表达式</li>
+            <li>不在白名单中的指令会被拒绝执行</li>
+            <li>表达式会通过_is_expression_allowed方法验证</li>
+            <li>目标模型通过mail_allowed_qweb_expressions提供允许的表达式列表</li>
+            <li>任何不符合安全要求的模板渲染都会抛出PermissionError异常</li>
+        </ol>
+    </div>
+    
+    <h3>安全机制的多层防护</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>指令级防护</h4>
+            <p>通过allowed_directives白名单限制可用的QWeb指令：</p>
+            <ul>
+                <li>只允许单纯展示信息的指令</li>
+                <li>禁止循环、条件等可能导致代码注入的指令</li>
+                <li>在_compile_directive中实施检查</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>属性级防护</h4>
+            <p>限制元素可使用的属性：</p>
+            <ul>
+                <li>在_compile_directive_att中检查</li>
+                <li>只允许白名单中的t-属性</li>
+                <li>防止通过属性执行复杂表达式</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>表达式级防护</h4>
+            <p>验证每个表达式的安全性：</p>
+            <ul>
+                <li>在_compile_expr中对所有表达式进行检查</li>
+                <li>通过模型的白名单进行细粒度控制</li>
+                <li>拦截潜在的不安全Python代码</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模型中配置QWeb安全渲染？下面是一个示例：</p>
+    
+    <h3>1. 为模型定义允许的表达式</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models
+
+class Partner(models.Model):
+    _inherit = 'res.partner'
+    
+    def mail_allowed_qweb_expressions(self):
+        """定义该模型允许在邮件模板中使用的QWeb表达式白名单"""
+        return [
+            'object.name',
+            'object.email',
+            'object.phone',
+            'object.create_date',
+            'user.name',
+            'company.name',
+            'company.email',
+        ]</code></pre>
+    </div>
+    
+    <h3>2. 创建使用安全渲染的邮件模板</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="safe_email_template" model="mail.template"&gt;
+    &lt;field name="name"&gt;安全邮件模板&lt;/field&gt;
+    &lt;field name="model_id" ref="base.model_res_partner"/&gt;
+    &lt;field name="subject"&gt;${object.name} 您好&lt;/field&gt;
+    &lt;field name="body_html"&gt;&lt;![CDATA[
+        &lt;div&gt;
+            &lt;p&gt;尊敬的 &lt;t t-out="object.name"/&gt;,&lt;/p&gt;
+            &lt;p&gt;感谢您的咨询。我们会尽快通过您的邮箱 &lt;t t-out="object.email"/&gt; 联系您。&lt;/p&gt;
+            &lt;p&gt;此致&lt;/p&gt;
+            &lt;p&gt;&lt;t t-out="company.name"/&gt;&lt;/p&gt;
+        &lt;/div&gt;
+    ]]&gt;&lt;/field&gt;
+    &lt;field name="use_safe_rendering" eval="True"/&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>3. 触发安全模式的邮件发送</h3>
+    <div class="code-block">
+        <pre><code>def send_safe_email(self):
+    template = self.env.ref('module_name.safe_email_template')
+    for partner in self:
+        # 启用安全渲染模式发送邮件
+        template.send_mail(
+            partner.id, 
+            force_send=True,
+            raise_on_forbidden_code=True  # 启用安全检查，非白名单表达式将报错
+        )</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>使用QWeb安全渲染时请注意以下几点：
+        <ul>
+            <li>在允许用户编辑的邮件模板中务必启用安全渲染</li>
+            <li>模型的mail_allowed_qweb_expressions返回列表应尽可能精确，仅包含必要的安全表达式</li>
+            <li>表达式应避免调用可能有副作用的方法</li>
+            <li>白名单表达式应限于读取数据，不应包含可能修改数据的表达式</li>
+            <li>测试模板时，建议先使用raise_on_forbidden_code=True验证模板安全性</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的安全增强</h2>
+    <p>Odoo 18在QWeb安全渲染方面有以下改进：</p>
+    <ul>
+        <li>更细粒度的表达式控制机制</li>
+        <li>针对t-out指令的专门安全检查</li>
+        <li>更完善的属性检查机制</li>
+        <li>上下文隔离更加严格</li>
+        <li>模型级别的表达式白名单控制</li>
+    </ul>
+    
+    <h2>安全建议</h2>
+    <p>在使用QWeb模板，特别是邮件模板时，应遵循以下安全建议：</p>
+    <ul>
+        <li>所有面向最终用户的模板都应启用安全渲染</li>
+        <li>仅在内部管理模板中使用完整的QWeb功能</li>
+        <li>定期审查mail_allowed_qweb_expressions中的表达式列表</li>
+        <li>优先使用t-out而非过时的t-esc或t-raw</li>
+        <li>为每个模型设置最小权限原则的表达式白名单</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>ir_qweb.py中的安全渲染机制是Odoo邮件系统安全基础设施的重要组成部分：</p>
+    <ul>
+        <li>提供多层次的QWeb模板安全检查</li>
+        <li>防止邮件模板中的代码注入攻击</li>
+        <li>限制模板可访问的数据范围</li>
+        <li>允许模型自定义安全表达式白名单</li>
+        <li>在不牺牲功能的前提下保障系统安全</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计邮件模板系统时，始终启用安全渲染模式，并为每个模型定义精确的表达式白名单。这不仅能提高系统安全性，还能防止意外的数据泄露和恶意代码执行。
+    </div>
+</body>
+</html> 

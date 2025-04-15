@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo公司模型扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo公司模型邮件扩展解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_company.py</code>是Odoo框架中的一个重要模型扩展文件，它扩展了基础的公司模型，增加了邮件相关的功能和属性。该文件定义了与公司电子邮件域名、发送邮件地址、邮件样式等相关的字段和方法。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>公司模型(res.company)扩展了邮件功能，使公司能够配置自己的邮件域名、退回邮件地址、统一邮件格式和样式，为整个企业提供一致的邮件通信标准。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>邮件域名管理</strong>：允许公司配置自己的邮件域名</li>
+        <li><strong>退回邮件配置</strong>：设置处理未成功发送邮件的退回地址</li>
+        <li><strong>邮件默认发件人</strong>：配置默认的发件人邮件地址</li>
+        <li><strong>邮件样式定制</strong>：管理公司邮件的主要和次要颜色</li>
+        <li><strong>格式化邮件地址</strong>：自动格式化带有公司名称的邮件地址</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <div class="code-block">
+        <pre><code>
+class Company(models.Model):
+    _name = 'res.company'
+    _inherit = 'res.company'
+        </code></pre>
+    </div>
+    
+    <p>这里定义了Company类，继承自现有的'res.company'模型。通过使用<code>_inherit</code>，该类扩展了现有的公司模型而不是创建新模型。</p>
+    
+    <h3>默认值方法</h3>
+    <div class="code-block">
+        <pre><code>
+    def _default_alias_domain_id(self):
+        return self.env['mail.alias.domain'].search([], limit=1)
+        </code></pre>
+    </div>
+    
+    <p>此方法为<code>alias_domain_id</code>字段提供默认值。它搜索<code>mail.alias.domain</code>模型中的第一条记录作为默认值。这样确保新创建的公司默认就有一个邮件域名配置。</p>
+    
+    <h3>字段定义</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特殊属性</th>
+        </tr>
+        <tr>
+            <td>alias_domain_id</td>
+            <td>Many2one</td>
+            <td>邮件域名关联</td>
+            <td>关联到mail.alias.domain模型，有默认值函数</td>
+        </tr>
+        <tr>
+            <td>alias_domain_name</td>
+            <td>Char</td>
+            <td>别名域名</td>
+            <td>关联字段，只读，会存储</td>
+        </tr>
+        <tr>
+            <td>bounce_email</td>
+            <td>Char</td>
+            <td>退回邮件地址</td>
+            <td>计算字段</td>
+        </tr>
+        <tr>
+            <td>bounce_formatted</td>
+            <td>Char</td>
+            <td>格式化的退回地址</td>
+            <td>计算字段</td>
+        </tr>
+        <tr>
+            <td>catchall_email</td>
+            <td>Char</td>
+            <td>捕获所有邮件的地址</td>
+            <td>计算字段</td>
+        </tr>
+        <tr>
+            <td>catchall_formatted</td>
+            <td>Char</td>
+            <td>格式化的捕获地址</td>
+            <td>计算字段</td>
+        </tr>
+        <tr>
+            <td>default_from_email</td>
+            <td>Char</td>
+            <td>默认发件人地址</td>
+            <td>关联字段，只读</td>
+        </tr>
+        <tr>
+            <td>email_formatted</td>
+            <td>Char</td>
+            <td>格式化的邮件地址</td>
+            <td>计算字段，使用sudo权限</td>
+        </tr>
+        <tr>
+            <td>email_primary_color</td>
+            <td>Char</td>
+            <td>邮件头部颜色</td>
+            <td>计算字段，可写入，会存储</td>
+        </tr>
+        <tr>
+            <td>email_secondary_color</td>
+            <td>Char</td>
+            <td>邮件按钮颜色</td>
+            <td>计算字段，可写入，会存储</td>
+        </tr>
+    </table>
+    
+    <h3>计算方法解析</h3>
+    
+    <h4>_compute_bounce</h4>
+    <div class="code-block">
+        <pre><code>
+    @api.depends('alias_domain_id', 'name')
+    def _compute_bounce(self):
+        self.bounce_email = ''
+        self.bounce_formatted = ''
+
+        for company in self.filtered('alias_domain_id'):
+            bounce_email = company.alias_domain_id.bounce_email
+            company.bounce_email = bounce_email
+            company.bounce_formatted = tools.formataddr((company.name, bounce_email))
+        </code></pre>
+    </div>
+    
+    <p>这个方法计算两个字段：<code>bounce_email</code>和<code>bounce_formatted</code>。它依赖于<code>alias_domain_id</code>和<code>name</code>字段的值。方法步骤如下：</p>
+    <ol>
+        <li>首先将这两个字段的值设为空字符串</li>
+        <li>使用<code>filtered</code>方法筛选出有<code>alias_domain_id</code>的公司记录</li>
+        <li>获取每个公司域名对象的<code>bounce_email</code>值</li>
+        <li>使用<code>tools.formataddr</code>函数将公司名称和邮件地址格式化为标准的"公司名 &lt;email@example.com&gt;"格式</li>
+    </ol>
+    
+    <h4>_compute_catchall</h4>
+    <div class="code-block">
+        <pre><code>
+    @api.depends('alias_domain_id', 'name')
+    def _compute_catchall(self):
+        self.catchall_email = ''
+        self.catchall_formatted = ''
+
+        for company in self.filtered('alias_domain_id'):
+            catchall_email = company.alias_domain_id.catchall_email
+            company.catchall_email = catchall_email
+            company.catchall_formatted = tools.formataddr((company.name, catchall_email))
+        </code></pre>
+    </div>
+    
+    <p>这个方法与<code>_compute_bounce</code>类似，计算通用邮件捕获地址。通常这是一个类似<code>catchall@example.com</code>的地址，用于接收发送到公司域名但没有具体收件人的邮件。</p>
+    
+    <h4>_compute_email_formatted</h4>
+    <div class="code-block">
+        <pre><code>
+    @api.depends('partner_id', 'catchall_formatted')
+    def _compute_email_formatted(self):
+        for company in self:
+            if company.partner_id.email_formatted:
+                company.email_formatted = company.partner_id.email_formatted
+            elif company.catchall_formatted:
+                company.email_formatted = company.catchall_formatted
+            else:
+                company.email_formatted = ''
+        </code></pre>
+    </div>
+    
+    <p>此方法计算公司的格式化邮件地址。优先使用关联合作伙伴的格式化邮件地址，如果不存在则使用catchall格式化地址，如果两者都不存在则设为空字符串。</p>
+    
+    <p>该方法使用<code>compute_sudo=True</code>参数，这意味着即使当前用户没有访问合作伙伴记录的权限，也能执行计算。这对门户用户很重要，他们需要看到公司邮件地址但可能无权访问合作伙伴记录。</p>
+    
+    <h4>_compute_email_primary_color 和 _compute_email_secondary_color</h4>
+    <div class="code-block">
+        <pre><code>
+    @api.depends('primary_color')
+    def _compute_email_primary_color(self):
+        """ When updating documents layout colors, force usage of same colors
+        for emails as it is considered as base colors for all communication.
+        Inverse is not true, people may change email colors without changing
+        their overall layout. """
+        for company in self:
+            company.email_primary_color = company.primary_color or '#000000'
+
+    @api.depends('secondary_color')
+    def _compute_email_secondary_color(self):
+        """ When updating documents layout colors, force usage of same colors
+        for emails as it is considered as base colors for all communication.
+        Inverse is not true, people may change email colors without changing
+        their overall layout. """
+        for company in self:
+            company.email_secondary_color = company.secondary_color or '#875A7B'
+        </code></pre>
+    </div>
+    
+    <p>这两个方法计算邮件模板使用的颜色。如果公司已经设置了主要和次要颜色（通常用于文档布局），则邮件也会使用这些颜色以保持一致性。如果没有设置，则使用默认值：</p>
+    <ul>
+        <li>主要颜色默认为黑色 (#000000)</li>
+        <li>次要颜色默认为紫色 (#875A7B)，这是Odoo的品牌色</li>
+    </ul>
+    
+    <p>注释中明确说明了一个重要设计决策：文档布局颜色的更改会影响邮件颜色（确保一致性），但反之则不然。这允许公司单独定制邮件样式而不影响整体文档布局。</p>
+    
+    <h2>实际应用实例</h2>
+    
+    <h3>配置公司邮件域名</h3>
+    <div class="code-block">
+        <pre><code>
+# 创建一个邮件域名记录
+mail_domain = self.env['mail.alias.domain'].create({
+    'name': 'example.com',
+    'bounce_email': 'bounce@example.com',
+    'catchall_email': 'catchall@example.com',
+    'default_from_email': 'no-reply@example.com'
+})
+
+# 设置公司使用这个域名
+company = self.env.company
+company.write({
+    'alias_domain_id': mail_domain.id
+})
+
+# 查看生成的邮件地址
+print(company.bounce_formatted)  # 输出: "YourCompany <bounce@example.com>"
+print(company.catchall_formatted)  # 输出: "YourCompany <catchall@example.com>"
+        </code></pre>
+    </div>
+    
+    <h3>自定义邮件颜色</h3>
+    <div class="code-block">
+        <pre><code>
+# 设置公司文档的主要和次要颜色
+company = self.env.company
+company.write({
+    'primary_color': '#336699',  # 深蓝色
+    'secondary_color': '#FF9900'  # 橙色
+})
+
+# 邮件颜色会自动更新
+print(company.email_primary_color)  # 输出: #336699
+print(company.email_secondary_color)  # 输出: #FF9900
+
+# 单独设置邮件颜色而不影响文档布局
+company.write({
+    'email_primary_color': '#009966',  # 绿色
+    'email_secondary_color': '#CC0000'  # 红色
+})
+        </code></pre>
+    </div>
+    
+    <h2>与其他模块的集成</h2>
+    
+    <div class="integration-diagram">
+        <h3>公司邮件功能集成点</h3>
+        <ul>
+            <li><strong>mail.alias.domain</strong>：提供域名配置</li>
+            <li><strong>mail.template</strong>：使用公司的邮件颜色和格式化地址</li>
+            <li><strong>mail.mail</strong>：使用公司的邮件地址作为发件人</li>
+            <li><strong>mail.render.mixin</strong>：使用公司颜色渲染邮件模板</li>
+            <li><strong>res.config.settings</strong>：提供UI界面配置这些设置</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，公司邮件功能具有以下特点和改进：</p>
+    <ul>
+        <li>更强的与mail.alias.domain模型的集成</li>
+        <li>改进的邮件地址格式化，确保符合RFC标准</li>
+        <li>计算字段使用sudo权限，确保门户用户也能查看格式化邮件地址</li>
+        <li>默认颜色设置与Odoo 18的UI主题协调</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    <div class="best-practices">
+        <ul>
+            <li><strong>邮件域名配置</strong>：为每个公司配置正确的邮件域名，确保邮件正确发送和接收</li>
+            <li><strong>品牌一致性</strong>：使用与公司品牌一致的邮件颜色，提高品牌识别度</li>
+            <li><strong>测试邮件格式</strong>：在不同邮件客户端测试格式化的邮件地址，确保显示正确</li>
+            <li><strong>捕获邮件处理</strong>：设置处理捕获邮件的机制，避免重要信息丢失</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>res.company模型的邮件扩展提供了企业级邮件通信所需的基础设施：</p>
+    <ul>
+        <li>统一的企业邮件域名</li>
+        <li>标准化的邮件地址格式</li>
+        <li>一致的视觉样式</li>
+        <li>适当的邮件处理机制</li>
+    </ul>
+    
+    <div class="note">
+        <strong>重要提示：</strong>正确配置公司邮件设置是确保Odoo邮件系统正常工作的基础。在设置多公司环境时，每个公司都应该有合适的邮件域名配置。
+    </div>
+</body>
+</html> 

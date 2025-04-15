@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo条件树模型解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo条件树模型解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>condition_tree.js</code>是Odoo 18中的核心模块，它定义了条件树的数据结构和操作方法。这个模块为各种复杂条件表达式提供了统一的数据模型，是树编辑器、域构建器等组件的基础。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>条件树是一种表示逻辑条件和表达式的树形数据结构，它可以转换为Odoo的域表达式、Python代码或其他格式，是构建复杂查询和过滤条件的基础。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>条件树数据结构</strong>：定义了表示条件和逻辑连接的树形数据结构</li>
+        <li><strong>树节点操作</strong>：创建、复制、修改树节点的功能</li>
+        <li><strong>格式转换</strong>：在树结构、域表达式和Python表达式之间进行转换</li>
+        <li><strong>虚拟操作符</strong>：处理高级操作符如between、within、set等</li>
+        <li><strong>树结构优化</strong>：简化和优化树结构以提高性能</li>
+        <li><strong>表达式解析</strong>：解析和格式化Python表达式</li>
+    </ol>
+    
+    <h2>核心数据类型</h2>
+    <p>condition_tree.js定义了一系列关键的数据类型：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef {number|string|boolean|Expression} Atom
+ */
+
+/**
+ * @typedef {Atom|Atom[]} Value
+ */
+
+/**
+ * @typedef {Object} Condition
+ * @property {"condition"} type
+ * @property {Value} path
+ * @property {Value} operator
+ * @property {Value} value
+ * @property {boolean} negate
+ */
+
+/**
+ * @typedef {Object} ComplexCondition
+ * @property {"complex_condition"} type
+ * @property {string} value expression
+ */
+
+/**
+ * @typedef {Object} Connector
+ * @property {"connector"} type
+ * @property {boolean} negate
+ * @property {"|"|"&"} value
+ * @property {Tree[]} children
+ */
+
+/**
+ * @typedef {Connector|Condition|ComplexCondition} Tree
+ */</code></pre>
+    </div>
+    
+    <h3>节点类型解释</h3>
+    <ul>
+        <li><code>Atom</code>：基本的原子值类型，包括数字、字符串、布尔值或表达式</li>
+        <li><code>Value</code>：可以是单个Atom或Atom数组</li>
+        <li><code>Condition</code>：表示单一条件的叶子节点</li>
+        <li><code>ComplexCondition</code>：包含复杂Python表达式的节点</li>
+        <li><code>Connector</code>：逻辑连接符节点，连接多个子节点</li>
+        <li><code>Tree</code>：整个条件树的统一类型</li>
+    </ul>
+    
+    <h2>核心类和函数</h2>
+    <p>condition_tree.js提供了许多用于创建和操作条件树的函数和类：</p>
+    
+    <h3>1. Expression类</h3>
+    <div class="code-block">
+        <pre><code>export class Expression {
+    constructor(ast) {
+        if (typeof ast === "string") {
+            ast = parseExpr(ast);
+        }
+        this._ast = ast;
+        this._expr = formatAST(ast);
+    }
+
+    toAST() {
+        return this._ast;
+    }
+
+    toString() {
+        return this._expr;
+    }
+}</code></pre>
+    </div>
+    <p>Expression类用于封装Python表达式，提供AST和字符串表示之间的转换。</p>
+    
+    <h3>2. 节点创建函数</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>expression(expr)</td>
+            <td>创建表达式对象</td>
+            <td>expr: 表达式字符串</td>
+            <td>Expression对象</td>
+        </tr>
+        <tr>
+            <td>connector(value, children, negate)</td>
+            <td>创建连接符节点</td>
+            <td>value: 连接符, children: 子节点数组, negate: 是否取反</td>
+            <td>Connector对象</td>
+        </tr>
+        <tr>
+            <td>condition(path, operator, value, negate)</td>
+            <td>创建条件节点</td>
+            <td>path: 路径, operator: 操作符, value: 值, negate: 是否取反</td>
+            <td>Condition对象</td>
+        </tr>
+        <tr>
+            <td>complexCondition(value)</td>
+            <td>创建复杂条件节点</td>
+            <td>value: Python表达式字符串</td>
+            <td>ComplexCondition对象</td>
+        </tr>
+        <tr>
+            <td>cloneTree(tree)</td>
+            <td>深度克隆树结构</td>
+            <td>tree: 要克隆的树</td>
+            <td>树的副本</td>
+        </tr>
+    </table>
+    
+    <h3>3. 格式转换函数</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>treeFromExpression(expression, options)</td>
+            <td>从表达式创建条件树</td>
+            <td>expression: 表达式字符串, options: 选项</td>
+            <td>Tree对象</td>
+        </tr>
+        <tr>
+            <td>expressionFromTree(tree, options)</td>
+            <td>从条件树创建表达式</td>
+            <td>tree: 条件树, options: 选项</td>
+            <td>表达式字符串</td>
+        </tr>
+        <tr>
+            <td>domainFromTree(tree)</td>
+            <td>从条件树创建域数组</td>
+            <td>tree: 条件树</td>
+            <td>域数组</td>
+        </tr>
+        <tr>
+            <td>treeFromDomain(domain, options)</td>
+            <td>从域数组创建条件树</td>
+            <td>domain: 域数组, options: 选项</td>
+            <td>Tree对象</td>
+        </tr>
+    </table>
+    
+    <h3>4. 虚拟操作符函数</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>createVirtualOperators(tree, options)</td>
+            <td>创建虚拟操作符</td>
+            <td>tree: 条件树, options: 选项</td>
+            <td>处理后的树</td>
+        </tr>
+        <tr>
+            <td>removeVirtualOperators(tree)</td>
+            <td>移除虚拟操作符</td>
+            <td>tree: 条件树</td>
+            <td>处理后的树</td>
+        </tr>
+        <tr>
+            <td>createBetweenOperators(tree)</td>
+            <td>创建between操作符</td>
+            <td>tree: 条件树</td>
+            <td>处理后的树</td>
+        </tr>
+        <tr>
+            <td>removeBetweenOperators(tree)</td>
+            <td>移除between操作符</td>
+            <td>tree: 条件树</td>
+            <td>处理后的树</td>
+        </tr>
+    </table>
+    
+    <h2>操作符映射和常量</h2>
+    <p>condition_tree.js定义了一系列操作符映射和常量：</p>
+    
+    <div class="code-block">
+        <pre><code>export const TERM_OPERATORS_NEGATION = {
+    "<": ">=",
+    ">": "<=",
+    "<=": ">",
+    ">=": "<",
+    "=": "!=",
+    "!=": "=",
+    in: "not in",
+    like: "not like",
+    ilike: "not ilike",
+    "not in": "in",
+    "not like": "like",
+    "not ilike": "ilike",
+};</code></pre>
+    </div>
+    
+    <p>这些映射定义了操作符的取反关系，用于处理negate属性。</p>
+    
+    <h2>工作原理</h2>
+    <p>condition_tree.js的工作原理可以概括为以下流程：</p>
+    
+    <div class="flow-diagram">
+        <h3>条件树与域转换流程</h3>
+        <ol>
+            <li>使用condition()、connector()等函数创建条件树结构</li>
+            <li>通过createVirtualOperators()处理高级操作符</li>
+            <li>通过domainFromTree()将树结构转换为Odoo域</li>
+            <li>或通过expressionFromTree()将树结构转换为Python表达式</li>
+            <li>反之，可以通过treeFromDomain()或treeFromExpression()从域或表达式创建树结构</li>
+        </ol>
+    </div>
+    
+    <h3>虚拟操作符处理</h3>
+    <p>虚拟操作符是一种抽象层，提供了比原生操作符更直观的接口：</p>
+    
+    <div class="code-block">
+        <pre><code>export function createVirtualOperators(tree, options = {}) {
+    // 克隆树结构，防止修改原始树
+    const newTree = cloneTree(tree);
+    
+    // 创建各种虚拟操作符
+    createBetweenOperators(newTree);
+    createWithinOperators(newTree, options);
+    
+    return newTree;
+}
+
+export function removeVirtualOperators(tree) {
+    // 克隆树结构，防止修改原始树
+    const newTree = cloneTree(tree);
+    
+    // 移除各种虚拟操作符
+    removeBetweenOperators(newTree);
+    removeWithinOperators(newTree);
+    
+    return newTree;
+}</code></pre>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>下面是一些condition_tree.js的使用示例：</p>
+    
+    <div class="usage-examples">
+        <div class="example">
+            <h3>创建简单的条件树</h3>
+            <div class="code-block">
+                <pre><code>import { condition, connector } from "@web/core/tree_editor/condition_tree";
+
+// 创建条件：name包含"产品"且price > 100
+const tree = connector("&", [
+    condition("name", "ilike", "产品"),
+    condition("price", ">", 100)
+]);
+
+// 添加OR条件：category_id = 5
+tree.children.push(
+    connector("|", [
+        condition("category_id", "=", 5),
+        condition("category_id", "=", 6)
+    ])
+);</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>条件树转域表达式</h3>
+            <div class="code-block">
+                <pre><code>import { domainFromTree } from "@web/core/tree_editor/condition_tree";
+
+// 创建一个条件树
+const tree = connector("&", [
+    condition("active", "=", true),
+    connector("|", [
+        condition("amount", ">", 1000),
+        condition("priority", ">=", 2)
+    ])
+]);
+
+// 转换为域表达式
+const domain = domainFromTree(tree);
+// 结果: ["&", ["active", "=", true], "|", ["amount", ">", 1000], ["priority", ">=", 2]]</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>使用虚拟操作符</h3>
+            <div class="code-block">
+                <pre><code>import { 
+    condition, 
+    connector, 
+    createVirtualOperators, 
+    removeVirtualOperators 
+} from "@web/core/tree_editor/condition_tree";
+
+// 创建日期范围条件
+const tree = connector("&", [
+    condition("create_date", ">=", "2023-01-01"),
+    condition("create_date", "<=", "2023-12-31")
+]);
+
+// 应用虚拟操作符
+const virtualTree = createVirtualOperators(tree);
+// 结果: 将两个条件合并为一个使用"between"操作符的条件
+// virtualTree = condition("create_date", "between", ["2023-01-01", "2023-12-31"])
+
+// 在转换为域前移除虚拟操作符
+const normalTree = removeVirtualOperators(virtualTree);
+// 恢复为原始的两个条件</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>时间相关的特殊处理</h2>
+    <p>condition_tree.js对日期和时间相关的条件提供了特殊处理：</p>
+    
+    <div class="code-block">
+        <pre><code>const DATETIME_TODAY_STRING_EXPRESSION = `datetime.datetime.combine(context_today(), datetime.time(0, 0, 0)).to_utc().strftime("%Y-%m-%d %H:%M:%S")`;
+const DATE_TODAY_STRING_EXPRESSION = `context_today().strftime("%Y-%m-%d")`;
+const DELTA_DATE_AST = parseExpr(
+    `(context_today() + relativedelta(period=amount)).strftime('%Y-%m-%d')`
+);
+const DELTA_DATETIME_AST = parseExpr(
+    `datetime.datetime.combine(context_today() + relativedelta(period=amount), datetime.time(0, 0, 0)).to_utc().strftime("%Y-%m-%d %H:%M:%S")`
+);</code></pre>
+    </div>
+    
+    <p>这些常量定义了"今天"和相对日期的表达式，使日期相关条件更易于处理。</p>
+    
+    <h2>与其他模块的交互</h2>
+    <p>condition_tree.js与Odoo的多个核心模块交互：</p>
+    <ul>
+        <li><strong>Domain</strong>：使用Domain类处理Odoo域表达式</li>
+        <li><strong>py_js</strong>：使用parseExpr和formatAST处理Python表达式</li>
+        <li><strong>tree_editor</strong>：为树编辑器提供数据模型</li>
+        <li><strong>对象工具</strong>：使用deepCopy和deepEqual进行对象操作</li>
+    </ul>
+    
+    <h2>高级特性</h2>
+    <h3>表达式解析和转换</h3>
+    <p>condition_tree.js能够解析和转换复杂的Python表达式：</p>
+    
+    <div class="code-block">
+        <pre><code>function _treeFromAST(ast, options, negate = false) {
+    if (isNot(ast)) {
+        return _treeFromAST(ast.args[0], options, !negate);
+    }
+    if (isBool(ast)) {
+        const subAst = ast.args[0];
+        if (isSet(subAst)) {
+            return _leafFromAST(subAst, options, negate);
+        }
+        return _treeFromAST(subAst, options, negate);
+    }
+    if (isValidPath(ast, options)) {
+        return _leafFromAST({ left: ast, comparator: "!=" if negate else "=", right: false }, options);
+    }
+    if (ast.type === "BooleanOp") {
+        const value = ast.op === "or" ? "|" : "&";
+        const children = [];
+        for (const value of ast.values) {
+            children.push(_treeFromAST(value, options, negate));
+        }
+        return connector(value, children);
+    }
+    if (ast.type === "Compare") {
+        return _leafFromAST(ast, options, negate);
+    }
+    // ...更多复杂表达式处理逻辑
+}</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>在使用condition_tree.js时，请注意以下几点：
+        <ul>
+            <li>始终使用提供的函数(condition()、connector()等)创建节点，而不是直接构造对象</li>
+            <li>在修改树结构前，使用cloneTree()创建副本，避免意外修改原始树</li>
+            <li>将虚拟操作符转换为实际操作符(如between→≥和≤)时，使用removeVirtualOperators()</li>
+            <li>处理大型树结构时，注意性能问题，可能需要优化树结构</li>
+            <li>使用适当的错误处理机制，特别是在处理用户输入的表达式时</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，condition_tree.js有以下改进：</p>
+    <ul>
+        <li>更强大的虚拟操作符系统，包括"between"、"within"、"set"、"not_set"等</li>
+        <li>改进的日期和时间处理，包括相对日期支持</li>
+        <li>更好的表达式解析和格式化</li>
+        <li>更高效的树结构操作和转换</li>
+        <li>更好的与其他组件的集成</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用condition_tree.js？下面是一个完整的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>import { 
+    condition, 
+    connector, 
+    domainFromTree, 
+    treeFromDomain,
+    createVirtualOperators,
+    removeVirtualOperators,
+    cloneTree
+} from "@web/core/tree_editor/condition_tree";
+import { Component, useState } from "@odoo/owl";
+
+export class FilterBuilder extends Component {
+    static template = "my_module.FilterBuilder";
+    
+    setup() {
+        // 1. 从域创建条件树
+        const initialDomain = [
+            ["active", "=", true],
+            ["state", "in", ["draft", "open"]]
+        ];
+        let tree = treeFromDomain(initialDomain);
+        
+        // 2. 对条件树应用虚拟操作符（增强用户体验）
+        tree = createVirtualOperators(tree);
+        
+        this.state = useState({
+            filterTree: tree
+        });
+    }
+    
+    updateTree(newTree) {
+        // 保存更新的树
+        this.state.filterTree = cloneTree(newTree);
+    }
+    
+    getDomain() {
+        // 移除虚拟操作符并转换为域
+        const normalizedTree = removeVirtualOperators(this.state.filterTree);
+        return domainFromTree(normalizedTree);
+    }
+    
+    addCondition() {
+        // 创建树的副本
+        const tree = cloneTree(this.state.filterTree);
+        
+        // 在树中添加新条件
+        if (tree.type === "connector") {
+            tree.children.push(condition("name", "ilike", ""));
+        } else {
+            // 如果根不是连接符，创建一个新的连接符
+            const newTree = connector("&", [tree, condition("name", "ilike", "")]);
+            this.state.filterTree = newTree;
+            return;
+        }
+        
+        this.state.filterTree = tree;
+    }
+    
+    clearFilter() {
+        // 重置为默认条件
+        this.state.filterTree = condition("active", "=", true);
+    }
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;templates&gt;
+    &lt;t t-name="my_module.FilterBuilder"&gt;
+        &lt;div class="filter-builder"&gt;
+            &lt;div class="filter-actions mb-3"&gt;
+                &lt;button class="btn btn-sm btn-primary me-2" t-on-click="addCondition"&gt;添加条件&lt;/button&gt;
+                &lt;button class="btn btn-sm btn-secondary" t-on-click="clearFilter"&gt;清空&lt;/button&gt;
+            &lt;/div&gt;
+            
+            &lt;!-- 这里需要集成TreeEditor组件来编辑filterTree --&gt;
+            
+            &lt;div class="mt-3"&gt;
+                &lt;pre t-esc="JSON.stringify(getDomain(), null, 2)"/&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/templates&gt;</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>condition_tree.js是Odoo中处理逻辑条件树的核心模块，它：</p>
+    <ul>
+        <li>提供统一的数据结构表示逻辑条件和表达式</li>
+        <li>实现条件树与域、表达式之间的转换</li>
+        <li>支持复杂的虚拟操作符和高级条件</li>
+        <li>提供丰富的操作函数简化树结构处理</li>
+        <li>为各种UI组件如TreeEditor提供数据模型基础</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>condition_tree.js提供了强大的条件树处理能力，但也有一定的复杂性。在使用时，建议先理解树结构的基本概念和虚拟操作符的工作原理，然后再应用到复杂场景中。
+    </div>
+</body>
+</html> 

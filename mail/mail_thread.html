@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 MailThread 类解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 MailThread 类详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_thread.py</code>是Odoo框架中的核心邮件处理模块，它提供了一套完整的消息处理、跟踪和通知功能。这个抽象模型是Odoo中所有需要讨论功能（如评论、消息、邮件等）的模型的基础。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>MailThread提供了让任何记录成为可讨论对象的能力，让用户可以在记录上附加消息、关注记录并接收通知。它是Odoo社交功能和通信系统的基石。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息管理</strong>：允许在记录上发布消息、回复消息和组织消息线程</li>
+        <li><strong>关注者系统</strong>：管理谁在关注记录并接收通知</li>
+        <li><strong>字段追踪</strong>：自动跟踪字段变化并生成相应消息</li>
+        <li><strong>邮件集成</strong>：处理传入和传出邮件，包括别名和路由</li>
+        <li><strong>通知系统</strong>：发送各种类型的通知（电子邮件、聊天等）</li>
+        <li><strong>活动管理</strong>：支持待办事项和活动功能</li>
+    </ol>
+    
+    <h2>核心属性</h2>
+    <div class="code-block">
+        <pre><code>_name = 'mail.thread'
+_description = 'Email Thread'
+_mail_flat_thread = True  # flatten the discussion history
+_mail_post_access = 'write'  # access required on the document to post on it
+_primary_email = 'email'  # Must be set for the models that can be created by alias</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>_mail_flat_thread</code>：控制消息线程的展示方式
+            <ul>
+                <li>True：所有没有父级的消息自动附加到第一条消息上（扁平化显示）</li>
+                <li>False：保持消息的层次结构（树状显示）</li>
+            </ul>
+        </li>
+        <li><code>_mail_post_access</code>：定义在记录上发布消息所需的最低访问权限</li>
+        <li><code>_primary_email</code>：指定用于通过别名创建记录时的主要电子邮件字段</li>
+    </ul>
+    
+    <h2>核心字段</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>message_follower_ids</td>
+            <td>One2many</td>
+            <td>关注此记录的所有关注者（users和partners）</td>
+        </tr>
+        <tr>
+            <td>message_partner_ids</td>
+            <td>Many2many</td>
+            <td>关注此记录的合作伙伴（计算字段）</td>
+        </tr>
+        <tr>
+            <td>message_ids</td>
+            <td>One2many</td>
+            <td>记录的所有消息（除用户通知外）</td>
+        </tr>
+        <tr>
+            <td>message_is_follower</td>
+            <td>Boolean</td>
+            <td>当前用户是否关注此记录</td>
+        </tr>
+        <tr>
+            <td>has_message</td>
+            <td>Boolean</td>
+            <td>记录是否有消息</td>
+        </tr>
+        <tr>
+            <td>message_needaction</td>
+            <td>Boolean</td>
+            <td>是否有需要注意的新消息</td>
+        </tr>
+        <tr>
+            <td>message_needaction_counter</td>
+            <td>Integer</td>
+            <td>需要处理的消息数量</td>
+        </tr>
+        <tr>
+            <td>message_has_error</td>
+            <td>Boolean</td>
+            <td>是否有消息发送失败</td>
+        </tr>
+        <tr>
+            <td>message_has_error_counter</td>
+            <td>Integer</td>
+            <td>发送失败的消息数量</td>
+        </tr>
+        <tr>
+            <td>message_attachment_count</td>
+            <td>Integer</td>
+            <td>消息附件数量</td>
+        </tr>
+    </table>
+    
+    <h2>核心方法分组</h2>
+    
+    <h3>1. 消息发布</h3>
+    <div class="method-group">
+        <div class="method">
+            <h4>message_post</h4>
+            <p>最核心的方法，用于在记录上发布新消息。支持各种参数，如正文、主题、子类型、附件等。</p>
+            <div class="code-example">
+                <pre><code># 发布简单消息
+record.message_post(body="这是一条消息")
+
+# 发布带附件的消息
+record.message_post(
+    body="请查看附件",
+    subject="重要文档",
+    attachment_ids=[attachment.id],
+    partner_ids=[partner.id]  # 额外通知的合作伙伴
+)</code></pre>
+            </div>
+        </div>
+        
+        <div class="method">
+            <h4>message_post_with_source</h4>
+            <p>使用源模板发布消息，允许使用XML模板创建结构化消息。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_message_log</h4>
+            <p>记录内部日志消息（不发送通知）。</p>
+            <div class="code-example">
+                <pre><code># 记录内部日志
+record._message_log(body="已更新订单状态")</code></pre>
+            </div>
+        </div>
+        
+        <div class="method">
+            <h4>_message_log_with_view</h4>
+            <p>使用QWeb视图记录内部日志消息。</p>
+        </div>
+    </div>
+    
+    <h3>2. 关注者管理</h3>
+    <div class="method-group">
+        <div class="method">
+            <h4>message_subscribe</h4>
+            <p>让合作伙伴或用户关注记录。</p>
+            <div class="code-example">
+                <pre><code># 添加关注者
+record.message_subscribe(partner_ids=[1, 2, 3])
+
+# 添加关注者并指定感兴趣的子类型
+record.message_subscribe(partner_ids=[1, 2], subtype_ids=[1, 2])</code></pre>
+            </div>
+        </div>
+        
+        <div class="method">
+            <h4>message_unsubscribe</h4>
+            <p>取消合作伙伴或用户对记录的关注。</p>
+            <div class="code-example">
+                <pre><code># 取消关注
+record.message_unsubscribe(partner_ids=[1, 2])</code></pre>
+            </div>
+        </div>
+        
+        <div class="method">
+            <h4>_message_auto_subscribe</h4>
+            <p>在记录更新时自动添加关注者（基于字段更新）。</p>
+        </div>
+    </div>
+    
+    <h3>3. 消息通知</h3>
+    <div class="method-group">
+        <div class="method">
+            <h4>_notify_thread</h4>
+            <p>向记录的所有关注者发送通知，处理不同的通知类型（邮件、内部等）。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_notify_thread_by_email</h4>
+            <p>通过电子邮件发送通知。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_notify_thread_by_inbox</h4>
+            <p>通过内部收件箱发送通知。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_notify_thread_by_web_push</h4>
+            <p>通过Web推送通知发送通知（桌面通知等）。</p>
+        </div>
+    </div>
+    
+    <h3>4. 字段追踪</h3>
+    <div class="method-group">
+        <div class="method">
+            <h4>_message_track</h4>
+            <p>跟踪字段值的变化并生成相应的消息。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_track_subtype</h4>
+            <p>确定基于字段变化应使用的消息子类型。</p>
+        </div>
+        
+        <div class="method">
+            <h4>_track_template</h4>
+            <p>确定字段变化时应使用的消息模板。</p>
+        </div>
+    </div>
+    
+    <h3>5. 邮件处理和路由</h3>
+    <div class="method-group">
+        <div class="method">
+            <h4>message_route</h4>
+            <p>根据收到的邮件路由到相应的模型和线程。</p>
+        </div>
+        
+        <div class="method">
+            <h4>message_process</h4>
+            <p>处理传入的邮件，创建或更新记录。</p>
+        </div>
+        
+        <div class="method">
+            <h4>message_new</h4>
+            <p>基于传入邮件创建新记录。</p>
+            <div class="note">
+                <strong>重要：</strong>继承mail.thread的模型通常会重写此方法以提供模型特定的行为。
+            </div>
+        </div>
+        
+        <div class="method">
+            <h4>message_update</h4>
+            <p>基于传入邮件更新现有记录。</p>
+        </div>
+    </div>
+    
+    <h2>上下文键控制</h2>
+    <p>MailThread功能可以通过上下文键进行控制：</p>
+    <ul>
+        <li><code>mail_create_nosubscribe</code>：创建记录或发布消息时不自动订阅当前用户</li>
+        <li><code>mail_create_nolog</code>：创建记录时不记录自动的"创建"消息</li>
+        <li><code>mail_notrack</code>：创建和写入时不跟踪值变化</li>
+        <li><code>tracking_disable</code>：禁用所有MailThread功能（自动订阅、跟踪、发布等）</li>
+        <li><code>mail_notify_force_send</code>：如果少于50个电子邮件通知，直接发送而不使用队列</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模型中使用MailThread？下面是一个简单的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>class Project(models.Model):
+    _name = 'project.project'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
+    _description = '项目'
+    
+    name = fields.Char('名称', required=True, tracking=True)
+    description = fields.Text('描述')
+    partner_id = fields.Many2one('res.partner', string='客户', tracking=True)
+    date_start = fields.Date('开始日期', tracking=True)
+    date_end = fields.Date('结束日期')
+    
+    # 重写方法以自定义行为
+    def message_new(self, msg_dict, custom_values=None):
+        """从传入邮件创建新项目"""
+        custom_values = custom_values or {}
+        
+        # 尝试从邮件主题提取项目名称
+        if msg_dict.get('subject'):
+            custom_values['name'] = msg_dict['subject']
+        
+        # 调用超类以创建记录
+        return super(Project, self).message_new(msg_dict, custom_values)</code></pre>
+    </div>
+    
+    <h3>字段追踪设置</h3>
+    <p>要启用字段追踪，只需将<code>tracking=True</code>添加到字段定义：</p>
+    <div class="code-block">
+        <pre><code>name = fields.Char('名称', required=True, tracking=True)
+status = fields.Selection([
+    ('draft', '草稿'),
+    ('in_progress', '进行中'),
+    ('done', '完成')
+], string='状态', default='draft', tracking=True)</code></pre>
+    </div>
+    
+    <p>您还可以通过<code>tracking</code>属性指定追踪优先级（较低的数字优先显示）：</p>
+    <div class="code-block">
+        <pre><code>priority = fields.Selection([
+    ('0', '低'),
+    ('1', '中'),
+    ('2', '高'),
+], tracking=10)  # 优先级为10
+name = fields.Char('名称', tracking=5)  # 优先级为5，会在priority之前显示</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ol>
+        <li>当您需要任何类型的消息、通知或跟踪功能时，请继承<code>mail.thread</code></li>
+        <li>如果还需要活动功能（待办事项），同时继承<code>mail.activity.mixin</code></li>
+        <li>对重要或经常变化的字段使用<code>tracking=True</code></li>
+        <li>重写<code>_track_subtype</code>和<code>_track_template</code>以自定义字段变更后发送的消息</li>
+        <li>使用<code>message_post</code>而不是直接创建<code>mail.message</code>记录</li>
+        <li>使用上下文键有选择地禁用跟踪和消息发布，以避免不必要的通知</li>
+    </ol>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>在Odoo 18中，MailThread功能有以下显著改进：</p>
+    <ul>
+        <li>添加了Web推送通知支持(<code>_notify_thread_by_web_push</code>)</li>
+        <li>改进了性能，特别是在处理大量通知时</li>
+        <li>增强了邮件路由和处理逻辑</li>
+        <li>提供了更好的字段跟踪序列控制</li>
+        <li>支持更多富文本和格式化内容</li>
+        <li>改进了线程安全性和并发处理</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>MailThread是Odoo中用于社交协作和通信的基础组件。它提供了：</p>
+    <ul>
+        <li>全面的消息传递和讨论功能</li>
+        <li>字段变更的自动跟踪和记录</li>
+        <li>灵活的通知系统，支持多种通知方式</li>
+        <li>与电子邮件系统的双向集成</li>
+        <li>关注者和订阅管理</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计需要用户交互、协作或通知功能的模型时，应始终考虑继承<code>mail.thread</code>。这将为您的模型提供Odoo标准的社交和通信功能，大大减少开发工作量。
+    </div>
+</body>
+</html> 

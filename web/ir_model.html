@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模型信息扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模型信息扩展系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_model.py</code>是Odoo框架中扩展<code>ir.model</code>模型的模块，它增强了模型的元信息功能。该模块主要提供了与模型显示名称、可用模型获取以及模型定义信息相关的功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>IR Model扩展模块为前端组件（如选择器、编辑器等）提供模型的元信息，便于动态获取和展示模型信息，同时处理模型访问权限控制。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>模型显示名称获取</strong>：获取指定模型的用户友好显示名称</li>
+        <li><strong>模型访问权限检查</strong>：验证用户是否可以访问特定模型</li>
+        <li><strong>可用模型列表获取</strong>：获取当前用户可访问的所有模型列表</li>
+        <li><strong>模型定义信息获取</strong>：获取模型的详细定义信息，包括字段、继承关系等</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>模型显示名称获取</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def display_name_for(self, models):
+    """
+    返回当前用户可以访问的提供的模型的显示名称。
+    无论是尝试访问不存在的模型还是无法访问的模型，结果都是一样的。
+    :models list(str): 要查找的技术模型名称列表 (例如 `["res.partner"]`)
+    :return: 格式为 `{ "model", "display_name" }` 的字典列表 (例如 `{ "model": "res_partner", "display_name": "联系人"}`)
+    """
+    # 将可访问模型存储在临时列表中，以便只执行一次SQL查询
+    accessible_models = []
+    not_accessible_models = []
+    for model in models:
+        if self._is_valid_for_model_selector(model):
+            accessible_models.append(model)
+        else:
+            not_accessible_models.append({"display_name": model, "model": model})
+    return self._display_name_for(accessible_models) + not_accessible_models</code></pre>
+    </div>
+    <p>这个方法接收一个模型技术名称列表，返回这些模型的用户友好显示名称。它首先检查哪些模型是当前用户可以访问的，然后只对这些模型查询显示名称。对于不可访问的模型，直接返回技术名称作为显示名称。</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+def _display_name_for(self, models):
+    records = self.sudo().search_read([("model", "in", models)], ["name", "model"])
+    return [{
+        "display_name": model["name"],
+        "model": model["model"],
+    } for model in records]</code></pre>
+    </div>
+    <p>这是一个内部方法，用于实际获取模型的显示名称。它使用sudo()以管理员权限查询，确保能够读取所有模型的元信息。</p>
+    
+    <h3>模型访问权限检查</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _is_valid_for_model_selector(self, model):
+    model = self.env.get(model)
+    return (
+        self.env.user._is_internal()
+        and model is not None
+        and model.has_access("read")
+        and not model._transient
+        and not model._abstract
+    )</code></pre>
+    </div>
+    <p>这个方法检查一个模型是否对当前用户有效，考虑以下几个条件：</p>
+    <ul>
+        <li>用户必须是内部用户（非门户或公共用户）</li>
+        <li>模型必须存在</li>
+        <li>用户必须对该模型有读取权限</li>
+        <li>模型不能是瞬态模型（TransientModel）</li>
+        <li>模型不能是抽象模型（AbstractModel）</li>
+    </ul>
+    
+    <h3>可用模型列表获取</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def get_available_models(self):
+    """
+    返回当前用户有权访问的模型列表，带有相应的显示名称。
+    """
+    accessible_models = [model for model in self.pool if self._is_valid_for_model_selector(model)]
+    return self._display_name_for(accessible_models)</code></pre>
+    </div>
+    <p>这个方法返回当前用户可以访问的所有模型，并包含它们的显示名称。它首先从所有已加载的模型中筛选出当前用户可访问的模型，然后获取它们的显示名称。</p>
+    
+    <h3>模型定义信息获取</h3>
+    <div class="code-block">
+        <pre><code>def _get_definitions(self, model_names):
+    model_definitions = {}
+    for model_name in model_names:
+        model = self.env[model_name]
+        # 获取字段，只保留关联模型在model_names中的关系字段
+        fields_data_by_fname = {
+            fname: field_data
+            for fname, field_data in model.fields_get(
+                attributes={
+                    'definition_record_field', 'definition_record', 'aggregator',
+                    'name', 'readonly', 'related', 'relation', 'required', 'searchable',
+                    'selection', 'sortable', 'store', 'string', 'tracking', 'type',
+                },
+            ).items()
+            if field_data.get('selectable', True) and (
+                not field_data.get('relation') or field_data['relation'] in model_names
+            )
+        }
+        fields_data_by_fname = {
+            fname: field_data
+            for fname, field_data in fields_data_by_fname.items()
+            if not field_data.get('related') or field_data['related'].split('.')[0] in fields_data_by_fname
+        }
+        for fname, field_data in fields_data_by_fname.items():
+            if fname in model._fields:
+                inverse_fields = [
+                    field for field in model.pool.field_inverses[model._fields[fname]]
+                    if field.model_name in model_names
+                ]
+                if inverse_fields:
+                    field_data['inverse_fname_by_model_name'] = {field.model_name: field.name for field in inverse_fields}
+                if field_data['type'] == 'many2one_reference':
+                    field_data['model_name_ref_fname'] = model._fields[fname].model_field
+        model_definitions[model_name] = {
+            'description': model._description,
+            'fields': fields_data_by_fname,
+            'inherit': [model_name for model_name in model._inherit_module if model_name in model_names],
+            'order': model._order,
+            'parent_name': model._parent_name,
+            'rec_name': model._rec_name,
+        }
+    return model_definitions</code></pre>
+    </div>
+    <p>这个方法获取一组模型的详细定义信息，包括：</p>
+    <ul>
+        <li>模型描述</li>
+        <li>字段定义（只包含符合条件的字段）</li>
+        <li>继承关系</li>
+        <li>排序规则</li>
+        <li>父字段名称</li>
+        <li>记录名称字段</li>
+    </ul>
+    <p>特别是，它还处理了反向关系字段和特殊类型字段（如many2one_reference）的额外信息。</p>
+    
+    <h2>使用场景</h2>
+    
+    <h3>1. 前端模型选择器</h3>
+    <div class="code-block">
+        <pre><code># 在JS中获取可用模型列表
+odoo.jsonRpc('/web/dataset/call_kw/ir.model/get_available_models', 'call', {
+    model: 'ir.model',
+    method: 'get_available_models',
+    args: [],
+    kwargs: {},
+}).then(function(result) {
+    // 结果形如: [{ model: 'res.partner', display_name: '联系人' }, ...]
+    // 处理结果...
+});</code></pre>
+    </div>
+    <p>这个场景用于在前端界面中创建模型选择下拉列表，显示当前用户可访问的所有模型。</p>
+    
+    <h3>2. 获取模型显示名称</h3>
+    <div class="code-block">
+        <pre><code># 在Python中获取指定模型的显示名称
+models_to_check = ['res.partner', 'product.product', 'non.existent.model']
+display_names = self.env['ir.model'].display_name_for(models_to_check)
+# 结果形如: [
+#   { 'model': 'res.partner', 'display_name': '联系人' },
+#   { 'model': 'product.product', 'display_name': '产品' },
+#   { 'model': 'non.existent.model', 'display_name': 'non.existent.model' }
+# ]</code></pre>
+    </div>
+    <p>这个场景用于获取一组模型的用户友好显示名称，即使其中包含不存在或用户无权访问的模型。</p>
+    
+    <h3>3. 获取模型定义</h3>
+    <div class="code-block">
+        <pre><code># 在Python中获取模型定义信息
+models_to_define = ['res.partner', 'res.company']
+definitions = self.env['ir.model']._get_definitions(models_to_define)
+# 结果包含模型的详细定义，包括字段、继承关系等</code></pre>
+    </div>
+    <p>这个场景用于获取一组相关模型的详细定义信息，通常用于动态生成UI或进行复杂的元编程。</p>
+    
+    <h2>在Odoo 18中的特点</h2>
+    <ul>
+        <li><strong>更强大的模型选择器支持</strong>：提供更完善的模型选择器相关API</li>
+        <li><strong>精确的权限控制</strong>：只返回用户有权访问的模型和字段</li>
+        <li><strong>反向关系处理</strong>：自动提供字段的反向关系信息</li>
+        <li><strong>性能优化</strong>：通过批量查询减少数据库访问</li>
+        <li><strong>特殊字段支持</strong>：提供对many2one_reference等特殊字段的支持</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>提示：</strong>在使用模型信息API时，请注意：
+        <ul>
+            <li>使用display_name_for代替循环单独查询每个模型名称，以减少数据库查询</li>
+            <li>记住_get_definitions返回的是模型定义的子集，只包含指定的字段属性</li>
+            <li>避免在循环中频繁调用这些方法，它们可能会导致大量数据库查询</li>
+            <li>对于频繁使用的结果，考虑在应用级别进行缓存</li>
+            <li>注意模型访问权限，只有内部用户才能访问大多数模型</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>IR Model扩展模块提供了一组强大的工具，用于处理Odoo模型的元信息：</p>
+    <ul>
+        <li>获取用户友好的模型显示名称</li>
+        <li>获取当前用户可访问的模型列表</li>
+        <li>检查模型访问权限</li>
+        <li>获取模型的详细定义信息</li>
+    </ul>
+    
+    <p>这些功能对于创建动态UI组件、自定义报表和数据可视化工具非常有用，使开发人员能够以统一的方式获取和处理模型信息。</p>
+</body>
+</html> 

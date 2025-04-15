@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo领域选择器对话框解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo领域选择器对话框解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>domain_selector_dialog.js</code>是Odoo框架中的一个用户界面组件，它将领域选择器(Domain Selector)封装在对话框(Dialog)中，为用户提供了一个弹出式的复杂条件构建界面。该组件在需要用户交互式构建查询条件并确认结果时非常有用，是Odoo高级UI交互的重要组成部分。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>领域选择器对话框为用户提供了一个直观的方式来构建、测试和确认复杂的领域表达式，适用于报表筛选、高级搜索和数据规则定义等场景。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>弹出式界面</strong>：以模态对话框形式展示领域选择器</li>
+        <li><strong>领域构建</strong>：集成完整的领域选择器功能</li>
+        <li><strong>领域验证</strong>：在保存前验证领域表达式的有效性</li>
+        <li><strong>确认机制</strong>：提供确认和取消操作</li>
+        <li><strong>自定义按钮</strong>：支持自定义按钮文本和禁用逻辑</li>
+        <li><strong>上下文集成</strong>：支持传递额外上下文到领域评估</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>DomainSelectorDialog组件是一个结构清晰的Owl组件，它将Dialog和DomainSelector组合在一起。下面是其核心结构：</p>
+    
+    <div class="code-block">
+        <pre><code>export class DomainSelectorDialog extends Component {
+    static template = "web.DomainSelectorDialog";
+    static components = {
+        Dialog,
+        DomainSelector,
+    };
+    static props = {
+        close: Function,
+        onConfirm: Function,
+        resModel: String,
+        className: { type: String, optional: true },
+        defaultConnector: { type: [{ value: "&" }, { value: "|" }], optional: true },
+        domain: String,
+        isDebugMode: { type: Boolean, optional: true },
+        readonly: { type: Boolean, optional: true },
+        text: { type: String, optional: true },
+        confirmButtonText: { type: String, optional: true },
+        disableConfirmButton: { type: Function, optional: true },
+        discardButtonText: { type: String, optional: true },
+        title: { type: String, optional: true },
+        context: { type: Object, optional: true },
+    };
+    static defaultProps = {
+        isDebugMode: false,
+        readonly: false,
+        context: {},
+    };</code></pre>
+    </div>
+    
+    <h3>组件属性详解</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>默认值</th>
+        </tr>
+        <tr>
+            <td>close</td>
+            <td>Function</td>
+            <td>关闭对话框的函数</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>onConfirm</td>
+            <td>Function</td>
+            <td>确认按钮点击时的回调函数</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>resModel</td>
+            <td>String</td>
+            <td>目标模型名称</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>domain</td>
+            <td>String</td>
+            <td>初始领域表达式</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>className</td>
+            <td>String</td>
+            <td>附加CSS类名</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>defaultConnector</td>
+            <td>String</td>
+            <td>默认连接符("&"或"|")</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>isDebugMode</td>
+            <td>Boolean</td>
+            <td>是否启用调试模式</td>
+            <td>false</td>
+        </tr>
+        <tr>
+            <td>readonly</td>
+            <td>Boolean</td>
+            <td>是否只读</td>
+            <td>false</td>
+        </tr>
+        <tr>
+            <td>confirmButtonText</td>
+            <td>String</td>
+            <td>确认按钮文本</td>
+            <td>"确认"</td>
+        </tr>
+        <tr>
+            <td>disableConfirmButton</td>
+            <td>Function</td>
+            <td>控制确认按钮禁用状态的函数</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>discardButtonText</td>
+            <td>String</td>
+            <td>取消按钮文本</td>
+            <td>"取消"</td>
+        </tr>
+        <tr>
+            <td>title</td>
+            <td>String</td>
+            <td>对话框标题</td>
+            <td>"领域"</td>
+        </tr>
+        <tr>
+            <td>context</td>
+            <td>Object</td>
+            <td>额外上下文对象</td>
+            <td>{}</td>
+        </tr>
+    </table>
+    
+    <h3>核心方法解析</h3>
+    
+    <div class="method-analysis">
+        <h4>setup()</h4>
+        <p>组件初始化方法，设置服务和状态：</p>
+        <div class="code-block">
+            <pre><code>setup() {
+    this.notification = useService("notification");
+    this.orm = useService("orm");
+    this.state = useState({ domain: this.props.domain });
+    this.confirmButtonRef = useRef("confirm");
+}</code></pre>
+        </div>
+        <ul>
+            <li>获取通知服务(notification)和ORM服务</li>
+            <li>初始化状态，保存当前领域表达式</li>
+            <li>创建确认按钮的引用，用于后续操作</li>
+        </ul>
+    </div>
+    
+    <div class="method-analysis">
+        <h4>getter方法</h4>
+        <p>组件中定义了多个getter方法，用于计算不同UI元素的文本和状态：</p>
+        <div class="code-block">
+            <pre><code>get confirmButtonText() {
+    return this.props.confirmButtonText || _t("Confirm");
+}
+
+get dialogTitle() {
+    return this.props.title || _t("Domain");
+}
+
+get disabled() {
+    if (this.props.disableConfirmButton) {
+        return this.props.disableConfirmButton(this.state.domain);
+    }
+    return false;
+}
+
+get discardButtonText() {
+    return this.props.discardButtonText || _t("Discard");
+}
+
+get domainSelectorProps() {
+    return {
+        className: this.props.className,
+        resModel: this.props.resModel,
+        readonly: this.props.readonly,
+        isDebugMode: this.props.isDebugMode,
+        defaultConnector: this.props.defaultConnector,
+        domain: this.state.domain,
+        update: (domain) => {
+            this.state.domain = domain;
+        },
+    };
+}</code></pre>
+        </div>
+        <p>这些getter方法为Dialog和DomainSelector组件提供所需属性，实现了属性的传递和默认值处理。</p>
+    </div>
+    
+    <div class="method-analysis">
+        <h4>onConfirm()</h4>
+        <p>处理确认按钮点击的核心方法：</p>
+        <div class="code-block">
+            <pre><code>async onConfirm() {
+    this.confirmButtonRef.el.disabled = true;
+    let domain;
+    let isValid;
+    try {
+        const evalContext = { ...user.context, ...this.props.context };
+        domain = new Domain(this.state.domain).toList(evalContext);
+    } catch {
+        isValid = false;
+    }
+    if (isValid === undefined) {
+        isValid = await rpc("/web/domain/validate", {
+            model: this.props.resModel,
+            domain,
+        });
+    }
+    if (!isValid) {
+        if (this.confirmButtonRef.el) {
+            this.confirmButtonRef.el.disabled = false;
+        }
+        this.notification.add(_t("Domain is invalid. Please correct it"), {
+            type: "danger",
+        });
+        return;
+    }
+    this.props.onConfirm(this.state.domain);
+    this.props.close();
+}</code></pre>
+        </div>
+        <ul>
+            <li>禁用确认按钮，防止重复提交</li>
+            <li>尝试解析和验证领域表达式</li>
+            <li>如果本地验证未确定，调用服务器API验证</li>
+            <li>对于无效领域，显示错误提示</li>
+            <li>对于有效领域，调用确认回调并关闭对话框</li>
+        </ul>
+    </div>
+    
+    <div class="method-analysis">
+        <h4>onDiscard()</h4>
+        <p>处理取消按钮点击的方法：</p>
+        <div class="code-block">
+            <pre><code>onDiscard() {
+    this.props.close();
+}</code></pre>
+        </div>
+        <p>简单地调用传入的close函数关闭对话框，不保存任何更改。</p>
+    </div>
+    
+    <h2>使用场景和示例</h2>
+    
+    <h3>基本使用示例</h3>
+    
+    <div class="code-block">
+        <pre><code>import { DomainSelectorDialog } from "@web/core/domain_selector_dialog/domain_selector_dialog";
+
+class MyComponent extends Component {
+    setup() {
+        this.dialogService = useService("dialog");
+        this.state = useState({
+            domain: "[]",
+        });
+    }
+    
+    openDomainDialog() {
+        this.dialogService.add(DomainSelectorDialog, {
+            resModel: "product.template",
+            domain: this.state.domain,
+            title: "产品筛选条件",
+            onConfirm: (domain) => {
+                this.state.domain = domain;
+                this.applyFilter();
+            },
+        });
+    }
+    
+    applyFilter() {
+        // 应用筛选逻辑
+    }
+}</code></pre>
+    </div>
+    <p>这个示例展示了如何在组件中使用对话服务打开一个领域选择器对话框，并在用户确认时更新和应用筛选条件。</p>
+    
+    <h3>高级配置示例</h3>
+    
+    <div class="code-block">
+        <pre><code>this.dialogService.add(DomainSelectorDialog, {
+    resModel: "sale.order",
+    domain: `[("state", "in", ["draft", "sent"]), ("date_order", ">=", "2023-01-01")]`,
+    defaultConnector: "|", // 使用OR连接符作为默认
+    isDebugMode: true, // 启用调试模式
+    confirmButtonText: "应用筛选",
+    discardButtonText: "放弃更改",
+    title: "销售订单筛选器",
+    context: {
+        allowed_company_ids: [1, 2, 3],
+        default_lang: "zh_CN"
+    },
+    disableConfirmButton: (domain) => {
+        // 只有当领域包含state条件时才启用确认按钮
+        return !domain.includes("state");
+    },
+    onConfirm: (domain) => {
+        console.log("用户确认的领域:", domain);
+        this.applyAdvancedFilter(domain);
+    },
+});</code></pre>
+    </div>
+    <p>此示例展示了DomainSelectorDialog的高级配置选项，包括自定义按钮文本、条件禁用逻辑和额外上下文。</p>
+    
+    <h3>报表筛选器示例</h3>
+    
+    <div class="code-block">
+        <pre><code>class ReportFilterManager {
+    constructor(dialogService, notificationService) {
+        this.dialogService = dialogService;
+        this.notificationService = notificationService;
+        this.filters = {};
+    }
+    
+    editFilter(modelName, filterName, currentDomain) {
+        this.dialogService.add(DomainSelectorDialog, {
+            resModel: modelName,
+            domain: currentDomain || "[]",
+            title: `编辑"${filterName}"筛选条件`,
+            confirmButtonText: "保存筛选器",
+            async onConfirm(domain) {
+                try {
+                    // 保存筛选器逻辑
+                    this.filters[filterName] = domain;
+                    this.notificationService.add(
+                        `筛选器"${filterName}"已保存`, 
+                        { type: "success" }
+                    );
+                } catch (error) {
+                    this.notificationService.add(
+                        `保存筛选器失败: ${error.message}`, 
+                        { type: "danger" }
+                    );
+                }
+            },
+        });
+    }
+}</code></pre>
+    </div>
+    <p>这个示例展示了如何创建一个报表筛选器管理器，使用DomainSelectorDialog让用户编辑和保存命名的筛选条件。</p>
+    
+    <h2>与其他模块的交互</h2>
+    
+    <p><code>domain_selector_dialog.js</code>模块与多个Odoo核心服务和组件集成：</p>
+    
+    <div class="module-interaction">
+        <div class="module-item">
+            <h4>Dialog组件</h4>
+            <p>作为基础对话框组件，提供模态框架和基本交互。</p>
+        </div>
+        <div class="module-item">
+            <h4>DomainSelector组件</h4>
+            <p>核心功能组件，提供领域构建和编辑功能。</p>
+        </div>
+        <div class="module-item">
+            <h4>NotificationService</h4>
+            <p>用于显示操作结果和错误提示。</p>
+        </div>
+        <div class="module-item">
+            <h4>ORM服务</h4>
+            <p>在某些实现中用于执行额外的服务器端验证或操作。</p>
+        </div>
+        <div class="module-item">
+            <h4>RPC服务</h4>
+            <p>用于验证领域表达式的有效性。</p>
+        </div>
+    </div>
+    
+    <h2>领域验证机制</h2>
+    
+    <p>DomainSelectorDialog实现了两层验证机制：</p>
+    
+    <div class="validation-process">
+        <div class="step">
+            <h4>1. 客户端验证</h4>
+            <p>首先尝试使用Domain类解析领域表达式，这可以捕获语法错误和基本结构问题。</p>
+            <div class="code-block">
+                <pre><code>try {
+    const evalContext = { ...user.context, ...this.props.context };
+    domain = new Domain(this.state.domain).toList(evalContext);
+} catch {
+    isValid = false;
+}</code></pre>
+            </div>
+        </div>
+        <div class="step">
+            <h4>2. 服务器端验证</h4>
+            <p>如果客户端验证通过，还会调用服务器API进行更深入的验证，确保领域在目标模型上是有效的。</p>
+            <div class="code-block">
+                <pre><code>isValid = await rpc("/web/domain/validate", {
+    model: this.props.resModel,
+    domain,
+});</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    
+    <div class="warning">
+        <strong>上下文传递：</strong>当领域表达式中包含需要上下文求值的动态部分(如<code>context_today()</code>)时，确保通过context属性传递所有必要的上下文变量。
+    </div>
+    
+    <ul>
+        <li><strong>禁用确认按钮</strong>：对于特定业务需求，使用disableConfirmButton属性实现条件禁用逻辑</li>
+        <li><strong>错误处理</strong>：始终处理onConfirm回调中可能发生的错误，确保用户收到适当的反馈</li>
+        <li><strong>模型验证</strong>：始终设置正确的resModel，这对领域验证至关重要</li>
+        <li><strong>调试模式</strong>：对于复杂或技术用户，考虑启用isDebugMode以允许直接编辑原始领域</li>
+        <li><strong>性能考虑</strong>：对于非常复杂的模型或大量字段，领域选择器可能加载较慢，考虑添加加载指示器</li>
+        <li><strong>国际化</strong>：确保使用_t函数包装所有用户可见的字符串，支持翻译</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，领域选择器对话框有以下改进：</p>
+    <ul>
+        <li>更可靠的领域验证机制</li>
+        <li>改进的错误处理和用户反馈</li>
+        <li>与用户上下文的更好集成</li>
+        <li>支持更多领域表达式功能</li>
+        <li>改进的按钮控制逻辑</li>
+        <li>更好的键盘导航和辅助功能</li>
+    </ul>
+    
+    <h2>模板结构</h2>
+    
+    <p>DomainSelectorDialog使用以下XML模板结构：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;Dialog 
+    title="dialogTitle" 
+    size="'xl'" 
+    contentClass="'o_domain_selector_dialog_content'"
+&gt;
+    &lt;DomainSelector 
+        t-props="domainSelectorProps"
+    /&gt;
+    &lt;t t-set-slot="footer"&gt;
+        &lt;button 
+            t-ref="confirm" 
+            class="btn btn-primary" 
+            t-on-click="onConfirm" 
+            t-att-disabled="disabled"
+        &gt;
+            &lt;t t-esc="confirmButtonText"/&gt;
+        &lt;/button&gt;
+        &lt;button 
+            class="btn btn-secondary" 
+            t-on-click="onDiscard"
+        &gt;
+            &lt;t t-esc="discardButtonText"/&gt;
+        &lt;/button&gt;
+    &lt;/t&gt;
+&lt;/Dialog&gt;</code></pre>
+    </div>
+    
+    <p>这个模板定义了一个大尺寸(xl)的对话框，包含一个DomainSelector组件和两个底部按钮。</p>
+    
+    <h2>小结</h2>
+    <p><code>DomainSelectorDialog</code>组件是Odoo中的重要UI元素，它：</p>
+    <ul>
+        <li>为用户提供友好的领域表达式构建界面</li>
+        <li>实现完整的验证机制确保领域有效</li>
+        <li>提供灵活的配置选项适应不同场景</li>
+        <li>与Odoo的对话框系统无缝集成</li>
+        <li>支持高级功能如条件按钮禁用和上下文处理</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在需要用户交互式构建并确认领域表达式的场景中，DomainSelectorDialog是首选组件。它提供了完整的验证和与用户交互的能力，同时保持了与Odoo其他部分的一致界面风格。
+    </div>
+</body>
+</html> 

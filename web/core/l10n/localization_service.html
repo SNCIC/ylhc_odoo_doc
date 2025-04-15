@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo本地化服务模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo本地化服务模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>localization_service.js</code>是Odoo框架中的核心本地化服务模块，负责初始化和加载应用程序的本地化设置，包括日期/时间格式、数字格式和翻译等。它确保用户界面能够以用户预期的语言和格式显示信息。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>本地化服务是Odoo前端框架中的核心服务之一，它在应用启动时加载语言配置和翻译数据，为整个应用提供统一的本地化支持。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>加载翻译数据</strong>：从服务器获取当前语言环境的翻译文本</li>
+        <li><strong>初始化日期和时间格式</strong>：根据用户语言设置配置日期和时间的显示格式</li>
+        <li><strong>设置数字格式</strong>：配置千位分隔符、小数点等数字显示方式</li>
+        <li><strong>配置文本方向</strong>：支持从左到右(LTR)和从右到左(RTL)的语言布局</li>
+        <li><strong>设置星期开始日</strong>：根据区域习惯确定一周的第一天</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>localization_service是一个简洁而强大的服务模块，它的核心功能是初始化本地化配置。让我们来看看它的主要实现：</p>
+    
+    <div class="code-block">
+        <pre><code>export const localizationService = {
+    start: async () => {
+        const cacheHashes = session.cache_hashes || {};
+        const translationsHash = cacheHashes.translations || new Date().getTime().toString();
+        const lang = jsToPyLocale(user.lang || document.documentElement.getAttribute("lang"));
+        const translationURL = session.translationURL || "/web/webclient/translations";
+        let url = `${translationURL}/${translationsHash}`;
+        if (lang) {
+            url += `?lang=${lang}`;
+        }
+
+        const response = await browser.fetch(url);
+        if (!response.ok) {
+            throw new Error("Error while fetching translations");
+        }
+
+        const {
+            lang_parameters: userLocalization,
+            modules: modules,
+            multi_lang: multiLang,
+        } = await response.json();
+
+        // 处理翻译数据
+        const terms = {};
+        for (const addon of Object.keys(modules)) {
+            for (const message of modules[addon].messages) {
+                terms[message.id] = message.string;
+            }
+        }
+
+        Object.assign(translatedTerms, terms);
+        translatedTerms[translationLoaded] = true;
+        translationIsReady.resolve(true);
+
+        // 配置Luxon日期库的本地化设置
+        const locale = user.lang || browser.navigator.language;
+        Settings.defaultLocale = locale;
+        for (const [re, numberingSystem] of NUMBERING_SYSTEMS) {
+            if (re.test(locale)) {
+                Settings.defaultNumberingSystem = numberingSystem;
+                break;
+            }
+        }
+
+        // 设置本地化参数
+        const dateFormat = strftimeToLuxonFormat(userLocalization.date_format);
+        const timeFormat = strftimeToLuxonFormat(userLocalization.time_format);
+        const shortTimeFormat = strftimeToLuxonFormat(userLocalization.short_time_format);
+        const dateTimeFormat = `${dateFormat} ${timeFormat}`;
+        const grouping = JSON.parse(userLocalization.grouping);
+
+        Object.assign(localization, {
+            dateFormat,
+            timeFormat,
+            shortTimeFormat,
+            dateTimeFormat,
+            decimalPoint: userLocalization.decimal_point,
+            direction: userLocalization.direction,
+            grouping,
+            multiLang,
+            thousandsSep: userLocalization.thousands_sep,
+            weekStart: userLocalization.week_start,
+            code: jsToPyLocale(locale),
+        });
+        return localization;
+    },
+};</code></pre>
+    </div>
+    
+    <h3>核心方法解释</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>start</td>
+            <td>服务启动方法，加载和初始化所有本地化设置</td>
+            <td>无</td>
+            <td>返回初始化后的localization对象</td>
+        </tr>
+    </table>
+    
+    <h3>关键操作详解</h3>
+    <ol>
+        <li>
+            <strong>获取语言设置</strong>
+            <p>从用户配置或HTML文档的lang属性获取当前语言代码，并进行JavaScript到Python格式的转换</p>
+            <div class="code-block">
+                <pre><code>const lang = jsToPyLocale(user.lang || document.documentElement.getAttribute("lang"));</code></pre>
+            </div>
+        </li>
+        <li>
+            <strong>获取翻译数据</strong>
+            <p>构建翻译数据URL并发送请求获取翻译信息</p>
+            <div class="code-block">
+                <pre><code>const response = await browser.fetch(url);
+const { lang_parameters, modules, multi_lang } = await response.json();</code></pre>
+            </div>
+        </li>
+        <li>
+            <strong>处理翻译信息</strong>
+            <p>遍历所有模块的翻译消息，构建翻译术语表</p>
+            <div class="code-block">
+                <pre><code>for (const addon of Object.keys(modules)) {
+    for (const message of modules[addon].messages) {
+        terms[message.id] = message.string;
+    }
+}</code></pre>
+            </div>
+        </li>
+        <li>
+            <strong>配置日期库</strong>
+            <p>设置Luxon日期库的区域和数字系统</p>
+            <div class="code-block">
+                <pre><code>Settings.defaultLocale = locale;
+for (const [re, numberingSystem] of NUMBERING_SYSTEMS) {
+    if (re.test(locale)) {
+        Settings.defaultNumberingSystem = numberingSystem;
+        break;
+    }
+}</code></pre>
+            </div>
+        </li>
+        <li>
+            <strong>初始化本地化对象</strong>
+            <p>将服务器返回的本地化参数转换为客户端格式并设置到localization对象中</p>
+            <div class="code-block">
+                <pre><code>Object.assign(localization, {
+    dateFormat,
+    timeFormat,
+    shortTimeFormat,
+    dateTimeFormat,
+    decimalPoint: userLocalization.decimal_point,
+    direction: userLocalization.direction,
+    grouping,
+    multiLang,
+    thousandsSep: userLocalization.thousands_sep,
+    weekStart: userLocalization.week_start,
+    code: jsToPyLocale(locale),
+});</code></pre>
+            </div>
+        </li>
+    </ol>
+    
+    <h2>NUMBERING_SYSTEMS常量</h2>
+    <p>该常量定义了不同语言区域使用的数字系统映射，用于配置Luxon日期库：</p>
+    
+    <div class="code-block">
+        <pre><code>const NUMBERING_SYSTEMS = [
+    [/^ar-(sa|sy|001)$/i, "arab"],  // 阿拉伯数字系统
+    [/^bn/i, "beng"],               // 孟加拉文数字系统
+    [/^bo/i, "tibt"],               // 藏文数字系统
+    [/^pa-in/i, "guru"],            // 古鲁穆奇字体
+    [/^ta/i, "tamldec"],            // 泰米尔数字系统
+    [/.*/i, "latn"],                // 默认拉丁数字系统
+];</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>localization_service的工作流程可以概括为以下几个步骤：</p>
+    
+    <div class="flow-diagram">
+        <h3>本地化服务初始化流程</h3>
+        <ol>
+            <li>Odoo框架启动时注册并启动localization_service</li>
+            <li>服务确定当前用户的语言设置</li>
+            <li>从服务器获取语言参数和翻译数据</li>
+            <li>处理翻译数据并填充翻译术语表</li>
+            <li>配置Luxon日期库的区域设置</li>
+            <li>初始化本地化对象并返回</li>
+            <li>其他组件通过导入localization对象获取本地化设置</li>
+        </ol>
+    </div>
+    
+    <h2>本地化对象属性</h2>
+    <p>初始化后的localization对象包含以下关键属性：</p>
+    
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>示例值</th>
+        </tr>
+        <tr>
+            <td>dateFormat</td>
+            <td>String</td>
+            <td>日期格式化字符串</td>
+            <td>"yyyy-MM-dd"</td>
+        </tr>
+        <tr>
+            <td>timeFormat</td>
+            <td>String</td>
+            <td>时间格式化字符串</td>
+            <td>"HH:mm:ss"</td>
+        </tr>
+        <tr>
+            <td>dateTimeFormat</td>
+            <td>String</td>
+            <td>日期时间格式化字符串</td>
+            <td>"yyyy-MM-dd HH:mm:ss"</td>
+        </tr>
+        <tr>
+            <td>decimalPoint</td>
+            <td>String</td>
+            <td>小数点符号</td>
+            <td>"."</td>
+        </tr>
+        <tr>
+            <td>direction</td>
+            <td>String</td>
+            <td>文本方向(ltr/rtl)</td>
+            <td>"ltr"</td>
+        </tr>
+        <tr>
+            <td>grouping</td>
+            <td>Array</td>
+            <td>数字分组策略</td>
+            <td>[3, 0]</td>
+        </tr>
+        <tr>
+            <td>multiLang</td>
+            <td>Boolean</td>
+            <td>是否支持多语言</td>
+            <td>true</td>
+        </tr>
+        <tr>
+            <td>thousandsSep</td>
+            <td>String</td>
+            <td>千位分隔符</td>
+            <td>","</td>
+        </tr>
+        <tr>
+            <td>weekStart</td>
+            <td>Number</td>
+            <td>一周的第一天(0=周日,1=周一)</td>
+            <td>1</td>
+        </tr>
+        <tr>
+            <td>code</td>
+            <td>String</td>
+            <td>语言/区域代码</td>
+            <td>"zh_CN"</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    <p>下面是几个使用localization对象的实际场景：</p>
+    
+    <h3>示例1：格式化日期</h3>
+    <div class="code-block">
+        <pre><code>import { localization } from "@web/core/l10n/localization";
+import { DateTime } from "luxon";
+
+function formatMyDate(date) {
+    const dt = DateTime.fromJSDate(date);
+    return dt.toFormat(localization.dateFormat);
+}
+
+// 使用范例
+const formattedDate = formatMyDate(new Date()); // 例如输出 "2023-10-15"</code></pre>
+    </div>
+    
+    <h3>示例2：根据文本方向调整UI</h3>
+    <div class="code-block">
+        <pre><code>import { localization } from "@web/core/l10n/localization";
+import { Component } from "@odoo/owl";
+
+class MyComponent extends Component {
+    setup() {
+        this.isRTL = localization.direction === "rtl";
+    }
+}
+
+// 在模板中使用
+// &lt;div t-attf-class="my-component {{ isRTL ? 'rtl-layout' : '' }}"&gt;</code></pre>
+    </div>
+    
+    <h3>示例3：格式化数字</h3>
+    <div class="code-block">
+        <pre><code>import { localization } from "@web/core/l10n/localization";
+
+function formatNumber(number) {
+    // 简单实现，实际使用时建议使用专门的格式化函数
+    const parts = number.toString().split('.');
+    const integerPart = parts[0];
+    const decimalPart = parts.length > 1 ? parts[1] : '';
+    
+    // 添加千位分隔符
+    let formattedInteger = '';
+    for (let i = 0; i < integerPart.length; i++) {
+        if (i > 0 && (integerPart.length - i) % 3 === 0) {
+            formattedInteger += localization.thousandsSep;
+        }
+        formattedInteger += integerPart[i];
+    }
+    
+    // 组合整数和小数部分
+    if (decimalPart) {
+        return formattedInteger + localization.decimalPoint + decimalPart;
+    }
+    return formattedInteger;
+}
+
+// 使用范例
+const formattedNumber = formatNumber(1234567.89); // 例如 "1,234,567.89"</code></pre>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>localization_service与以下模块有密切的交互关系：</p>
+    <ul>
+        <li><strong>translation.js</strong>：提供翻译功能，localization_service加载翻译数据后填充translatedTerms对象</li>
+        <li><strong>localization.js</strong>：定义本地化对象结构，由localization_service初始化</li>
+        <li><strong>dates.js</strong>：提供日期格式化工具，使用localization_service配置的格式</li>
+        <li><strong>registry.js</strong>：服务注册中心，localization_service通过它注册自身</li>
+        <li><strong>session.js</strong>：提供会话信息，包括缓存哈希和翻译URL</li>
+        <li><strong>user.js</strong>：提供用户信息，包括用户语言设置</li>
+    </ul>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>在使用localization对象前需确保localization_service已完成初始化</li>
+            <li>避免直接修改localization对象的属性</li>
+            <li>在组件中使用localization时建议通过依赖注入获取服务确保初始化完成</li>
+            <li>对于日期和数字格式化，应优先使用Odoo提供的格式化工具函数，而非直接使用localization对象</li>
+        </ul>
+    </div>
+    
+    <h3>正确获取localization对象的方式</h3>
+    <div class="code-block">
+        <pre><code>// 通过服务依赖获取（推荐）
+import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        // 通过依赖确保localization_service已初始化
+        const localizationService = useService("localization");
+        // 现在可以安全使用localization对象
+    }
+}
+
+// 直接导入（需确保服务已初始化）
+import { localization } from "@web/core/l10n/localization";
+
+// 错误处理由localization对象的代理提供
+try {
+    const format = localization.dateFormat;
+} catch (error) {
+    // 处理localization尚未初始化的情况
+}</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>localization_service是Odoo前端框架中的关键服务，它：</p>
+    <ul>
+        <li>提供了统一的本地化初始化机制</li>
+        <li>加载并处理翻译数据</li>
+        <li>配置日期、时间和数字格式</li>
+        <li>支持多语言和不同文本方向</li>
+        <li>为整个应用提供一致的本地化体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，应始终使用localization对象提供的格式和配置来确保应用具有一致的本地化体验。这样可以确保应用在不同语言和区域设置下都能正确显示日期、时间和数字。
+    </div>
+</body>
+</html> 

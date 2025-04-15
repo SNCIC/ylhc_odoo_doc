@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python-JavaScript工具函数模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python-JavaScript工具函数模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py_utils.js</code>是Odoo 18框架中的核心模块，提供了一系列工具函数，用于在JavaScript环境中处理和转换Python表达式。它主要服务于Odoo的Python-JavaScript桥接机制，使前端能够理解和处理Python风格的数据结构和表达式。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>此模块为Odoo前端提供了处理Python表达式抽象语法树(AST)的核心工具，实现了值的转换、格式化和表示，是前端执行Python表达式的重要基础。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>值转换</strong>：将JavaScript值转换为Python风格的AST表示</li>
+        <li><strong>表达式格式化</strong>：将AST格式化为可读的Python代码文本</li>
+        <li><strong>Python字典模拟</strong>：提供类似Python字典的对象和行为</li>
+        <li><strong>类型支持</strong>：处理数值、字符串、布尔值、列表、字典等Python类型</li>
+    </ol>
+    
+    <h2>数据类型</h2>
+    <p>模块定义了AST类型作为TypeScript类型注解：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef { import("./py_parser").AST } AST
+ */</code></pre>
+    </div>
+    
+    <p>AST(抽象语法树)是Python表达式的内部表示形式，包含多种节点类型：</p>
+    
+    <table>
+        <tr>
+            <th>类型ID</th>
+            <th>类型名称</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>0</td>
+            <td>Number</td>
+            <td>数值类型</td>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>String</td>
+            <td>字符串类型</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>Boolean</td>
+            <td>布尔值类型</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>None</td>
+            <td>空/None值</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>List</td>
+            <td>列表类型</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td>Name</td>
+            <td>变量名</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td>UnaryOperator</td>
+            <td>一元操作符</td>
+        </tr>
+        <tr>
+            <td>7</td>
+            <td>BinaryOperator</td>
+            <td>二元操作符</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td>FunctionCall</td>
+            <td>函数调用</td>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Tuple</td>
+            <td>元组类型</td>
+        </tr>
+        <tr>
+            <td>11</td>
+            <td>Dictionary</td>
+            <td>字典类型</td>
+        </tr>
+        <tr>
+            <td>12</td>
+            <td>Lookup</td>
+            <td>索引查找</td>
+        </tr>
+        <tr>
+            <td>13</td>
+            <td>If</td>
+            <td>条件表达式</td>
+        </tr>
+        <tr>
+            <td>14</td>
+            <td>BooleanOperator</td>
+            <td>布尔操作符</td>
+        </tr>
+        <tr>
+            <td>15</td>
+            <td>ObjLookup</td>
+            <td>对象属性查找</td>
+        </tr>
+    </table>
+    
+    <h2>核心函数详解</h2>
+    
+    <h3>toPyValue函数</h3>
+    <p>将JavaScript值转换为Python AST表示形式。</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * Represent any value as a primitive AST
+ *
+ * @param {any} value
+ * @returns {AST}
+ */
+export function toPyValue(value) {
+    switch (typeof value) {
+        case "string":
+            return { type: 1 /* String */, value };
+        case "number":
+            return { type: 0 /* Number */, value };
+        case "boolean":
+            return { type: 2 /* Boolean */, value };
+        case "object":
+            if (Array.isArray(value)) {
+                return { type: 4 /* List */, value: value.map(toPyValue) };
+            } else if (value === null) {
+                return { type: 3 /* None */ };
+            } else if (value instanceof Date) {
+                return { type: 1, value: PyDateTime.convertDate(value) };
+            } else if (value instanceof PyDate || value instanceof PyDateTime) {
+                return { type: 1, value };
+            } else {
+                const content = {};
+                for (const key in value) {
+                    content[key] = toPyValue(value[key]);
+                }
+                return { type: 11 /* Dictionary */, value: content };
+            }
+        default:
+            throw new Error("Invalid type");
+    }
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>将JavaScript基本类型转换为相应的AST节点</li>
+        <li>递归处理复杂数据结构（数组、对象）</li>
+        <li>特殊处理日期对象，转换为PyDateTime或PyDate实例</li>
+        <li>支持嵌套结构（如包含数组的对象、包含对象的数组等）</li>
+    </ul>
+    
+    <h3>formatAST函数</h3>
+    <p>将AST表示转换为可读的Python代码文本。</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {AST} ast
+ * @param {number} [lbp] left binding power
+ * @return {string}
+ */
+export function formatAST(ast, lbp = 0) {
+    switch (ast.type) {
+        case 3 /* None */:
+            return "None";
+        case 1 /* String */:
+            return JSON.stringify(ast.value);
+        case 0 /* Number */:
+            return String(ast.value);
+        case 2 /* Boolean */:
+            return ast.value ? "True" : "False";
+        case 4 /* List */:
+            return `[${ast.value.map(formatAST).join(", ")}]`;
+        case 6 /* UnaryOperator */:
+            if (ast.op === "not") {
+                return `not ` + formatAST(ast.right, 50);
+            }
+            return ast.op + formatAST(ast.right, 130);
+        case 7 /* BinaryOperator */: {
+            const abp = bp(ast.op);
+            const str = `${formatAST(ast.left, abp)} ${ast.op} ${formatAST(ast.right, abp)}`;
+            return abp < lbp ? `(${str})` : str;
+        }
+        case 11 /* Dictionary */: {
+            const pairs = [];
+            for (const k in ast.value) {
+                pairs.push(`"${k}": ${formatAST(ast.value[k])}`);
+            }
+            return `{` + pairs.join(", ") + `}`;
+        }
+        case 10 /* Tuple */:
+            return `(${ast.value.map(formatAST).join(", ")})`;
+        case 5 /* Name */:
+            return ast.value;
+        case 12 /* Lookup */: {
+            return `${formatAST(ast.target)}[${formatAST(ast.key)}]`;
+        }
+        case 13 /* If */: {
+            const { ifTrue, condition, ifFalse } = ast;
+            return `${formatAST(ifTrue)} if ${formatAST(condition)} else ${formatAST(ifFalse)}`;
+        }
+        case 14 /* BooleanOperator */: {
+            const abp = bp(ast.op);
+            const str = `${formatAST(ast.left, abp)} ${ast.op} ${formatAST(ast.right, abp)}`;
+            return abp < lbp ? `(${str})` : str;
+        }
+        case 15 /* ObjLookup */:
+            return `${formatAST(ast.obj, 150)}.${ast.key}`;
+        case 8 /* FunctionCall */: {
+            const args = ast.args.map(formatAST);
+            const kwargs = [];
+            for (const kwarg in ast.kwargs) {
+                kwargs.push(`${kwarg} = ${formatAST(ast.kwargs[kwarg])}`);
+            }
+            const argStr = args.concat(kwargs).join(", ");
+            return `${formatAST(ast.fn)}(${argStr})`;
+        }
+    }
+    throw new Error("invalid expression: " + ast);
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>根据AST节点类型生成相应的Python代码文本</li>
+        <li>处理操作符优先级，在需要时添加括号</li>
+        <li>支持复杂表达式的格式化，如条件表达式、函数调用等</li>
+        <li>参数lbp（left binding power）用于控制操作符优先级和括号添加</li>
+    </ul>
+    
+    <h3>toPyDict函数</h3>
+    <p>创建一个模拟Python字典行为的JavaScript对象。</p>
+    
+    <div class="code-block">
+        <pre><code>export const PY_DICT = Object.create(null);
+
+/**
+ * @param {Object} obj
+ * @returns {AST} a python dictionary
+ */
+export function toPyDict(obj) {
+    return new Proxy(obj, {
+        getPrototypeOf() {
+            return PY_DICT;
+        },
+    });
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>创建一个特殊标记的对象，用于表示Python字典</li>
+        <li>使用JavaScript Proxy对象拦截原型获取操作</li>
+        <li>确保对象被识别为Python字典而非普通JavaScript对象</li>
+        <li>这有助于在处理和转换过程中正确识别Python字典类型</li>
+    </ul>
+    
+    <h2>使用实例</h2>
+    
+    <h3>示例1：JavaScript值转换为Python AST</h3>
+    <div class="code-block">
+        <pre><code>import { toPyValue } from "@web/core/py_js/py_utils";
+
+// 转换基本类型
+const numAst = toPyValue(42);
+console.log(numAst);  // { type: 0, value: 42 }
+
+const strAst = toPyValue("hello");
+console.log(strAst);  // { type: 1, value: "hello" }
+
+const boolAst = toPyValue(true);
+console.log(boolAst);  // { type: 2, value: true }
+
+// 转换数组
+const arrayAst = toPyValue([1, 2, 3]);
+console.log(arrayAst);  
+// { 
+//   type: 4, 
+//   value: [
+//     { type: 0, value: 1 }, 
+//     { type: 0, value: 2 }, 
+//     { type: 0, value: 3 }
+//   ] 
+// }
+
+// 转换对象
+const objAst = toPyValue({ name: "John", age: 30 });
+console.log(objAst);  
+// { 
+//   type: 11, 
+//   value: {
+//     name: { type: 1, value: "John" },
+//     age: { type: 0, value: 30 }
+//   } 
+// }</code></pre>
+    </div>
+    
+    <h3>示例2：AST格式化为Python代码</h3>
+    <div class="code-block">
+        <pre><code>import { formatAST } from "@web/core/py_js/py_utils";
+
+// 格式化基本类型AST
+const numAst = { type: 0, value: 42 };
+console.log(formatAST(numAst));  // "42"
+
+const strAst = { type: 1, value: "hello" };
+console.log(formatAST(strAst));  // "\"hello\""
+
+// 格式化列表AST
+const listAst = { 
+    type: 4, 
+    value: [
+        { type: 0, value: 1 },
+        { type: 0, value: 2 }
+    ] 
+};
+console.log(formatAST(listAst));  // "[1, 2]"
+
+// 格式化条件表达式AST
+const ifAst = {
+    type: 13,
+    condition: { type: 2, value: true },
+    ifTrue: { type: 1, value: "是的" },
+    ifFalse: { type: 1, value: "不是" }
+};
+console.log(formatAST(ifAst));  // "\"是的\" if True else \"不是\""
+
+// 格式化函数调用AST
+const funcCallAst = {
+    type: 8,
+    fn: { type: 5, value: "max" },
+    args: [
+        { type: 0, value: 10 },
+        { type: 0, value: 20 }
+    ],
+    kwargs: {}
+};
+console.log(formatAST(funcCallAst));  // "max(10, 20)"</code></pre>
+    </div>
+    
+    <h3>示例3：Python字典处理</h3>
+    <div class="code-block">
+        <pre><code>import { toPyDict, PY_DICT } from "@web/core/py_js/py_utils";
+
+// 创建Python字典
+const pyDict = toPyDict({ name: "John", age: 30 });
+
+// 检查对象是否为Python字典
+function isPyDict(obj) {
+    return Object.getPrototypeOf(obj) === PY_DICT;
+}
+
+console.log(isPyDict(pyDict));  // true
+console.log(isPyDict({ simple: "object" }));  // false
+
+// 在Python解释器中使用
+import { evaluateExpr } from "@web/core/py_js/py";
+
+const context = {
+    user: toPyDict(session.user_context)
+};
+
+// 现在可以在Python表达式中访问这个字典
+const expr = "user['name'] if user['isAdmin'] else 'Anonymous'";
+const result = evaluateExpr(expr, context);
+console.log(result);  // "Admin"</code></pre>
+    </div>
+    
+    <h2>实际应用场景</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>动态域过滤器构建</h4>
+            <p>在Odoo前端构建动态域过滤器时，可以使用这些工具函数将JavaScript对象转换为Python风格的域表达式。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>Python表达式求值</h4>
+            <p>在前端执行来自服务器的Python表达式字符串，比如动态计算字段、条件逻辑等。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>前后端数据交换</h4>
+            <p>确保前端和后端之间复杂数据结构的正确转换和解释。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>代码生成</h4>
+            <p>在前端动态生成Python代码，用于发送到服务器端执行。</p>
+        </div>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    <p>py_utils.js在Odoo前端系统中的主要应用场景：</p>
+    <ul>
+        <li>域过滤器构建和处理</li>
+        <li>视图属性中的Python表达式处理</li>
+        <li>动态属性计算</li>
+        <li>条件可见性和动作控制</li>
+        <li>RPC调用参数处理</li>
+        <li>动态报表参数构建</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>// Odoo中的实际应用示例
+
+// 1. 构建动态域过滤器
+import { toPyValue, formatAST } from "@web/core/py_js/py_utils";
+
+function buildDomainFilter(fieldName, operator, value) {
+    const domainItem = [fieldName, operator, value];
+    const ast = toPyValue(domainItem);
+    return ast;
+}
+
+// 构建复杂的域表达式
+function buildComplexDomain(conditions) {
+    const domainParts = conditions.map(cond => {
+        return buildDomainFilter(cond.field, cond.operator, cond.value);
+    });
+    
+    // 创建一个列表AST
+    const domainAst = {
+        type: 4, // List
+        value: domainParts
+    };
+    
+    // 格式化为Python列表文本
+    return formatAST(domainAst);
+}
+
+// 2. 动态属性计算
+function computeDynamicProperty(record, pyExpr) {
+    // 创建上下文
+    const context = {
+        record: toPyDict(record),
+        user: toPyDict(session.user_context)
+    };
+    
+    // 执行Python表达式
+    return evaluateExpr(pyExpr, context);
+}
+
+// 3. 转换RPC调用参数
+function prepareRPCParams(method, args, kwargs) {
+    // 转换参数为Python兼容格式
+    const pyArgs = toPyValue(args);
+    const pyKwargs = toPyValue(kwargs);
+    
+    // 记录到控制台供调试
+    console.log(`Calling ${method} with:`, formatAST(pyArgs), formatAST(pyKwargs));
+    
+    return {
+        args: args,
+        kwargs: kwargs
+    };
+}</code></pre>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>py_utils.js与其他Python-JavaScript桥接模块的关系：</p>
+    <ul>
+        <li><strong>py_parser.js</strong>：提供Python表达式的解析功能，生成AST</li>
+        <li><strong>py_date.js</strong>：提供日期时间类，被toPyValue使用进行日期转换</li>
+        <li><strong>py.js</strong>：高级接口，使用py_utils进行底层操作</li>
+        <li><strong>py_interpreter.js</strong>：表达式求值引擎，使用py_utils处理AST</li>
+    </ul>
+    
+    <div class="flow-diagram">
+        <h3>Python-JavaScript桥接模块关系</h3>
+        <ul>
+            <li>py.js - 顶层接口，提供evaluateExpr等高级函数</li>
+            <li>└── py_interpreter.js - 负责表达式求值</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;├── py_parser.js - 负责解析表达式</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;├── py_utils.js - 提供工具函数</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;└── py_date.js - 处理日期和时间</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性和改进</h2>
+    <p>Odoo 18中对py_utils.js模块的改进包括：</p>
+    <ul>
+        <li>更高效的AST处理算法</li>
+        <li>更完整的Python类型支持</li>
+        <li>更好的错误处理和调试信息</li>
+        <li>与最新JavaScript标准的兼容性提升</li>
+        <li>性能优化，特别是对大型复杂表达式的处理</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>py_utils.js是Odoo前端Python-JavaScript桥接机制的核心组件，它提供了：</p>
+    <ul>
+        <li>JavaScript值到Python AST的转换</li>
+        <li>AST到可读Python代码的格式化</li>
+        <li>Python字典的JavaScript模拟</li>
+        <li>支持复杂数据结构和表达式的处理</li>
+        <li>前后端数据交换的基础工具</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在需要处理Python风格表达式或构建复杂域过滤器时，应优先使用py_utils模块提供的工具函数，而不是手动构建字符串或对象。这样可以确保生成的表达式格式正确，并与Odoo后端系统兼容。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 注册表系统详解</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 注册表(Registry)系统详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>registry.js</code>是Odoo前端框架中的一个核心模块，它提供了一个通用的注册表系统，用于管理和访问各种组件、服务和功能。Registry类本质上是一个增强版的键值映射，支持事件通知、层次结构和序列排序等高级功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>注册表是一种用于组织、存储和检索命名资源的机制。在Odoo中，它被广泛用于管理服务、组件、动作、视图等几乎所有可扩展的系统部分，实现了松耦合的模块化架构。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>命名资源管理</strong>：提供键值存储，支持添加、获取、删除操作</li>
+        <li><strong>事件通知</strong>：通过EventBus机制，当注册表内容变化时发出通知</li>
+        <li><strong>有序集合</strong>：支持通过序列号控制项目排序</li>
+        <li><strong>层次结构</strong>：通过category方法支持嵌套的注册表结构</li>
+        <li><strong>参数验证</strong>：可以为注册表添加验证规则，确保添加的项符合预期格式</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>1. 错误类型定义</h3>
+    <p>Registry模块定义了两种特定的错误类型：</p>
+    
+    <div class="code-block">
+        <pre><code>export class KeyNotFoundError extends Error {}
+
+export class DuplicatedKeyError extends Error {}</code></pre>
+    </div>
+    
+    <ul>
+        <li><strong>KeyNotFoundError</strong>：当尝试访问注册表中不存在的键时抛出</li>
+        <li><strong>DuplicatedKeyError</strong>：当尝试添加已存在的键（且force参数未设置）时抛出</li>
+    </ul>
+    
+    <h3>2. 验证函数</h3>
+    <p>用于验证注册表项目的辅助函数：</p>
+    
+    <div class="code-block">
+        <pre><code>const validateSchema = (value, schema) => {
+    if (!odoo.debug) {
+        return;
+    }
+    validate(value, schema);
+}</code></pre>
+    </div>
+    
+    <p>该函数封装了OWL的验证机制，并且仅在调试模式下执行验证，以提高生产环境性能。</p>
+    
+    <h3>3. Registry类</h3>
+    <p>Registry类是这个模块的核心，它继承自EventBus，提供事件驱动能力：</p>
+    
+    <div class="code-block">
+        <pre><code>export class Registry extends EventBus {
+    constructor(name) {
+        super();
+        /** @type {Record<string, [number, GetRegistryItemShape<T>]>}*/
+        this.content = {};
+        /** @type {{ [P in keyof GetRegistryCategories<T>]?: Registry<GetRegistryCategories<T>[P]> }} */
+        this.subRegistries = {};
+        /** @type {GetRegistryItemShape<T>[]}*/
+        this.elements = null;
+        /** @type {[string, GetRegistryItemShape<T>][]}*/
+        this.entries = null;
+        this.name = name;
+        this.validationSchema = null;
+
+        this.addEventListener("UPDATE", () => {
+            this.elements = null;
+            this.entries = null;
+        });
+    }
+    
+    // 其他方法...
+}</code></pre>
+    </div>
+    
+    <h4>主要属性</h4>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>content</td>
+            <td>Object</td>
+            <td>存储注册项的主要容器，每项包含序列号和值</td>
+        </tr>
+        <tr>
+            <td>subRegistries</td>
+            <td>Object</td>
+            <td>存储子注册表的容器，用于层次结构组织</td>
+        </tr>
+        <tr>
+            <td>elements</td>
+            <td>Array</td>
+            <td>缓存的按序列排序的所有值（不含键名）</td>
+        </tr>
+        <tr>
+            <td>entries</td>
+            <td>Array</td>
+            <td>缓存的按序列排序的所有[键,值]对</td>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>String</td>
+            <td>注册表的名称，用于调试和错误消息</td>
+        </tr>
+        <tr>
+            <td>validationSchema</td>
+            <td>Object</td>
+            <td>可选的验证模式，用于验证添加的项</td>
+        </tr>
+    </table>
+    
+    <h4>核心方法</h4>
+    
+    <h5>add方法 - 添加项目</h5>
+    <div class="code-block">
+        <pre><code>add(key, value, { force, sequence } = {}) {
+    if (this.validationSchema) {
+        validateSchema(value, this.validationSchema);
+    }
+    if (!force && key in this.content) {
+        throw new DuplicatedKeyError(
+            `Cannot add key "${key}" in the "${this.name}" registry: it already exists`
+        );
+    }
+    let previousSequence;
+    if (force) {
+        const elem = this.content[key];
+        previousSequence = elem && elem[0];
+    }
+    sequence = sequence === undefined ? previousSequence || 50 : sequence;
+    this.content[key] = [sequence, value];
+    const payload = { operation: "add", key, value };
+    this.trigger("UPDATE", payload);
+    return this;
+}</code></pre>
+    </div>
+    
+    <p>add方法用于向注册表添加项目，支持以下特性：</p>
+    <ul>
+        <li>可选的值验证</li>
+        <li>重复键检查，除非使用force选项</li>
+        <li>序列号控制，默认为50</li>
+        <li>添加后触发UPDATE事件</li>
+        <li>返回this以支持链式调用</li>
+    </ul>
+    
+    <h5>get方法 - 获取项目</h5>
+    <div class="code-block">
+        <pre><code>get(key, defaultValue) {
+    if (arguments.length < 2 && !(key in this.content)) {
+        throw new KeyNotFoundError(`Cannot find key "${key}" in the "${this.name}" registry`);
+    }
+    const info = this.content[key];
+    return info ? info[1] : defaultValue;
+}</code></pre>
+    </div>
+    
+    <p>get方法用于从注册表获取项目：</p>
+    <ul>
+        <li>如果键不存在且未提供默认值，则抛出KeyNotFoundError</li>
+        <li>如果提供了默认值，则在键不存在时返回默认值</li>
+        <li>返回值（不含序列号）</li>
+    </ul>
+    
+    <h5>getAll和getEntries方法 - 获取所有项目</h5>
+    <div class="code-block">
+        <pre><code>getAll() {
+    if (!this.elements) {
+        const content = Object.values(this.content).sort((el1, el2) => el1[0] - el2[0]);
+        this.elements = content.map((elem) => elem[1]);
+    }
+    return this.elements.slice();
+}
+
+getEntries() {
+    if (!this.entries) {
+        const entries = Object.entries(this.content).sort((el1, el2) => el1[1][0] - el2[1][0]);
+        this.entries = entries.map(([str, elem]) => [str, elem[1]]);
+    }
+    return this.entries.slice();
+}</code></pre>
+    </div>
+    
+    <p>这两个方法提供按序列排序的所有注册项：</p>
+    <ul>
+        <li><strong>getAll</strong>：返回所有值的数组（不含键名）</li>
+        <li><strong>getEntries</strong>：返回所有[键,值]对的数组</li>
+        <li>两个方法都实现了缓存机制，只在首次调用或注册表变更后重新计算</li>
+        <li>返回的是数组副本，以防止外部修改缓存</li>
+    </ul>
+    
+    <h5>remove方法 - 删除项目</h5>
+    <div class="code-block">
+        <pre><code>remove(key) {
+    const value = this.content[key];
+    delete this.content[key];
+    const payload = { operation: "delete", key, value };
+    this.trigger("UPDATE", payload);
+}</code></pre>
+    </div>
+    
+    <p>remove方法用于从注册表移除项目：</p>
+    <ul>
+        <li>从content对象中删除指定键</li>
+        <li>删除后触发UPDATE事件</li>
+        <li>如果键不存在，静默失败（不抛出错误）</li>
+    </ul>
+    
+    <h5>category方法 - 访问子注册表</h5>
+    <div class="code-block">
+        <pre><code>category(subcategory) {
+    if (!(subcategory in this.subRegistries)) {
+        this.subRegistries[subcategory] = new Registry(subcategory);
+    }
+    return this.subRegistries[subcategory];
+}</code></pre>
+    </div>
+    
+    <p>category方法用于创建或访问子注册表：</p>
+    <ul>
+        <li>如果指定的子注册表不存在，则自动创建</li>
+        <li>返回子注册表实例，允许链式调用</li>
+        <li>通过这种方式可以创建任意深度的注册表层次结构</li>
+    </ul>
+    
+    <h5>addValidation方法 - 添加验证规则</h5>
+    <div class="code-block">
+        <pre><code>addValidation(schema) {
+    if (this.validationSchema) {
+        throw new Error("Validation schema already set on this registry");
+    }
+    this.validationSchema = schema;
+    for (const value of this.getAll()) {
+        validateSchema(value, schema);
+    }
+}</code></pre>
+    </div>
+    
+    <p>addValidation方法用于为注册表添加验证规则：</p>
+    <ul>
+        <li>设置注册表的验证模式</li>
+        <li>对现有所有项目立即进行验证</li>
+        <li>每个注册表只能设置一次验证模式</li>
+    </ul>
+    
+    <h3>4. 全局注册表</h3>
+    <p>模块最后创建并导出了一个全局注册表实例：</p>
+    
+    <div class="code-block">
+        <pre><code>/** @type {Registry<import("registries").GlobalRegistry>} */
+export const registry = new Registry();</code></pre>
+    </div>
+    
+    <p>这个全局registry实例是Odoo前端框架的核心组件之一，用于注册和管理各种系统资源。</p>
+    
+    <h2>注册表使用场景</h2>
+    <p>Registry在Odoo中有多种使用场景，以下是一些主要的应用领域：</p>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>服务注册表</h4>
+            <p>用于注册和检索各种系统服务，如ORM、HTTP客户端、通知系统等。</p>
+            <code>registry.category("services")</code>
+        </div>
+        <div class="class-box">
+            <h4>组件注册表</h4>
+            <p>管理可重用UI组件，如字段组件、按钮、对话框等。</p>
+            <code>registry.category("components")</code>
+        </div>
+        <div class="class-box">
+            <h4>动作注册表</h4>
+            <p>存储客户端动作处理程序，响应服务器返回的不同类型的动作。</p>
+            <code>registry.category("actions")</code>
+        </div>
+        <div class="class-box">
+            <h4>视图注册表</h4>
+            <p>管理不同类型的视图（表单、列表、看板等）及其渲染器。</p>
+            <code>registry.category("views")</code>
+        </div>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 创建和使用自定义注册表</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Registry } from "@web/core/registry";
+
+// 创建一个插件注册表
+const pluginRegistry = new Registry("plugins");
+
+// 添加一些插件
+pluginRegistry.add("logger", {
+    name: "日志插件",
+    init(app) {
+        console.log("日志插件初始化");
+        app.logger = {
+            log: (msg) => console.log(`[LOG]: ${msg}`),
+            error: (msg) => console.error(`[ERROR]: ${msg}`)
+        };
+    }
+}, { sequence: 5 });  // 低序号，优先初始化
+
+pluginRegistry.add("translator", {
+    name: "翻译插件",
+    init(app) {
+        console.log("翻译插件初始化");
+        app.translate = (key) => {
+            // 简单翻译实现
+            return app.translations[key] || key;
+        };
+    }
+}, { sequence: 10 });
+
+// 使用注册表初始化应用
+function initApp(app) {
+    // 按序列顺序获取所有插件
+    const plugins = pluginRegistry.getAll();
+    
+    // 初始化每个插件
+    for (const plugin of plugins) {
+        plugin.init(app);
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 使用层次结构注册表</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Registry } from "@web/core/registry";
+
+// 创建一个UI组件注册表
+const uiRegistry = new Registry("ui");
+
+// 添加不同类别的组件
+const buttonRegistry = uiRegistry.category("buttons");
+buttonRegistry.add("primary", {
+    template: "web.PrimaryButton",
+    className: "btn-primary"
+});
+buttonRegistry.add("secondary", {
+    template: "web.SecondaryButton",
+    className: "btn-secondary"
+});
+
+const formRegistry = uiRegistry.category("forms");
+formRegistry.add("standard", {
+    template: "web.StandardForm"
+});
+
+// 使用注册表
+function renderButton(type, props) {
+    const buttonDef = buttonRegistry.get(type);
+    return {
+        template: buttonDef.template,
+        className: buttonDef.className,
+        ...props
+    };
+}</code></pre>
+    </div>
+    
+    <h3>3. 使用全局服务注册表</h3>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 定义一个简单的通知服务
+const notificationService = {
+    dependencies: ["rpc"],
+    start(env, { rpc }) {
+        return {
+            notify(message, options = {}) {
+                const notification = {
+                    message,
+                    type: options.type || "info",
+                    timeout: options.timeout || 3000,
+                };
+                console.log(`显示通知: ${message}`);
+                // 实际实现会显示UI通知
+            },
+            
+            async sendServerNotification(userId, message) {
+                return rpc("/web/notifications/send", {
+                    user_id: userId,
+                    message
+                });
+            }
+        };
+    }
+};
+
+// 注册到全局服务注册表
+registry.category("services").add("notification", notificationService);
+
+// 在组件中使用
+import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        // 获取注册的服务
+        this.notification = useService("notification");
+    }
+    
+    showSuccess() {
+        this.notification.notify("操作成功完成", { type: "success" });
+    }
+    
+    showWarning() {
+        this.notification.notify("请注意这个警告", { type: "warning" });
+    }
+    
+    async notifyOtherUser() {
+        await this.notification.sendServerNotification(
+            42, // 用户ID
+            "有人给你发送了一条消息"
+        );
+    }
+}</code></pre>
+    </div>
+    
+    <h3>4. 使用验证规则</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Registry } from "@web/core/registry";
+
+// 创建一个格式化器注册表
+const formattersRegistry = new Registry("formatters");
+
+// 添加验证规则
+formattersRegistry.addValidation({
+    format: { type: "function", required: true },
+    parse: { type: "function", required: true },
+    name: { type: "string", required: true }
+});
+
+// 添加符合验证规则的格式化器
+formattersRegistry.add("date", {
+    name: "日期格式化器",
+    format: (value) => {
+        if (!value) return "";
+        return new Date(value).toLocaleDateString();
+    },
+    parse: (str) => {
+        return str ? new Date(str).toISOString() : false;
+    }
+});
+
+try {
+    // 这将失败，因为缺少必需的函数
+    formattersRegistry.add("broken", {
+        name: "损坏的格式化器"
+        // 缺少 format 和 parse 函数
+    });
+} catch (error) {
+    console.error("验证失败:", error.message);
+}</code></pre>
+    </div>
+    
+    <h2>事件监听示例</h2>
+    <p>Registry继承自EventBus，因此可以监听注册表变更：</p>
+    
+    <div class="code-block">
+        <pre><code>import { Registry } from "@web/core/registry";
+
+const pluginRegistry = new Registry("plugins");
+
+// 监听注册表变更
+pluginRegistry.addEventListener("UPDATE", (ev) => {
+    const { operation, key, value } = ev.detail;
+    
+    if (operation === "add") {
+        console.log(`添加了新插件: ${key}`);
+        // 可以在此进行初始化或其他处理
+    } else if (operation === "delete") {
+        console.log(`移除了插件: ${key}`);
+        // 可以在此进行清理或其他处理
+    }
+});
+
+// 在React/Vue等组件框架中使用
+import { useRegistry } from "@web/core/registry_hook";
+
+function PluginList() {
+    // 自动跟踪注册表变化并更新组件
+    const state = useRegistry(pluginRegistry);
+    
+    return {
+        render() {
+            return (
+                <div>
+                    <h2>已安装插件</h2>
+                    <ul>
+                        {state.entries.map(([key, plugin]) => (
+                            <li key={key}>{plugin.name}</li>
+                        ))}
+                    </ul>
+                </div>
+            );
+        }
+    };
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，Registry系统具有以下特性和改进：</p>
+    <ul>
+        <li>更强大的泛型支持，提供更好的类型安全</li>
+        <li>与新版本OWL框架的深度集成</li>
+        <li>useRegistry hook用于在组件中响应式使用注册表</li>
+        <li>改进的验证系统，支持更复杂的模式</li>
+        <li>更好的性能优化，特别是在处理大量注册项时</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>为注册表项使用有意义的唯一键名，避免冲突</li>
+        <li>使用序列号控制注册项的顺序，特别是对顺序敏感的场景</li>
+        <li>利用层次结构（category）组织相关注册项，提高代码可维护性</li>
+        <li>对重要注册表添加验证规则，确保一致性</li>
+        <li>优先使用Registry而不是普通对象，以便利用其事件通知和序列特性</li>
+        <li>监听UPDATE事件来响应注册表变化，实现动态行为</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>Registry.getAll()和getEntries()返回的是数组副本，修改它们不会影响原始注册表</li>
+            <li>对子注册表(category)的操作是独立的，不会触发父注册表的事件</li>
+            <li>序列号决定了项目的顺序，默认为50，较小的值排在前面</li>
+            <li>在生产环境中，验证仅在添加项目时执行，不要依赖它来保证运行时的类型安全</li>
+        </ul>
+    </div>
+    
+    <h2>总结</h2>
+    <p>Registry系统是Odoo前端架构的基石之一，它提供了一种灵活、可扩展的方式来管理和组织各种资源。通过提供命名空间、顺序控制、事件通知和验证机制，它使得Odoo的模块化架构成为可能，允许各个模块以松耦合的方式进行交互和扩展。</p>
+</body>
+</html> 

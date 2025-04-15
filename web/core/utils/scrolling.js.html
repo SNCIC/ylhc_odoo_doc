@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo滚动工具模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo滚动工具模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>scrolling.js</code>是Odoo框架中的一个实用工具模块，提供了一套用于处理DOM元素滚动相关操作的函数。这些函数帮助开发者更好地控制和管理页面中的滚动行为。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>这个模块提供了一系列辅助函数，用于检测元素是否可滚动、查找最近的可滚动容器、平滑滚动到指定元素、补偿滚动条宽度以及获取页面的主滚动元素。
+    </div>
+    
+    <h2>核心函数解析</h2>
+    
+    <h3>水平滚动相关函数</h3>
+    
+    <div class="code-block">
+        <pre><code>export function isScrollableX(el) {
+    if (el.scrollWidth > el.clientWidth && el.clientWidth > 0) {
+        return couldBeScrollableX(el);
+    }
+    return false;
+}
+
+export function couldBeScrollableX(el) {
+    if (el) {
+        const overflow = getComputedStyle(el).getPropertyValue("overflow-x");
+        if (/\bauto\b|\bscroll\b/.test(overflow)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Get the closest horizontally scrollable for a given element.
+ *
+ * @param {HTMLElement} el
+ * @returns {HTMLElement | null}
+ */
+export function closestScrollableX(el) {
+    if (!el) {
+        return null;
+    }
+    if (isScrollableX(el)) {
+        return el;
+    }
+    return closestScrollableX(el.parentElement);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>判断和查找水平方向的滚动元素。</p>
+    <ul>
+        <li><code>isScrollableX(el)</code>: 判断元素是否实际可以水平滚动</li>
+        <li><code>couldBeScrollableX(el)</code>: 判断元素的CSS样式是否设置为可水平滚动</li>
+        <li><code>closestScrollableX(el)</code>: 查找元素自身或其最近的可水平滚动的祖先元素</li>
+    </ul>
+    <p><strong>判断逻辑：</strong>一个元素要真正可水平滚动，需要同时满足两个条件：</p>
+    <ol>
+        <li>内容宽度大于可视宽度（<code>scrollWidth > clientWidth</code>）</li>
+        <li>CSS的<code>overflow-x</code>属性设置为<code>auto</code>或<code>scroll</code></li>
+    </ol>
+
+    <h3>垂直滚动相关函数</h3>
+    
+    <div class="code-block">
+        <pre><code>export function isScrollableY(el) {
+    if (el && el.scrollHeight > el.clientHeight && el.clientHeight > 0) {
+        return couldBeScrollableY(el);
+    }
+    return false;
+}
+
+export function couldBeScrollableY(el) {
+    if (el) {
+        const overflow = getComputedStyle(el).getPropertyValue("overflow-y");
+        if (/\bauto\b|\bscroll\b/.test(overflow)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Get the closest vertically scrollable for a given element.
+ *
+ * @param {HTMLElement} el
+ * @returns {HTMLElement | null}
+ */
+export function closestScrollableY(el) {
+    if (!el) {
+        return null;
+    }
+    if (isScrollableY(el)) {
+        return el;
+    }
+    return closestScrollableY(el.parentElement);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>判断和查找垂直方向的滚动元素。</p>
+    <ul>
+        <li><code>isScrollableY(el)</code>: 判断元素是否实际可以垂直滚动</li>
+        <li><code>couldBeScrollableY(el)</code>: 判断元素的CSS样式是否设置为可垂直滚动</li>
+        <li><code>closestScrollableY(el)</code>: 查找元素自身或其最近的可垂直滚动的祖先元素</li>
+    </ul>
+    <p><strong>判断逻辑：</strong>一个元素要真正可垂直滚动，需要同时满足两个条件：</p>
+    <ol>
+        <li>内容高度大于可视高度（<code>scrollHeight > clientHeight</code>）</li>
+        <li>CSS的<code>overflow-y</code>属性设置为<code>auto</code>或<code>scroll</code></li>
+    </ol>
+
+    <h3>滚动到指定元素</h3>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * Ensures that `element` will be visible in its `scrollable`.
+ *
+ * @param {HTMLElement} element
+ * @param {object} options
+ * @param {HTMLElement} [options.scrollable] a scrollable area
+ * @param {boolean} [options.isAnchor] states if the scroll is to an anchor
+ * @param {string} [options.behavior] "smooth", "instant", "auto" <=> undefined
+ *        @url https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollTo#behavior
+ * @param {number} [options.offset] applies a vertical offset
+ */
+export function scrollTo(element, options = {}) {
+    const { behavior = "auto", isAnchor = false, offset = 0 } = options;
+    const scrollable = closestScrollableY(options.scrollable || element.parentElement);
+    if (!scrollable) {
+        return;
+    }
+
+    const scrollBottom = scrollable.getBoundingClientRect().bottom;
+    const scrollTop = scrollable.getBoundingClientRect().top;
+    const elementBottom = element.getBoundingClientRect().bottom;
+    const elementTop = element.getBoundingClientRect().top;
+
+    const scrollPromises = [];
+
+    if (elementBottom > scrollBottom && !isAnchor) {
+        // The scroll place the element at the bottom border of the scrollable
+        scrollPromises.push(
+            new Promise((resolve) => {
+                scrollable.addEventListener("scrollend", () => resolve(), { once: true });
+            })
+        );
+
+        scrollable.scrollTo({
+            top:
+                scrollable.scrollTop +
+                elementTop -
+                scrollBottom +
+                Math.ceil(element.getBoundingClientRect().height) +
+                offset,
+            behavior,
+        });
+    } else if (elementTop < scrollTop || isAnchor) {
+        // The scroll place the element at the top of the scrollable
+        scrollPromises.push(
+            new Promise((resolve) => {
+                scrollable.addEventListener("scrollend", () => resolve(), { once: true });
+            })
+        );
+
+        scrollable.scrollTo({
+            top: scrollable.scrollTop - scrollTop + elementTop + offset,
+            behavior,
+        });
+
+        if (options.isAnchor) {
+            // If the scrollable is within a scrollable, another scroll should be done
+            const parentScrollable = closestScrollableY(scrollable.parentElement);
+            if (parentScrollable) {
+                scrollPromises.push(
+                    scrollTo(scrollable, {
+                        behavior,
+                        isAnchor: true,
+                        scrollable: parentScrollable,
+                    })
+                );
+            }
+        }
+    }
+
+    return Promise.all(scrollPromises);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>确保指定元素在其可滚动容器中可见。</p>
+    <ul>
+        <li>接收一个要滚动到的元素和配置选项</li>
+        <li>找到最近的可垂直滚动容器</li>
+        <li>根据元素位置决定滚动方向和距离</li>
+        <li>支持平滑滚动和自定义滚动行为</li>
+        <li>返回Promise，在滚动完成时解决</li>
+        <li>特殊处理锚点滚动和嵌套滚动容器</li>
+    </ul>
+    <p><strong>滚动逻辑：</strong></p>
+    <ol>
+        <li>如果元素底部超出可视区域底部，则向下滚动使元素完全可见</li>
+        <li>如果元素顶部在可视区域顶部上方，或者是锚点滚动，则向上滚动使元素位于容器顶部</li>
+        <li>如果是锚点滚动且存在嵌套的可滚动容器，递归处理父容器的滚动</li>
+    </ol>
+
+    <h3>补偿滚动条宽度</h3>
+    
+    <div class="code-block">
+        <pre><code>export function compensateScrollbar(
+    el,
+    add = true,
+    isScrollElement = true,
+    cssProperty = "padding-right"
+) {
+    if (!el) {
+        return;
+    }
+    // Compensate scrollbar
+    const scrollableEl = isScrollElement ? el : closestScrollableY(el.parentElement);
+    if (!scrollableEl) {
+        return;
+    }
+    const isRTL = scrollableEl.classList.contains(".o_rtl");
+    if (isRTL) {
+        cssProperty = cssProperty.replace("right", "left");
+    }
+    el.style.removeProperty(cssProperty);
+    if (!add) {
+        return;
+    }
+    const style = window.getComputedStyle(el);
+    // Round up to the nearest integer to be as close as possible to
+    // the correct value in case of browser zoom.
+    const borderLeftWidth = Math.ceil(parseFloat(style.borderLeftWidth.replace("px", "")));
+    const borderRightWidth = Math.ceil(parseFloat(style.borderRightWidth.replace("px", "")));
+    const bordersWidth = borderLeftWidth + borderRightWidth;
+    const newValue =
+        parseInt(style[cssProperty]) +
+        scrollableEl.offsetWidth -
+        scrollableEl.clientWidth -
+        bordersWidth;
+    el.style.setProperty(cssProperty, `${newValue}px`, "important");
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>调整元素的内边距以补偿滚动条宽度。</p>
+    <ul>
+        <li>当滚动条出现时，通过增加内边距防止内容被滚动条覆盖</li>
+        <li>支持RTL（从右到左）布局，自动调整补偿方向</li>
+        <li>精确计算所需的内边距值，考虑边框宽度和浏览器缩放</li>
+        <li>可以添加或移除补偿</li>
+    </ul>
+    <p><strong>应用场景：</strong>在模态对话框显示时，防止内容因滚动条宽度变化而产生跳动。</p>
+    
+    <h3>获取页面主滚动元素</h3>
+    
+    <div class="code-block">
+        <pre><code>export function getScrollingElement(document = window.document) {
+    const baseScrollingElement = document.scrollingElement;
+    if (isScrollableY(baseScrollingElement)) {
+        return baseScrollingElement;
+    }
+    const bodyHeight = window.getComputedStyle(document.body).height;
+    for (const el of document.body.children) {
+        // Search for a body child which is at least as tall as the body
+        // and which has the ability to scroll if enough content in it. If
+        // found, suppose this is the top scrolling element.
+        if (bodyHeight - el.scrollHeight > 1.5) {
+            continue;
+        }
+        if (isScrollableY(el)) {
+            return el;
+        }
+    }
+    return baseScrollingElement;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>获取页面的主滚动元素。</p>
+    <ul>
+        <li>尝试使用标准的<code>document.scrollingElement</code></li>
+        <li>如果标准滚动元素不可滚动，则在body的直接子元素中查找</li>
+        <li>查找高度接近或超过body高度，且可滚动的元素</li>
+        <li>如果找不到，返回原始的scrollingElement</li>
+    </ul>
+    <p><strong>意义：</strong>在不同的网页布局和框架中，主滚动元素可能不同，此函数帮助确定实际接收页面滚动的元素。</p>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 检查元素是否可滚动</h3>
+    <div class="code-block">
+        <pre><code>// 检查一个容器是否可以垂直滚动
+function checkScrollable(containerId) {
+    const container = document.getElementById(containerId);
+    if (isScrollableY(container)) {
+        console.log("容器可以垂直滚动");
+    } else {
+        console.log("容器不可垂直滚动");
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 查找最近的可滚动容器</h3>
+    <div class="code-block">
+        <pre><code>// 获取元素所在的最近可滚动容器
+function getScrollContainer(element) {
+    const scrollContainer = closestScrollableY(element);
+    return scrollContainer || document.scrollingElement;
+}</code></pre>
+    </div>
+    
+    <h3>3. 滚动到指定元素</h3>
+    <div class="code-block">
+        <pre><code>// 平滑滚动到页面中的某个元素
+async function scrollToElement(elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        await scrollTo(element, { 
+            behavior: "smooth",
+            offset: 20 // 在元素顶部留出20px的空间
+        });
+        console.log("滚动完成");
+    }
+}</code></pre>
+    </div>
+    
+    <h3>4. 补偿滚动条</h3>
+    <div class="code-block">
+        <pre><code>// 当显示模态对话框时，为body添加滚动条宽度补偿
+function showModal() {
+    document.body.classList.add('modal-open');
+    compensateScrollbar(document.body);
+}
+
+// 当关闭模态对话框时，移除补偿
+function hideModal() {
+    compensateScrollbar(document.body, false);
+    document.body.classList.remove('modal-open');
+}</code></pre>
+    </div>
+    
+    <h3>5. 获取主滚动元素</h3>
+    <div class="code-block">
+        <pre><code>// 获取页面的主滚动元素并添加滚动事件监听
+function addScrollListener() {
+    const scrollEl = getScrollingElement();
+    scrollEl.addEventListener('scroll', function() {
+        // 处理滚动事件
+        console.log('页面滚动中');
+    });
+}</code></pre>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>表单视图滚动</h4>
+            <p>在表单视图中，当用户点击一个字段或标签时，使用<code>scrollTo</code>函数确保该字段完全可见。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>列表视图导航</h4>
+            <p>在使用键盘导航列表视图时，当选择的行不在可视区域内，自动滚动到该行。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>模态对话框处理</h4>
+            <p>使用<code>compensateScrollbar</code>函数在显示模态对话框时处理滚动条宽度变化，防止界面抖动。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动态加载内容</h4>
+            <p>在动态加载内容时，检测容器是否可滚动以决定是否显示加载更多的按钮或启用无限滚动。</p>
+        </div>
+    </div>
+    
+    <h2>技术细节与注意事项</h2>
+    
+    <div class="note">
+        <strong>Promise的使用：</strong><code>scrollTo</code>函数返回Promise，这允许开发者在滚动完成后执行其他操作。它使用了<code>scrollend</code>事件来检测滚动何时真正完成。
+    </div>
+    
+    <div class="warning">
+        <strong>兼容性注意：</strong><code>scrollend</code>事件是一个相对较新的API，在一些旧浏览器中可能不被支持。在这些浏览器中，Promise可能永远不会解决。
+    </div>
+    
+    <div class="note">
+        <strong>RTL支持：</strong>模块考虑了从右到左的布局方向，在补偿滚动条时会自动调整内边距的方向。
+    </div>
+    
+    <h2>小结</h2>
+    
+    <p><code>scrolling.js</code>模块提供了一组全面的工具函数，用于处理Web应用中常见的滚动相关问题：</p>
+    <ul>
+        <li>检测元素是否可滚动（水平或垂直）</li>
+        <li>查找最近的可滚动容器</li>
+        <li>平滑滚动到指定元素</li>
+        <li>补偿滚动条宽度</li>
+        <li>获取页面的主滚动元素</li>
+    </ul>
+    
+    <p>这些功能使Odoo的用户界面更加流畅和专业，提升了整体用户体验。</p>
+</body>
+</html> 

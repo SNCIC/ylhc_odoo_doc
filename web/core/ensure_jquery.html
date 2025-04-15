@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 - ensureJQuery模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>ensureJQuery模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ensure_jquery.js</code>是Odoo 18框架中的一个核心工具模块，它的主要职责是确保jQuery库在需要时可用，并处理Bootstrap组件与jQuery的兼容性。这个模块对于支持旧代码和组件非常重要，因为Odoo 18正在逐步减少对jQuery的依赖，但仍需要兼容使用jQuery的模块。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>ensureJQuery模块提供了一种按需加载jQuery的机制，这使得Odoo应用可以在必要时才加载jQuery库，从而减少不必要的资源消耗，同时确保依赖jQuery的代码能够正常工作。
+    </div>
+    
+    <h2>文件源码</h2>
+    <div class="code-block">
+        <pre><code>import { loadBundle, loadJS } from "./assets";
+
+export async function ensureJQuery() {
+    if (!window.jQuery) {
+        await loadBundle("web._assets_jquery");
+        // allow to instantiate Bootstrap classes via jQuery: e.g. $(...).dropdown
+        const BTS_CLASSES = ["Carousel", "Dropdown", "Modal", "Popover", "Tooltip", "Collapse"];
+        const $ = window.jQuery;
+        for (const CLS of BTS_CLASSES) {
+            const plugin = window[CLS];
+            if (plugin) {
+                const name = plugin.NAME;
+                const JQUERY_NO_CONFLICT = $.fn[name];
+                $.fn[name] = plugin.jQueryInterface;
+                $.fn[name].Constructor = plugin;
+                $.fn[name].noConflict = () => {
+                    $.fn[name] = JQUERY_NO_CONFLICT;
+                    return plugin.jQueryInterface;
+                };
+            }
+        }
+    } else if (!window.jQuery.fn.getScrollingElement) {
+        await loadJS("/web/static/src/legacy/js/libs/jquery.js");
+    }
+}</code></pre>
+    </div>
+    
+    <h2>核心功能解析</h2>
+    
+    <h3>1. jQuery的按需加载</h3>
+    <p>这个模块的主要功能是按需加载jQuery。它通过检查<code>window.jQuery</code>是否存在来决定是否需要加载jQuery库：</p>
+    <ul>
+        <li>如果jQuery不存在，则加载完整的jQuery资源包(<code>web._assets_jquery</code>)</li>
+        <li>如果jQuery已存在但缺少特定功能(<code>getScrollingElement</code>)，则加载补充的jQuery库</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>if (!window.jQuery) {
+    await loadBundle("web._assets_jquery");
+    // ...
+} else if (!window.jQuery.fn.getScrollingElement) {
+    await loadJS("/web/static/src/legacy/js/libs/jquery.js");
+}</code></pre>
+    </div>
+    
+    <h3>2. Bootstrap组件与jQuery的集成</h3>
+    <p>当jQuery被加载后，该模块会自动设置Bootstrap组件与jQuery的集成，使得开发者可以通过jQuery插件的方式使用Bootstrap组件，例如<code>$('#myElement').dropdown()</code>。主要处理以下Bootstrap组件：</p>
+    <ul>
+        <li>Carousel（轮播）</li>
+        <li>Dropdown（下拉菜单）</li>
+        <li>Modal（模态框）</li>
+        <li>Popover（弹出框）</li>
+        <li>Tooltip（提示框）</li>
+        <li>Collapse（折叠面板）</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>const BTS_CLASSES = ["Carousel", "Dropdown", "Modal", "Popover", "Tooltip", "Collapse"];
+const $ = window.jQuery;
+for (const CLS of BTS_CLASSES) {
+    const plugin = window[CLS];
+    if (plugin) {
+        const name = plugin.NAME;
+        const JQUERY_NO_CONFLICT = $.fn[name];
+        $.fn[name] = plugin.jQueryInterface;
+        $.fn[name].Constructor = plugin;
+        $.fn[name].noConflict = () => {
+            $.fn[name] = JQUERY_NO_CONFLICT;
+            return plugin.jQueryInterface;
+        };
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 无冲突模式支持</h3>
+    <p>该模块还为每个Bootstrap组件提供了无冲突模式，允许在jQuery中存在多个版本的Bootstrap插件时管理潜在的冲突：</p>
+    <div class="code-block">
+        <pre><code>$.fn[name].noConflict = () => {
+    $.fn[name] = JQUERY_NO_CONFLICT;
+    return plugin.jQueryInterface;
+};</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>ensureJQuery模块的工作流程可以概括为：</p>
+    
+    <div class="workflow">
+        <ol>
+            <li>检查jQuery是否已存在于全局作用域(<code>window.jQuery</code>)</li>
+            <li>如果不存在，加载jQuery资源包，并设置Bootstrap组件的jQuery集成</li>
+            <li>如果存在但缺少某些关键功能(如<code>getScrollingElement</code>)，加载补充的jQuery库</li>
+            <li>返回一个Promise，在jQuery完全准备好后解析</li>
+        </ol>
+    </div>
+    
+    <h2>实际使用场景</h2>
+    
+    <h3>在模块中引入jQuery：</h3>
+    <div class="code-block">
+        <pre><code>import { ensureJQuery } from "@web/core/ensure_jquery";
+
+async function setupLegacyComponent() {
+    // 确保jQuery可用
+    await ensureJQuery();
+    
+    // 现在可以安全地使用jQuery和Bootstrap插件
+    const $ = window.jQuery;
+    
+    // 使用jQuery选择器
+    const element = $('#some-element');
+    
+    // 使用Bootstrap插件
+    element.tooltip({
+        title: '这是一个提示',
+        placement: 'top'
+    });
+    
+    // 或使用Modal
+    $('#myModal').modal('show');
+}</code></pre>
+    </div>
+    
+    <h3>在Odoo 18中的渐进式迁移：</h3>
+    <div class="code-block">
+        <pre><code>import { ensureJQuery } from "@web/core/ensure_jquery";
+import { Component } from "@odoo/owl";
+
+class MixedComponent extends Component {
+    setup() {
+        // 现代代码：使用Owl
+        this.state = useState({ value: 0 });
+    }
+    
+    async willStart() {
+        // 加载jQuery以支持遗留代码
+        await ensureJQuery();
+    }
+    
+    mounted() {
+        // 混合使用：现代代码和jQuery代码共存
+        const $ = window.jQuery;
+        $(this.el).find('.legacy-element').datepicker({
+            format: 'yyyy-mm-dd'
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的变化</h2>
+    <p>在Odoo 18中，对jQuery的处理有如下特点：</p>
+    <ul>
+        <li>jQuery不再默认加载，而是按需加载</li>
+        <li>新开发的组件应尽量避免使用jQuery，转而使用现代Web API</li>
+        <li>提供了ensureJQuery作为桥接机制，支持渐进式从jQuery迁移到原生JavaScript</li>
+        <li>改进了Bootstrap组件与jQuery的集成方式，使它们可以作为插件使用</li>
+    </ul>
+    
+    <h2>开发者注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>在Odoo 18中开发新模块时，应尽量避免使用jQuery，优先使用现代JavaScript API和OWL框架</li>
+            <li>只在与旧模块集成或必要时才调用ensureJQuery</li>
+            <li>jQuery的加载是异步的，所以使用前必须等待ensureJQuery函数完成</li>
+            <li>过度依赖jQuery可能会导致性能问题，因为它引入了额外的JavaScript代码</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>ensureJQuery模块是Odoo 18中的一个重要工具，它提供了：</p>
+    <ul>
+        <li>按需加载jQuery的机制</li>
+        <li>Bootstrap组件与jQuery的无缝集成</li>
+        <li>支持渐进式从jQuery迁移到现代JavaScript</li>
+        <li>减少不必要的资源加载，同时保持对遗留代码的兼容性</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>新开发的Odoo 18模块应尽量避免使用jQuery，但在需要与现有jQuery代码集成时，ensureJQuery提供了一个优雅的解决方案。
+    </div>
+</body>
+</html> 

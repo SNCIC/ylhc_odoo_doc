@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 邮件黑名单混入模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 邮件黑名单混入模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_thread_blacklist.py</code>是Odoo 18中的一个重要模块，它提供了电子邮件黑名单功能的基础设施。这个混入类（mixin）可以被任何需要支持邮件退订（opt-out）功能的模型继承，典型应用于大规模邮件发送场景。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>黑名单混入类提供了一种机制，允许系统跟踪哪些电子邮件地址已被列入黑名单，确保这些地址不再接收群发邮件。它还处理电子邮件地址的标准化，以便更有效地进行黑名单检查和管理。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>电子邮件标准化</strong>：将电子邮件地址转换为标准格式，便于比较和查找</li>
+        <li><strong>黑名单状态检查</strong>：检查电子邮件是否在黑名单中</li>
+        <li><strong>退信计数</strong>：跟踪电子邮件的退信次数</li>
+        <li><strong>黑名单管理工具</strong>：提供从黑名单中移除电子邮件的功能</li>
+        <li><strong>循环发件人检测</strong>：检测可能导致重复记录的发件人域</li>
+    </ol>
+    
+    <h2>代码详解</h2>
+    <h3>MailBlackListMixin 类</h3>
+    <p>这是该模块的核心类，它定义了黑名单功能的基本结构和行为：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailBlackListMixin(models.AbstractModel):
+    """ Mixin that is inherited by all model with opt out. This mixin stores a normalized
+    email based on primary_email field.
+
+    A normalized email is considered as :
+        - having a left part + @ + a right part (the domain can be without '.something')
+        - being lower case
+        - having no name before the address. Typically, having no 'Name <>'
+    Ex:
+        - Formatted Email : 'Name <NaMe@DoMaIn.CoM>'
+        - Normalized Email : 'name@domain.com'
+
+    The primary email field can be specified on the parent model, if it differs from the default one ('email')
+    The email_normalized field can than be used on that model to search quickly on emails (by simple comparison
+    and not using time consuming regex anymore).
+
+    Using this email_normalized field, blacklist status is computed.
+
+    Mail Thread capabilities are required for this mixin. """
+
+    _name = 'mail.thread.blacklist'
+    _inherit = ['mail.thread']
+    _description = 'Mail Blacklist mixin'
+    _primary_email = 'email'
+
+    email_normalized = fields.Char(
+        string='Normalized Email', compute="_compute_email_normalized", compute_sudo=True, store=True,
+        help="This field is used to search on email address as the primary email field can contain more than strictly an email address.")
+    # Note : is_blacklisted sould only be used for display. As the compute is not depending on the blacklist,
+    # once read, it won't be re-computed again if the blacklist is modified in the same request.
+    is_blacklisted = fields.Boolean(
+        string='Blacklist', compute="_compute_is_blacklisted", compute_sudo=True, store=False,
+        search="_search_is_blacklisted", groups="base.group_user",
+        help="If the email address is on the blacklist, the contact won't receive mass mailing anymore, from any list")
+    # messaging
+    message_bounce = fields.Integer('Bounce', help="Counter of the number of bounced emails for this contact", default=0)</code></pre>
+    </div>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>email_normalized</td>
+            <td>Char</td>
+            <td>标准化的电子邮件地址，根据主要电子邮件字段计算</td>
+        </tr>
+        <tr>
+            <td>is_blacklisted</td>
+            <td>Boolean</td>
+            <td>表示电子邮件地址是否在黑名单中的计算字段</td>
+        </tr>
+        <tr>
+            <td>message_bounce</td>
+            <td>Integer</td>
+            <td>记录该联系人/记录的电子邮件退信计数器</td>
+        </tr>
+    </table>
+    
+    <h3>电子邮件标准化</h3>
+    <div class="code-block">
+        <pre><code>@api.depends(lambda self: [self._primary_email])
+def _compute_email_normalized(self):
+    self._assert_primary_email()
+    for record in self:
+        record.email_normalized = tools.email_normalize(record[self._primary_email], strict=False)</code></pre>
+    </div>
+    
+    <p>该方法负责计算标准化的电子邮件地址：</p>
+    <ol>
+        <li>首先验证主要电子邮件字段存在</li>
+        <li>使用Odoo的email_normalize工具进行标准化处理：
+            <ul>
+                <li>移除名称部分（如"John Doe &lt;john@example.com&gt;"变为"john@example.com"）</li>
+                <li>转换为小写</li>
+                <li>保留基本的电子邮件结构（用户名@域名）</li>
+            </ul>
+        </li>
+    </ol>
+    
+    <h3>黑名单状态搜索</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _search_is_blacklisted(self, operator, value):
+    # Assumes operator is '=' or '!=' and value is True or False
+    self.flush_model(['email_normalized'])
+    self.env['mail.blacklist'].flush_model(['email', 'active'])
+    self._assert_primary_email()
+    if operator != '=':
+        if operator == '!=' and isinstance(value, bool):
+            value = not value
+        else:
+            raise NotImplementedError()
+
+    if value:
+        sql = SQL("""
+            SELECT m.id
+                FROM mail_blacklist bl
+                JOIN %s m
+                ON m.email_normalized = bl.email AND bl.active
+        """, SQL.identifier(self._table))
+    else:
+        sql = SQL("""
+            SELECT m.id
+                FROM %s m
+                LEFT JOIN mail_blacklist bl
+                ON m.email_normalized = bl.email AND bl.active
+                WHERE bl.id IS NULL
+        """, SQL.identifier(self._table))
+
+    self._cr.execute(SQL("%s FETCH FIRST ROW ONLY", sql))
+    res = self._cr.fetchall()
+    if not res:
+        return [(0, '=', 1)]
+    return [('id', 'in', SQL("(%s)", sql))]</code></pre>
+    </div>
+    
+    <p>该方法提供了一个优化的搜索功能，用于搜索黑名单状态：</p>
+    <ol>
+        <li>先刷新相关模型确保数据最新</li>
+        <li>支持"="和"!="操作符，用于查找处于或不处于黑名单中的记录</li>
+        <li>使用SQL直接查询，避免使用ORM的性能开销</li>
+        <li>根据查询结果构建域表达式返回</li>
+    </ol>
+    
+    <h3>计算黑名单状态</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('email_normalized')
+def _compute_is_blacklisted(self):
+    # TODO : Should remove the sudo as compute_sudo defined on methods.
+    # But if user doesn't have access to mail.blacklist, doen't work without sudo().
+    blacklist = set(self.env['mail.blacklist'].sudo().search([
+        ('email', 'in', self.mapped('email_normalized'))]).mapped('email'))
+    for record in self:
+        record.is_blacklisted = record.email_normalized in blacklist</code></pre>
+    </div>
+    
+    <p>该方法计算记录的黑名单状态：</p>
+    <ol>
+        <li>使用管理员权限查询黑名单模型</li>
+        <li>构建一个包含所有黑名单电子邮件的集合</li>
+        <li>检查每个记录的标准化电子邮件是否在该集合中</li>
+    </ol>
+    
+    <h3>验证主要电子邮件字段</h3>
+    <div class="code-block">
+        <pre><code>def _assert_primary_email(self):
+    if not hasattr(self, "_primary_email") or not isinstance(self._primary_email, str):
+        raise UserError(_('Invalid primary email field on model %s', self._name))
+    if self._primary_email not in self._fields or self._fields[self._primary_email].type != 'char':
+        raise UserError(_('Invalid primary email field on model %s', self._name))</code></pre>
+    </div>
+    
+    <p>该方法验证主要电子邮件字段的有效性：</p>
+    <ol>
+        <li>检查_primary_email属性是否存在且为字符串</li>
+        <li>检查_primary_email字段是否存在且类型为char</li>
+        <li>如果不满足条件则抛出错误</li>
+    </ol>
+    
+    <h3>处理邮件退信</h3>
+    <div class="code-block">
+        <pre><code>def _message_receive_bounce(self, email, partner):
+    """ Override of mail.thread generic method. Purpose is to increment the
+    bounce counter of the record. """
+    super(MailBlackListMixin, self)._message_receive_bounce(email, partner)
+    for record in self:
+        record.message_bounce = record.message_bounce + 1
+
+def _message_reset_bounce(self, email):
+    """ Override of mail.thread generic method. Purpose is to reset the
+    bounce counter of the record. """
+    super(MailBlackListMixin, self)._message_reset_bounce(email)
+    self.write({'message_bounce': 0})</code></pre>
+    </div>
+    
+    <p>这两个方法重写了mail.thread模型中的方法，用于处理电子邮件的退信计数：</p>
+    <ol>
+        <li>_message_receive_bounce：当收到退信时增加退信计数器</li>
+        <li>_message_reset_bounce：重置退信计数器为0</li>
+    </ol>
+    
+    <h3>黑名单移除操作</h3>
+    <div class="code-block">
+        <pre><code>def mail_action_blacklist_remove(self):
+    # wizard access rights currently not working as expected and allows users without access to
+    # open this wizard, therefore we check to make sure they have access before the wizard opens.
+    can_access = self.env['mail.blacklist'].has_access('write')
+    if can_access:
+        return {
+            'name': _('Are you sure you want to unblacklist this Email Address?'),
+            'type': 'ir.actions.act_window',
+            'view_mode': 'form',
+            'res_model': 'mail.blacklist.remove',
+            'target': 'new',
+        }
+    else:
+        raise AccessError(_("You do not have the access right to unblacklist emails. Please contact your administrator."))</code></pre>
+    </div>
+    
+    <p>该方法提供了一个用户界面操作，用于从黑名单中移除电子邮件：</p>
+    <ol>
+        <li>先检查用户是否有权限操作黑名单</li>
+        <li>如果有权限，打开一个向导窗口确认移除操作</li>
+        <li>如果没有权限，抛出访问错误</li>
+    </ol>
+    
+    <h3>循环发件人域检测</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _detect_loop_sender_domain(self, email_from_normalized):
+    """Return the domain to be used to detect duplicated records created by alias.
+
+    :param email_from_normalized: FROM of the incoming email, normalized
+    """
+    return [('email_normalized', '=', email_from_normalized)]</code></pre>
+    </div>
+    
+    <p>该方法用于检测由别名创建的重复记录：</p>
+    <ol>
+        <li>接收一个标准化的电子邮件地址</li>
+        <li>返回一个域表达式，用于查找使用相同电子邮件的记录</li>
+        <li>通常用于电子邮件别名处理中，避免创建重复记录</li>
+    </ol>
+    
+    <h2>使用示例</h2>
+    <h3>继承黑名单混入类</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class MyCustomContact(models.Model):
+    _name = 'my.custom.contact'
+    _inherit = ['mail.thread.blacklist']
+    _description = '我的自定义联系人'
+    _primary_email = 'contact_email'  # 自定义主要电子邮件字段名
+    
+    name = fields.Char('姓名', required=True)
+    contact_email = fields.Char('联系邮箱', required=True)
+    phone = fields.Char('电话')
+    
+    # 继承了email_normalized, is_blacklisted和message_bounce字段</code></pre>
+    </div>
+    
+    <h3>检查联系人是否在黑名单中</h3>
+    <div class="code-block">
+        <pre><code># 查找不在黑名单中的联系人
+valid_contacts = self.env['my.custom.contact'].search([
+    ('is_blacklisted', '=', False)
+])
+
+# 查找在黑名单中的联系人
+blacklisted_contacts = self.env['my.custom.contact'].search([
+    ('is_blacklisted', '=', True)
+])
+
+# 向未被列入黑名单的联系人发送营销邮件
+for contact in valid_contacts:
+    if not contact.is_blacklisted:  # 双重检查
+        self.env['mail.mail'].create({
+            'subject': '最新产品促销',
+            'body_html': '<p>查看我们的最新产品...</p>',
+            'email_to': contact.contact_email,
+            # 其他邮件参数...
+        })</code></pre>
+    </div>
+    
+    <h3>处理退信和从黑名单中移除</h3>
+    <div class="code-block">
+        <pre><code># 假设我们收到了一个退信通知
+def process_bounce_notification(self, contact, email):
+    # 调用退信处理方法增加退信计数
+    contact._message_receive_bounce(email, contact.partner_id)
+    
+    # 如果退信计数超过阈值，可能需要采取措施
+    if contact.message_bounce > 3:
+        # 可以选择自动将联系人添加到黑名单
+        self.env['mail.blacklist'].create({'email': contact.email_normalized})
+        
+# 从黑名单中移除联系人
+def remove_from_blacklist(self, contact):
+    # 检查用户权限并打开向导
+    action = contact.mail_action_blacklist_remove()
+    
+    # 或者直接使用管理员权限删除黑名单记录
+    blacklist_record = self.env['mail.blacklist'].sudo().search([
+        ('email', '=', contact.email_normalized)
+    ])
+    if blacklist_record:
+        blacklist_record.unlink()
+        
+    # 重置退信计数
+    contact._message_reset_bounce(contact.contact_email)</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <div class="flow-diagram">
+        <h3>电子邮件标准化和黑名单检查流程</h3>
+        <ol>
+            <li>模型继承mail.thread.blacklist混入类</li>
+            <li>设置_primary_email属性指向包含电子邮件的字段</li>
+            <li>系统自动计算email_normalized字段，标准化电子邮件格式</li>
+            <li>当需要检查黑名单状态时，系统查询mail.blacklist表</li>
+            <li>is_blacklisted字段反映电子邮件是否在黑名单中</li>
+            <li>发送大规模邮件时，系统会自动跳过黑名单中的收件人</li>
+        </ol>
+    </div>
+    
+    <h3>退信处理流程</h3>
+    <ol>
+        <li>当邮件服务器接收到退信通知时</li>
+        <li>系统找到对应的记录，并调用_message_receive_bounce方法</li>
+        <li>退信计数器增加</li>
+        <li>如果配置了自动黑名单规则，达到特定退信次数后可以自动将邮箱加入黑名单</li>
+        <li>用户也可以手动将联系人从黑名单中移除，重置退信计数器</li>
+    </ol>
+    
+    <h2>相关依赖和集成</h2>
+    <p>MailBlackListMixin模块与其他Odoo模块有多种集成方式：</p>
+    <ul>
+        <li><strong>mail.thread</strong>：基础邮件线程功能，提供邮件发送和跟踪能力</li>
+        <li><strong>mail.blacklist</strong>：存储黑名单电子邮件的模型</li>
+        <li><strong>mail.mass_mailing</strong>：大规模邮件发送时会检查黑名单状态</li>
+        <li><strong>mail.blacklist.remove</strong>：从黑名单中移除邮箱的向导</li>
+    </ul>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>注意：</strong>使用邮件黑名单功能时需要考虑以下几点：
+        <ul>
+            <li>确保正确设置_primary_email属性，指向含有电子邮件的字段</li>
+            <li>is_blacklisted是一个计算字段，不应直接修改，而应通过mail.blacklist模型管理黑名单</li>
+            <li>退信计数器(message_bounce)只在接收到退信通知时增加，不代表所有发送失败的情况</li>
+            <li>标准化的电子邮件地址可能丢失原始格式信息，但保留了基本的可达性</li>
+            <li>移除电子邮件黑名单需要特定的访问权限</li>
+        </ul>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>模块在设计上考虑了性能优化：</p>
+    <ul>
+        <li>email_normalized字段被存储，避免每次需要时重新计算</li>
+        <li>黑名单检查使用优化的SQL查询而不是ORM方法，提高检索效率</li>
+        <li>is_blacklisted使用compute_sudo=True，确保即使用户没有访问mail.blacklist的权限也能计算该值</li>
+        <li>搜索方法经过优化，通过SQL子查询提高大数据量时的性能</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>mail.thread.blacklist模块提供了一个强大灵活的框架，用于管理电子邮件黑名单和退信跟踪：</p>
+    <ul>
+        <li>通过标准化电子邮件地址简化比较和搜索</li>
+        <li>提供高效的黑名单状态检查机制</li>
+        <li>集成退信跟踪和计数功能</li>
+        <li>支持黑名单管理操作</li>
+        <li>通过避免向不想接收的收件人发送邮件，提高邮件营销的效率和声誉</li>
+    </ul>
+    
+    <p>任何需要管理opt-out（退订）机制和处理电子邮件退信的Odoo模型都应考虑继承这个混入类，以获得完整的黑名单功能。</p>
+</body>
+</html> 

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo本地化配置模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo本地化配置模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>localization.js</code>是Odoo前端框架中定义本地化配置数据结构的核心模块。它提供了一个全局的localization对象，作为整个应用中本地化配置的单一来源。该模块不负责加载配置数据（这是localization_service的职责），而是定义数据结构并提供安全的访问机制。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>localization对象是Odoo前端中存储区域设置信息的中央存储库，包含日期格式、时间格式、数字分隔符、文本方向等关键配置。它是由localization_service初始化的，但可以被任何需要本地化信息的组件直接导入和使用。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>定义本地化配置结构</strong>：通过TypeScript类型定义明确本地化参数的结构</li>
+        <li><strong>提供全局访问点</strong>：为应用中的所有组件提供统一的本地化配置访问点</li>
+        <li><strong>实现安全访问机制</strong>：通过代理确保在配置加载前的访问安全</li>
+        <li><strong>存储关键格式化参数</strong>：包含日期、时间、数字等格式化所需的所有配置</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>localization.js的核心是定义了一个通过代理保护的localization对象：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef Localization
+ * @property {string} dateFormat
+ * @property {string} dateTimeFormat
+ * @property {string} timeFormat
+ * @property {string} decimalPoint
+ * @property {"ltr" | "rtl"} direction
+ * @property {[number, number]} grouping
+ * @property {boolean} multiLang
+ * @property {string} thousandsSep
+ * @property {number} weekStart
+ * @property {string} code
+ */
+
+/**
+ * This is the main object holding user specific data about the localization. Its basically
+ * the JS counterpart of the "res.lang" model.
+ * It is useful to directly access those data anywhere, even outside Components.
+ *
+ * Important Note: its data are actually loaded by the localization_service,
+ * so a code like the following would not work:
+ *   import { localization } from "@web/core/l10n/localization";
+ *   const dateFormat = localization.dateFormat; // dateFormat isn't set yet
+ * @type {Localization}
+ */
+export const localization = new Proxy(
+    {},
+    {
+        get: (target, p) => {
+            // "then" can be called implicitly if the object is returned in an
+            // `async` function, so we need to allow it.
+            if (p in target || p === "then") {
+                return Reflect.get(target, p);
+            }
+            throw new Error(
+                `could not access localization parameter "${p}": parameters are not ready yet. Maybe add 'localization' to your dependencies?`
+            );
+        },
+    }
+);</code></pre>
+    </div>
+    
+    <h3>关键组件解释</h3>
+    
+    <h4>1. Localization类型定义</h4>
+    <p>通过JSDoc注释定义的Localization类型详细描述了本地化配置的结构：</p>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>dateFormat</td>
+            <td>string</td>
+            <td>日期格式化字符串（Luxon格式）</td>
+        </tr>
+        <tr>
+            <td>dateTimeFormat</td>
+            <td>string</td>
+            <td>日期时间格式化字符串</td>
+        </tr>
+        <tr>
+            <td>timeFormat</td>
+            <td>string</td>
+            <td>时间格式化字符串</td>
+        </tr>
+        <tr>
+            <td>decimalPoint</td>
+            <td>string</td>
+            <td>小数点符号</td>
+        </tr>
+        <tr>
+            <td>direction</td>
+            <td>"ltr" | "rtl"</td>
+            <td>文本方向（从左到右或从右到左）</td>
+        </tr>
+        <tr>
+            <td>grouping</td>
+            <td>[number, number]</td>
+            <td>数字分组策略（如[3, 0]表示每3位一组）</td>
+        </tr>
+        <tr>
+            <td>multiLang</td>
+            <td>boolean</td>
+            <td>是否支持多语言</td>
+        </tr>
+        <tr>
+            <td>thousandsSep</td>
+            <td>string</td>
+            <td>千位分隔符</td>
+        </tr>
+        <tr>
+            <td>weekStart</td>
+            <td>number</td>
+            <td>一周的第一天（0=周日，1=周一，...）</td>
+        </tr>
+        <tr>
+            <td>code</td>
+            <td>string</td>
+            <td>语言/区域代码</td>
+        </tr>
+    </table>
+    
+    <h4>2. 代理保护机制</h4>
+    <p>localization对象使用JavaScript Proxy实现了访问保护：</p>
+    <ul>
+        <li>如果尝试访问尚未初始化的属性，会抛出有意义的错误</li>
+        <li>特别处理了"then"属性，确保在async/await中使用时不会出错</li>
+        <li>这种保护机制防止了在localization_service初始化完成前使用localization对象导致的错误</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>export const localization = new Proxy(
+    {},
+    {
+        get: (target, p) => {
+            if (p in target || p === "then") {
+                return Reflect.get(target, p);
+            }
+            throw new Error(
+                `could not access localization parameter "${p}": parameters are not ready yet. Maybe add 'localization' to your dependencies?`
+            );
+        },
+    }
+);</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>localization模块与localization_service协同工作，共同提供本地化功能：</p>
+    
+    <div class="flow-diagram">
+        <h3>本地化配置工作流程</h3>
+        <ol>
+            <li>localization.js定义localization对象结构并导出</li>
+            <li>localization_service在初始化时从服务器获取配置数据</li>
+            <li>localization_service将数据填充到localization对象中</li>
+            <li>应用中的组件可以导入localization对象并使用其属性</li>
+            <li>代理保护确保在初始化前访问localization属性会抛出清晰的错误</li>
+        </ol>
+    </div>
+    
+    <h3>初始化过程</h3>
+    <p>localization对象的初始化由localization_service完成：</p>
+    <ol>
+        <li>应用启动时，localization对象最初是一个空对象，带有代理保护</li>
+        <li>localization_service启动并从服务器获取本地化配置</li>
+        <li>使用Object.assign()将配置填充到localization对象中</li>
+        <li>此后，localization对象可以安全地在整个应用中使用</li>
+    </ol>
+    
+    <h2>与res.lang模型的关系</h2>
+    <p>localization对象实际上是Odoo后端中res.lang模型的JavaScript对应物：</p>
+    <ul>
+        <li>res.lang模型在数据库中存储所有语言配置</li>
+        <li>localization_service从后端获取当前用户语言的配置</li>
+        <li>这些配置被转换为JavaScript格式并存储在localization对象中</li>
+        <li>前端代码可以通过localization对象访问这些配置，无需额外的服务器请求</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    <p>下面是几个使用localization对象的实际场景：</p>
+    
+    <h3>示例1：在组件中使用本地化配置</h3>
+    <div class="code-block">
+        <pre><code>import { Component, useState } from "@odoo/owl";
+import { localization } from "@web/core/l10n/localization";
+import { useService } from "@web/core/utils/hooks";
+
+class MyLocalizedComponent extends Component {
+    setup() {
+        // 确保localization已初始化
+        useService("localization");
+        
+        this.state = useState({
+            // 根据当前语言环境决定日期格式
+            dateFormat: localization.dateFormat,
+            // 检测是否为RTL(从右到左)语言
+            isRTL: localization.direction === "rtl",
+            // 获取周起始日
+            weekStart: localization.weekStart
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：格式化数字</h3>
+    <div class="code-block">
+        <pre><code>import { localization } from "@web/core/l10n/localization";
+
+function formatNumber(value) {
+    // 将数字转换为字符串
+    const str = String(value);
+    if (!str.includes('.')) {
+        return applyThousandsSeparator(str);
+    }
+    
+    const parts = str.split('.');
+    // 应用千位分隔符到整数部分
+    const integerPart = applyThousandsSeparator(parts[0]);
+    // 使用正确的小数点符号
+    return integerPart + localization.decimalPoint + parts[1];
+}
+
+function applyThousandsSeparator(str) {
+    let result = '';
+    // 根据grouping配置应用千位分隔符
+    const groupSize = localization.grouping[0];
+    for (let i = 0; i < str.length; i++) {
+        if (i > 0 && (str.length - i) % groupSize === 0) {
+            result += localization.thousandsSep;
+        }
+        result += str[i];
+    }
+    return result;
+}</code></pre>
+    </div>
+    
+    <h3>示例3：处理文本方向</h3>
+    <div class="code-block">
+        <pre><code>import { localization } from "@web/core/l10n/localization";
+import { css } from "@odoo/owl";
+
+// 在CSS中处理RTL布局
+const styles = css`
+    .my-component {
+        padding: 10px;
+        margin: ${localization.direction === "rtl" ? "0 10px 0 0" : "0 0 0 10px"};
+    }
+    
+    .icon-arrow {
+        transform: ${localization.direction === "rtl" ? "rotate(180deg)" : "none"};
+    }
+`;
+
+// 在组件模板中使用
+// &lt;div class="my-component" t-att-dir="localization.direction"&gt;&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>在访问localization对象前，确保它已被初始化，最佳做法是在组件中添加"localization"服务依赖</li>
+            <li>避免修改localization对象的属性，它应该被视为只读</li>
+            <li>处理错误：如果在初始化前访问localization，会抛出错误</li>
+            <li>考虑使用日期和格式化工具函数，而不是直接使用localization对象的原始值</li>
+            <li>为应用程序的所有国际化需求采用一致的方法</li>
+        </ul>
+    </div>
+    
+    <h3>正确使用依赖确保初始化</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { localization } from "@web/core/l10n/localization";
+import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        // 方法1: 添加localization服务依赖（推荐）
+        useService("localization");
+        // 现在可以安全使用localization对象
+        
+        // 方法2: 使用错误处理（当方法1不可行时）
+        try {
+            const direction = localization.direction;
+        } catch (error) {
+            // 处理localization尚未初始化的情况
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>在Odoo 18中，localization模块进行了一些改进：</p>
+    <ul>
+        <li>更清晰的错误信息，指导开发者如何正确使用localization对象</li>
+        <li>通过代理提供更好的错误保护，早期版本中可能会返回undefined</li>
+        <li>更完善的TypeScript类型定义，提供更好的IDE支持</li>
+        <li>与localization_service的更紧密集成，确保更可靠的初始化过程</li>
+    </ul>
+    
+    <h2>与其他模块的交互</h2>
+    <p>localization模块与以下模块有紧密交互：</p>
+    <ul>
+        <li><strong>localization_service.js</strong>：负责初始化localization对象</li>
+        <li><strong>dates.js</strong>：使用localization中的日期和时间格式</li>
+        <li><strong>translation.js</strong>：与localization共同提供国际化支持</li>
+        <li><strong>formatters.js</strong>：使用localization配置格式化数字和日期</li>
+        <li><strong>UI组件</strong>：使用localization配置调整布局和显示格式</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>localization模块是Odoo前端国际化系统的基础部分，它：</p>
+    <ul>
+        <li>提供了清晰的本地化配置数据结构</li>
+        <li>实现了单一的全局配置来源</li>
+        <li>通过代理机制提供安全访问</li>
+        <li>与localization_service协同工作实现完整的本地化功能</li>
+        <li>使前端代码能够适应不同的语言和区域设置</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，应始终通过服务依赖确保localization对象已初始化，并将其作为本地化配置的单一来源，而不是在代码中硬编码格式和分隔符。
+    </div>
+</body>
+</html> 

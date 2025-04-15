@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Mail Message模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <div class="content">
+        <h1>Odoo 18 Mail Message模块解析</h1>
+        
+        <h2>文件概述</h2>
+        <p><code>mail_message.py</code>是Odoo邮件系统的核心组件，定义了消息模型，用于存储系统中所有类型的消息，包括通知、评论、电子邮件等。它是Odoo社交与通信系统的基础。</p>
+        
+        <div class="note">
+            <strong>概念简介：</strong>Mail Message模型是Odoo中所有通信的中心枢纽，记录用户间交流、系统通知以及与外部通信的内容。它支持丰富的内容格式、附件和各种元数据，以维持通信历史记录和上下文。
+        </div>
+        
+        <h2>类定义与继承关系</h2>
+        <pre><code>class Message(models.Model):
+    _name = 'mail.message'
+    _inherit = ["bus.listener.mixin"]
+    _description = 'Message'
+    _order = 'id desc'
+    _rec_name = 'record_name'</code></pre>
+        
+        <ul>
+            <li><strong>_name</strong>: 定义模型的技术名称为'mail.message'</li>
+            <li><strong>_inherit</strong>: 继承自"bus.listener.mixin"，这使它能够通过Odoo的消息总线进行通信</li>
+            <li><strong>_order</strong>: 默认按ID降序排序，使最新消息显示在前</li>
+            <li><strong>_rec_name</strong>: 使用'record_name'字段作为记录的显示名称</li>
+        </ul>
+        
+        <h2>状态管理和错误码</h2>
+        <p>Message类的注释部分详细列出了各种通知状态和错误类型：</p>
+        
+        <div class="code-block">
+            <pre><code>""" Message model (from notifications to user input).
+
+Note:: State management / Error codes / Failure types summary
+
+* mail.notification
+  * notification_status
+    'ready', 'sent', 'bounce', 'exception', 'canceled'
+  * notification_type
+    'inbox', 'email', 'sms' (SMS addon), 'snail' (snailmail addon)
+  * failure_type
+    # generic
+    unknown,
+    # mail
+    "mail_email_invalid", "mail_smtp", "mail_email_missing",
+    "mail_from_invalid", "mail_from_missing",
+    # sms (SMS addon)
+    'sms_number_missing', 'sms_number_format', 'sms_credit',
+    'sms_server', 'sms_acc'
+    # snailmail (snailmail addon)
+    'sn_credit', 'sn_trial', 'sn_price', 'sn_fields',
+    'sn_format', 'sn_error'
+
+* mail.mail
+  * state
+    'outgoing', 'sent', 'received', 'exception', 'cancel'
+  * failure_reason: text
+
+* sms.sms (SMS addon)
+  * state
+    'outgoing', 'sent', 'error', 'canceled'
+  * error_code
+    'sms_number_missing', 'sms_number_format', 'sms_credit',
+    'sms_server', 'sms_acc',
+    # mass mode specific codes
+    'sms_blacklist', 'sms_duplicate'
+
+* snailmail.letter (snailmail addon)
+  * state
+    'pending', 'sent', 'error', 'canceled'
+  * error_code
+    'CREDIT_ERROR', 'TRIAL_ERROR', 'NO_PRICE_AVAILABLE', 'FORMAT_ERROR',
+    'UNKNOWN_ERROR',"""</code></pre>
+        </div>
+        
+        <h2>主要字段</h2>
+        <p>Message模型包含大量字段，可以分为几个主要类别：</p>
+        
+        <h3>内容相关字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>subject</td>
+                <td>Char</td>
+                <td>消息主题</td>
+            </tr>
+            <tr>
+                <td>date</td>
+                <td>Datetime</td>
+                <td>消息日期，默认为当前时间</td>
+            </tr>
+            <tr>
+                <td>body</td>
+                <td>Html</td>
+                <td>消息内容，支持HTML格式</td>
+            </tr>
+            <tr>
+                <td>preview</td>
+                <td>Char</td>
+                <td>计算字段，提取纯文本形式的消息摘要，用于邮件预览</td>
+            </tr>
+            <tr>
+                <td>link_preview_ids</td>
+                <td>One2many</td>
+                <td>链接预览信息，只对管理员组可见</td>
+            </tr>
+            <tr>
+                <td>reaction_ids</td>
+                <td>One2many</td>
+                <td>消息反应（表情等），只对系统管理员组可见</td>
+            </tr>
+            <tr>
+                <td>attachment_ids</td>
+                <td>Many2many</td>
+                <td>关联到消息的附件</td>
+            </tr>
+        </table>
+        
+        <h3>消息关系字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>parent_id</td>
+                <td>Many2one</td>
+                <td>父消息，用于构建消息线程</td>
+            </tr>
+            <tr>
+                <td>child_ids</td>
+                <td>One2many</td>
+                <td>子消息，引用此消息的所有回复</td>
+            </tr>
+        </table>
+        
+        <h3>相关文档字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>model</td>
+                <td>Char</td>
+                <td>相关文档模型（如res.partner, crm.lead等）</td>
+            </tr>
+            <tr>
+                <td>res_id</td>
+                <td>Many2oneReference</td>
+                <td>相关文档ID，结合model确定消息所属记录</td>
+            </tr>
+            <tr>
+                <td>record_name</td>
+                <td>Char</td>
+                <td>相关文档的显示名称</td>
+            </tr>
+            <tr>
+                <td>record_alias_domain_id</td>
+                <td>Many2one</td>
+                <td>别名域ID</td>
+            </tr>
+            <tr>
+                <td>record_company_id</td>
+                <td>Many2one</td>
+                <td>公司ID</td>
+            </tr>
+        </table>
+        
+        <h3>特征字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>message_type</td>
+                <td>Selection</td>
+                <td>消息类型，有多种可能值:
+                    <ul>
+                        <li>'email': 接收的电子邮件，通常通过邮件网关</li>
+                        <li>'comment': 用户评论，通过讨论或编辑器创建</li>
+                        <li>'email_outgoing': 外发电子邮件</li>
+                        <li>'notification': 系统通知，如跟踪消息</li>
+                        <li>'auto_comment': 自动生成的通知，如确认回执</li>
+                        <li>'user_notification': 针对特定接收者的通知</li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td>subtype_id</td>
+                <td>Many2one</td>
+                <td>消息子类型，指向mail.message.subtype</td>
+            </tr>
+            <tr>
+                <td>mail_activity_type_id</td>
+                <td>Many2one</td>
+                <td>关联的活动类型</td>
+            </tr>
+            <tr>
+                <td>is_internal</td>
+                <td>Boolean</td>
+                <td>是否为仅内部员工可见的消息，独立于子类型配置</td>
+            </tr>
+        </table>
+        
+        <h3>来源字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>email_from</td>
+                <td>Char</td>
+                <td>发送者邮箱，当找不到匹配的合作伙伴时使用</td>
+            </tr>
+            <tr>
+                <td>author_id</td>
+                <td>Many2one</td>
+                <td>作者，指向res.partner模型</td>
+            </tr>
+            <tr>
+                <td>author_avatar</td>
+                <td>Binary</td>
+                <td>作者头像，关联自author_id.avatar_128</td>
+            </tr>
+            <tr>
+                <td>author_guest_id</td>
+                <td>Many2one</td>
+                <td>访客作者，适用于临时用户</td>
+            </tr>
+            <tr>
+                <td>is_current_user_or_guest_author</td>
+                <td>Boolean</td>
+                <td>计算字段，判断当前用户或访客是否为消息作者</td>
+            </tr>
+        </table>
+        
+        <h3>接收者相关字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>partner_ids</td>
+                <td>Many2many</td>
+                <td>接收者列表，包括已归档的合作伙伴</td>
+            </tr>
+            <tr>
+                <td>notified_partner_ids</td>
+                <td>Many2many</td>
+                <td>需要操作的合作伙伴列表，可能随时间变化</td>
+            </tr>
+            <tr>
+                <td>needaction</td>
+                <td>Boolean</td>
+                <td>计算字段，表示是否需要当前用户操作</td>
+            </tr>
+            <tr>
+                <td>has_error</td>
+                <td>Boolean</td>
+                <td>计算字段，表示消息是否有发送错误</td>
+            </tr>
+            <tr>
+                <td>notification_ids</td>
+                <td>One2many</td>
+                <td>通知记录，关联到mail.notification模型</td>
+            </tr>
+        </table>
+        
+        <h3>用户界面相关字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>starred_partner_ids</td>
+                <td>Many2many</td>
+                <td>将消息标为收藏的合作伙伴</td>
+            </tr>
+            <tr>
+                <td>pinned_at</td>
+                <td>Datetime</td>
+                <td>消息被固定的日期时间</td>
+            </tr>
+            <tr>
+                <td>starred</td>
+                <td>Boolean</td>
+                <td>计算字段，当前用户是否已收藏此消息</td>
+            </tr>
+        </table>
+        
+        <h3>跟踪字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>tracking_value_ids</td>
+                <td>One2many</td>
+                <td>跟踪值，记录字段变更历史</td>
+            </tr>
+        </table>
+        
+        <h3>邮件网关字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>reply_to_force_new</td>
+                <td>Boolean</td>
+                <td>回复是否创建新线程，而不是添加到现有线程</td>
+            </tr>
+            <tr>
+                <td>message_id</td>
+                <td>Char</td>
+                <td>消息唯一标识符，用于电子邮件跟踪</td>
+            </tr>
+            <tr>
+                <td>reply_to</td>
+                <td>Char</td>
+                <td>回复邮件地址，设置后绕过自动线程创建</td>
+            </tr>
+            <tr>
+                <td>mail_server_id</td>
+                <td>Many2one</td>
+                <td>外发邮件服务器</td>
+            </tr>
+        </table>
+        
+        <h3>发送通知相关字段</h3>
+        <table>
+            <tr>
+                <th>字段名</th>
+                <th>类型</th>
+                <th>描述</th>
+            </tr>
+            <tr>
+                <td>email_layout_xmlid</td>
+                <td>Char</td>
+                <td>邮件布局的XML ID</td>
+            </tr>
+            <tr>
+                <td>email_add_signature</td>
+                <td>Boolean</td>
+                <td>是否添加签名，默认为True</td>
+            </tr>
+            <tr>
+                <td>mail_ids</td>
+                <td>One2many</td>
+                <td>关联的邮件记录，用于优化性能</td>
+            </tr>
+        </table>
+        
+        <h2>核心方法</h2>
+        <p>Message类包含大量方法，以下是一些核心方法：</p>
+        
+        <h3>基础方法</h3>
+        <div class="code-block">
+            <pre><code>@api.model
+def default_get(self, fields):
+    # 设置默认值，特别是处理作者信息
+    
+@api.depends('body')
+def _compute_preview(self):
+    # 从HTML内容中提取纯文本预览
+
+@api.depends('author_id', 'author_guest_id')
+@api.depends_context('guest', 'uid')
+def _compute_is_current_user_or_guest_author(self):
+    # 判断当前用户/访客是否为消息作者</code></pre>
+        </div>
+        
+        <h3>计算和搜索方法</h3>
+        <div class="code-block">
+            <pre><code>def _compute_needaction(self):
+    # 计算当前用户是否需要对消息采取行动
+    
+@api.model
+def _search_needaction(self, operator, operand):
+    # 搜索需要操作的消息
+    
+def _compute_has_error(self):
+    # 计算消息是否有发送错误
+    
+@api.model
+def _search_has_error(self, operator, operand):
+    # 搜索有错误的消息
+    
+@api.depends('starred_partner_ids')
+@api.depends_context('uid')
+def _compute_starred(self):
+    # 计算当前用户是否已收藏此消息
+    
+@api.model
+def _search_starred(self, operator, operand):
+    # 搜索被收藏的消息</code></pre>
+        </div>
+        
+        <h3>初始化和搜索方法</h3>
+        <div class="code-block">
+            <pre><code>def init(self):
+    # 创建数据库索引以优化性能
+    
+@api.model
+def _search(self, domain, offset=0, limit=None, order=None):
+    # 重写搜索方法，添加访问权限检查
+    
+@api.model
+def _find_allowed_model_wise(self, doc_model, doc_dict):
+    # 查找用户有权限访问的模型
+    
+@api.model
+def _find_allowed_doc_ids(self, model_ids):
+    # 查找用户有权限访问的文档ID</code></pre>
+        </div>
+        
+        <h3>权限控制方法</h3>
+        <div class="code-block">
+            <pre><code>def _check_access(self, operation: str) -> tuple | None:
+    # 检查访问权限
+    
+def _get_forbidden_access(self, operation: str) -> api.Self:
+    # 获取用户无权访问的记录
+    
+def _make_access_error(self, operation: str) -> AccessError:
+    # 创建访问错误异常
+    
+@api.model
+def _get_with_access(self, message_id, operation, **kwargs):
+    # 获取带访问检查的消息记录</code></pre>
+        </div>
+        
+        <h3>CRUD操作</h3>
+        <div class="code-block">
+            <pre><code>@api.model_create_multi
+def create(self, values_list):
+    # 创建消息记录，处理特殊字段
+    
+def read(self, fields=None, load='_classic_read'):
+    # 读取消息记录，带权限检查
+    
+def fetch(self, field_names):
+    # 低级别读取方法，无权限检查
+    
+def write(self, vals):
+    # 更新消息记录，带权限检查
+    
+def unlink(self):
+    # 删除消息记录，同时处理附件</code></pre>
+        </div>
+        
+        <h3>用户交互方法</h3>
+        <div class="code-block">
+            <pre><code>def action_open_document(self):
+    # 打开消息相关的文档
+    
+@api.model
+def mark_all_as_read(self, domain=None):
+    # 将所有消息标记为已读
+    
+def set_message_done(self):
+    # 将消息标记为已完成
+    
+@api.model
+def unstar_all(self):
+    # 取消所有收藏
+    
+def toggle_message_starred(self):
+    # 切换消息的收藏状态</code></pre>
+        </div>
+        
+        <h3>反应和总线通信</h3>
+        <div class="code-block">
+            <pre><code>def _message_reaction(self, content, action, partner, guest, store: Store = None):
+    # 处理消息反应（表情等）
+    
+def _bus_send_reaction_group(self, content):
+    # 通过总线发送反应信息
+    
+def _reaction_group_to_store(self, store: Store, content):
+    # 将反应组添加到存储</code></pre>
+        </div>
+        
+        <h3>记录和数据处理</h3>
+        <div class="code-block">
+            <pre><code>def _records_by_model_name(self):
+    # 按模型名称获取记录
+    
+def _record_by_message(self):
+    # 通过消息获取相关记录
+    
+def _to_store(
+    self,
+    store: Store,
+    /,
+    *,
+    fields=None,
+    format_reply=True,
+    msg_vals=None,
+    for_current_user=False,
+    add_followers=False,
+    followers=None,
+):
+    # 将消息数据转换为存储格式
+    
+def _author_to_store(self, store: Store):
+    # 将作者信息添加到存储
+    
+def _extras_to_store(self, store: Store, format_reply):
+    # 将额外信息添加到存储</code></pre>
+        </div>
+        
+        <h3>消息获取和通知</h3>
+        <div class="code-block">
+            <pre><code>@api.model
+def _message_fetch(self, domain, search_term=None, before=None, after=None, around=None, limit=30):
+    # 获取消息，支持搜索和分页
+    
+def _message_notifications_to_store(self, store: Store):
+    # 将消息通知添加到存储
+    
+def _notify_message_notification_update(self):
+    # 通知消息通知更新</code></pre>
+        </div>
+        
+        <h3>辅助方法</h3>
+        <div class="code-block">
+            <pre><code>def _bus_channel(self):
+    # 获取消息的总线频道
+    
+def _cleanup_side_records(self):
+    # 清理关联记录
+    
+def _filter_empty(self):
+    # 过滤空消息
+    
+@api.model
+def _get_record_name(self, values):
+    # 获取记录名称
+    
+@api.model
+def _get_reply_to(self, values):
+    # 获取回复地址
+    
+@api.model
+def _get_message_id(self, values):
+    # 获取消息ID
+    
+def is_thread_message(self, vals=None):
+    # 判断是否为线程消息
+    
+def _invalidate_documents(self, model=None, res_id=None):
+    # 使文档缓存失效
+    
+def _get_search_domain_share(self):
+    # 获取共享搜索域</code></pre>
+        </div>
+        
+        <h2>使用示例</h2>
+        <p>以下是一些常见的使用示例：</p>
+        
+        <h3>创建消息</h3>
+        <div class="code-block">
+            <pre><code># 创建一个简单的评论消息
+self.env['mail.message'].create({
+    'body': '这是一条测试消息',
+    'model': 'res.partner',
+    'res_id': partner.id,
+    'message_type': 'comment',
+    'author_id': self.env.user.partner_id.id,
+})
+
+# 创建带附件的消息
+attachment = self.env['ir.attachment'].create({
+    'name': '测试文档.pdf',
+    'datas': base64.b64encode(b'PDF内容'),
+    'res_model': 'res.partner',
+    'res_id': partner.id,
+})
+
+self.env['mail.message'].create({
+    'body': '这是带附件的消息',
+    'model': 'res.partner',
+    'res_id': partner.id,
+    'message_type': 'comment',
+    'author_id': self.env.user.partner_id.id,
+    'attachment_ids': [(6, 0, [attachment.id])],
+})</code></pre>
+        </div>
+        
+        <h3>获取消息</h3>
+        <div class="code-block">
+            <pre><code># 获取特定记录的所有消息
+messages = self.env['mail.message'].search([
+    ('model', '=', 'res.partner'),
+    ('res_id', '=', partner.id)
+], order='date desc')
+
+# 获取特定类型的消息
+comment_messages = self.env['mail.message'].search([
+    ('message_type', '=', 'comment'),
+    ('model', '=', 'res.partner'),
+    ('res_id', '=', partner.id)
+], order='date desc')
+
+# 获取需要操作的消息
+needaction_messages = self.env['mail.message'].search([
+    ('needaction', '=', True)
+])</code></pre>
+        </div>
+        
+        <h3>消息交互</h3>
+        <div class="code-block">
+            <pre><code># 将消息标记为已读
+message.set_message_done()
+
+# 收藏消息
+message.toggle_message_starred()
+
+# 打开消息关联的文档
+action = message.action_open_document()
+
+# 一次性将所有消息标记为已读
+self.env['mail.message'].mark_all_as_read()</code></pre>
+        </div>
+        
+        <h2>总结</h2>
+        <p>mail.message模型是Odoo通信系统的核心组件，它提供了以下主要功能：</p>
+        
+        <ul>
+            <li>存储各种类型的消息：系统通知、用户评论、电子邮件等</li>
+            <li>支持消息线程：通过父子关系构建对话流</li>
+            <li>关联到其他记录：可以与任何Odoo模型的记录相关联</li>
+            <li>跟踪通知状态：监控消息的发送、接收和错误状态</li>
+            <li>支持丰富内容：HTML内容、附件、链接预览等</li>
+            <li>用户交互功能：标记已读、收藏、固定等</li>
+            <li>权限控制：细粒度的访问控制机制</li>
+        </ul>
+        
+        <div class="note">
+            <strong>最佳实践：</strong>在处理消息时，应当优先使用更高级别的API（如mail.thread的message_post方法），而不是直接创建mail.message记录，以确保所有相关逻辑都被正确触发。
+        </div>
+    </div>
+</body>
+</html> 

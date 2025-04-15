@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo补丁工具解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo补丁系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>patch.js</code>是Odoo 18框架中的一个核心工具模块，它提供了一套强大的对象和类补丁机制。通过这个模块，开发者可以在不修改原始代码的情况下扩展或修改已有功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>补丁系统允许开发者以非侵入式方式修改或扩展已有对象和类的行为，是一种实现面向切面编程(AOP)的方法。这对于模块化开发和功能定制非常重要。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>对象和类的动态补丁</strong>：在运行时添加或修改对象的属性和方法</li>
+        <li><strong>原始功能保存</strong>：保留被补丁对象的原始属性和方法</li>
+        <li><strong>多层补丁支持</strong>：允许多个补丁应用在同一对象上</li>
+        <li><strong>补丁回退</strong>：支持撤销已应用的补丁，恢复原始状态</li>
+        <li><strong>继承链维护</strong>：在补丁过程中保持原有的原型链结构</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>patch.js模块的核心是patch函数及其辅助功能，让我们逐一分析：</p>
+    
+    <h3>类型定义与内部存储</h3>
+    <div class="code-block">
+        <pre><code>/**
+ *  @typedef {{
+ *      originalProperties: Map<string, PropertyDescriptor>;
+ *      skeleton: object;
+ *      extensions: Set<object>;
+ *  }} PatchDescription
+ */
+
+/** @type {WeakMap<object, PatchDescription>} */
+const patchDescriptions = new WeakMap();</code></pre>
+    </div>
+    
+    <p>模块首先定义了内部数据结构：</p>
+    <ul>
+        <li><code>PatchDescription</code>：描述一个对象的补丁状态，包含原始属性、骨架对象和所有扩展</li>
+        <li><code>patchDescriptions</code>：一个WeakMap，用于存储每个被补丁对象的PatchDescription</li>
+    </ul>
+    
+    <p>使用WeakMap有两个关键优势：</p>
+    <ul>
+        <li>不妨碍垃圾回收：当被补丁对象不再被引用时，相关的补丁信息也可以被回收</li>
+        <li>隐私保护：补丁信息只在模块内部可见，不会污染全局命名空间</li>
+    </ul>
+    
+    <h3>辅助函数</h3>
+    
+    <h4>1. getPatchDescription - 获取补丁描述</h4>
+    <div class="code-block">
+        <pre><code>/**
+ * Create or get the patch description for the given `objToPatch`.
+ * @param {object} objToPatch
+ * @returns {PatchDescription}
+ */
+function getPatchDescription(objToPatch) {
+    if (!patchDescriptions.has(objToPatch)) {
+        patchDescriptions.set(objToPatch, {
+            originalProperties: new Map(),
+            skeleton: Object.create(Object.getPrototypeOf(objToPatch)),
+            extensions: new Set(),
+        });
+    }
+    return patchDescriptions.get(objToPatch);
+}</code></pre>
+    </div>
+    
+    <p>这个函数获取或创建一个对象的补丁描述：</p>
+    <ul>
+        <li>如果对象没有补丁描述，创建一个新的描述</li>
+        <li>补丁描述包含三个关键部分：
+            <ul>
+                <li><code>originalProperties</code>：保存原始属性的Map</li>
+                <li><code>skeleton</code>：一个继承了原对象原型的空对象，用于保存原始行为</li>
+                <li><code>extensions</code>：应用于该对象的所有扩展的集合</li>
+            </ul>
+        </li>
+    </ul>
+    
+    <h4>2. isClassPrototype - 检查是否为类原型</h4>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {object} objToPatch
+ * @returns {boolean}
+ */
+function isClassPrototype(objToPatch) {
+    // class A {}
+    // isClassPrototype(A) === false
+    // isClassPrototype(A.prototype) === true
+    // isClassPrototype(new A()) === false
+    // isClassPrototype({}) === false
+    return (
+        Object.hasOwn(objToPatch, "constructor") && objToPatch.constructor?.prototype === objToPatch
+    );
+}</code></pre>
+    </div>
+    
+    <p>这个函数用于检查一个对象是否为类的原型：</p>
+    <ul>
+        <li>判断对象是否拥有自己的constructor属性</li>
+        <li>检查对象是否等于其constructor的prototype属性</li>
+        <li>这个检查很重要，因为类原型的属性通常需要特殊处理（如设置属性的可枚举性）</li>
+    </ul>
+    
+    <h4>3. findAncestorPropertyDescriptor - 查找祖先属性描述符</h4>
+    <div class="code-block">
+        <pre><code>/**
+ * Traverse the prototype chain to find a potential property.
+ * @param {object} objToPatch
+ * @param {string} key
+ * @returns {object}
+ */
+function findAncestorPropertyDescriptor(objToPatch, key) {
+    let descriptor = null;
+    let prototype = objToPatch;
+    do {
+        descriptor = Object.getOwnPropertyDescriptor(prototype, key);
+        prototype = Object.getPrototypeOf(prototype);
+    } while (!descriptor && prototype);
+    return descriptor;
+}</code></pre>
+    </div>
+    
+    <p>这个函数在对象的原型链上查找属性描述符：</p>
+    <ul>
+        <li>从给定对象开始，沿原型链向上查找</li>
+        <li>返回找到的第一个匹配属性的描述符</li>
+        <li>如果未找到，返回null</li>
+        <li>这个函数在处理getter/setter属性时非常有用</li>
+    </ul>
+    
+    <h3>核心功能：patch函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Patch an object
+ *
+ * If the intent is to patch a class, don't forget to patch the prototype, unless
+ * you want to patch static properties/methods.
+ *
+ * @template T
+ * @template {Partial<T>} U
+ * @param {T} objToPatch The object to patch
+ * @param {U} extension The object containing the patched properties
+ * @returns {() => void} Returns an unpatch function
+ */
+export function patch(objToPatch, extension) {
+    if (typeof extension === "string") {
+        throw new Error(
+            `Patch "${extension}": Second argument is not the patch name anymore, it should be the object containing the patched properties`
+        );
+    }
+
+    const description = getPatchDescription(objToPatch);
+    description.extensions.add(extension);
+
+    const properties = Object.getOwnPropertyDescriptors(extension);
+    for (const [key, newProperty] of Object.entries(properties)) {
+        const oldProperty = Object.getOwnPropertyDescriptor(objToPatch, key);
+        if (oldProperty) {
+            // Store the old property on the skeleton.
+            Object.defineProperty(description.skeleton, key, oldProperty);
+        }
+
+        if (!description.originalProperties.has(key)) {
+            // Keep a trace of original property (prop before first patch), useful for unpatching.
+            description.originalProperties.set(key, oldProperty);
+        }
+
+        if (isClassPrototype(objToPatch)) {
+            // A property is enumerable on POJO ({ prop: 1 }) but not on classes (class A {}).
+            // Here, we only check if we patch a class prototype.
+            newProperty.enumerable = false;
+        }
+
+        if ((newProperty.get && 1) ^ (newProperty.set && 1)) {
+            // get and set are defined together. If they are both defined
+            // in the previous descriptor but only one in the new descriptor
+            // then the other will be undefined so we need to apply the
+            // previous descriptor in the new one.
+            const ancestorProperty = findAncestorPropertyDescriptor(objToPatch, key);
+            newProperty.get = newProperty.get ?? ancestorProperty?.get;
+            newProperty.set = newProperty.set ?? ancestorProperty?.set;
+        }
+
+        // Replace the old property by the new one.
+        Object.defineProperty(objToPatch, key, newProperty);
+    }
+
+    // Sets the current skeleton as the extension's prototype to make
+    // `super` keyword working and then set extension as the new skeleton.
+    description.skeleton = Object.setPrototypeOf(extension, description.skeleton);
+
+    return () => {
+        // Remove the description to start with a fresh base.
+        patchDescriptions.delete(objToPatch);
+
+        for (const [key, property] of description.originalProperties) {
+            if (property) {
+                // Restore the original property on the `objToPatch` object.
+                Object.defineProperty(objToPatch, key, property);
+            } else {
+                // Or remove the property if it did not exist at first.
+                delete objToPatch[key];
+            }
+        }
+
+        // Re-apply the patches without the current one.
+        description.extensions.delete(extension);
+        for (const extension of description.extensions) {
+            patch(objToPatch, extension);
+        }
+    };
+}</code></pre>
+    </div>
+    
+    <p>patch函数是整个模块的核心，它实现了对象补丁功能。让我们分解其实现步骤：</p>
+    
+    <div class="workflow">
+        <h4>1. 参数验证</h4>
+        <p>检查第二个参数是否是对象而不是字符串（与旧版API兼容性检查）</p>
+        
+        <h4>2. 获取补丁描述</h4>
+        <p>获取或创建对象的补丁描述，并将当前扩展添加到扩展集合中</p>
+        
+        <h4>3. 处理每个新属性</h4>
+        <p>获取扩展对象的所有属性描述符，并逐一应用：</p>
+        <ul>
+            <li>如果属性已存在，将旧属性保存到骨架对象</li>
+            <li>记录属性的原始状态（首次补丁前）</li>
+            <li>对类原型的属性设置enumerable=false</li>
+            <li>处理getter/setter的特殊情况，确保配对完整</li>
+            <li>将新属性定义应用到目标对象</li>
+        </ul>
+        
+        <h4>4. 维护原型链</h4>
+        <p>设置当前骨架为扩展对象的原型，使JavaScript的原型继承机制与补丁系统无缝整合。这使得<code>super</code>关键字能正常工作。</p>
+        
+        <h4>5. 返回撤销函数</h4>
+        <p>返回一个函数，调用时将:</p>
+        <ul>
+            <li>删除当前补丁描述</li>
+            <li>恢复所有原始属性</li>
+            <li>移除当前扩展</li>
+            <li>重新应用其他扩展</li>
+        </ul>
+    </div>
+    
+    <h2>补丁系统的工作原理</h2>
+    <p>Odoo的补丁系统采用了一种巧妙的设计，允许多层补丁应用和撤销。以下是它的核心工作原理：</p>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>骨架链</h4>
+            <p>每次应用补丁时，它会构建一个"骨架链"，将原始对象的属性存储在一系列链接的骨架对象中。这形成了一个可回溯的属性历史。</p>
+        </div>
+        
+        <div class="class-box">
+            <h4>原型链整合</h4>
+            <p>系统通过将骨架设置为扩展对象的原型，使JavaScript的原型继承机制与补丁系统无缝整合。这使得<code>super</code>关键字能正常工作。</p>
+        </div>
+        
+        <div class="class-box">
+            <h4>属性描述符处理</h4>
+            <p>系统直接操作属性描述符，而不是简单的属性赋值，这使它能处理getter/setter、可枚举性等高级属性特性。</p>
+        </div>
+        
+        <div class="class-box">
+            <h4>扩展集合</h4>
+            <p>每个被补丁对象都维护一个应用于它的扩展集合，这使得撤销特定补丁后，可以重新应用其他补丁。</p>
+        </div>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>下面是patch.js模块在Odoo 18开发中的典型使用场景：</p>
+    
+    <h3>示例1：补丁类的方法</h3>
+    <div class="code-block">
+        <pre><code>import { patch } from "@web/core/utils/patch";
+
+// 原始类
+class Calculator {
+    add(a, b) {
+        return a + b;
+    }
+    
+    multiply(a, b) {
+        return a * b;
+    }
+}
+
+// 应用补丁，扩展功能
+const unpatchCalculator = patch(Calculator.prototype, {
+    // 覆盖现有方法
+    add(a, b) {
+        // 调用原始方法
+        const result = super.add(a, b);
+        console.log(`Adding ${a} and ${b}, result: ${result}`);
+        return result;
+    },
+    
+    // 添加新方法
+    divide(a, b) {
+        if (b === 0) {
+            throw new Error("Division by zero");
+        }
+        return a / b;
+    }
+});
+
+// 使用补丁后的类
+const calc = new Calculator();
+calc.add(2, 3);        // 输出日志，返回 5
+calc.multiply(2, 3);   // 返回 6
+calc.divide(6, 2);     // 返回 3
+
+// 移除补丁，恢复原始功能
+unpatchCalculator();
+// calc.divide(6, 2) 将抛出错误，因为该方法已被移除</code></pre>
+    </div>
+    
+    <h3>示例2：多层补丁</h3>
+    <div class="code-block">
+        <pre><code>import { patch } from "@web/core/utils/patch";
+
+class User {
+    constructor(name) {
+        this.name = name;
+    }
+    
+    getGreeting() {
+        return `Hello, ${this.name}!`;
+    }
+}
+
+// 第一层补丁
+const unpatchUser1 = patch(User.prototype, {
+    getGreeting() {
+        return `${super.getGreeting()} How are you?`;
+    }
+});
+
+// 第二层补丁
+const unpatchUser2 = patch(User.prototype, {
+    getGreeting() {
+        return `${super.getGreeting()} Have a nice day!`;
+    }
+});
+
+const user = new User("Alice");
+console.log(user.getGreeting());
+// 输出: "Hello, Alice! How are you? Have a nice day!"
+
+// 移除第二层补丁
+unpatchUser2();
+console.log(user.getGreeting());
+// 输出: "Hello, Alice! How are you?"
+
+// 移除第一层补丁
+unpatchUser1();
+console.log(user.getGreeting());
+// 输出: "Hello, Alice!"</code></pre>
+    </div>
+    
+    <h3>示例3：补丁对象</h3>
+    <div class="code-block">
+        <pre><code>import { patch } from "@web/core/utils/patch";
+
+// 一个普通对象
+const config = {
+    theme: "light",
+    fontSize: 14,
+    getThemeInfo() {
+        return `Current theme: ${this.theme}`;
+    }
+};
+
+// 应用补丁
+const unpatchConfig = patch(config, {
+    // 添加新属性
+    language: "en",
+    
+    // 修改现有属性
+    theme: "dark",
+    
+    // 扩展现有方法
+    getThemeInfo() {
+        const original = super.getThemeInfo();
+        return `${original} (font size: ${this.fontSize})`;
+    }
+});
+
+console.log(config.theme);         // 输出: "dark"
+console.log(config.language);      // 输出: "en"
+console.log(config.getThemeInfo()); // 输出: "Current theme: dark (font size: 14)"
+
+// 移除补丁
+unpatchConfig();
+console.log(config.theme);         // 输出: "light"
+console.log(config.language);      // 输出: undefined
+console.log(config.getThemeInfo()); // 输出: "Current theme: light"</code></pre>
+    </div>
+    
+    <h2>在Odoo 18中的应用</h2>
+    <p>patch.js模块在Odoo 18的前端架构中扮演着关键角色：</p>
+    
+    <div class="workflow">
+        <h4>1. 模块扩展</h4>
+        <p>Odoo的模块化设计允许模块之间扩展功能。通过patch函数，一个模块可以扩展或修改另一个模块的对象或类，而无需修改原始代码。</p>
+        
+        <h4>2. 行为定制</h4>
+        <p>在不同的业务场景下，可能需要定制标准组件的行为。补丁系统提供了一种非侵入式的方法来调整组件行为。</p>
+        
+        <h4>3. 功能增强</h4>
+        <p>当需要为现有功能添加额外特性（如日志、验证、权限检查等）时，可以通过补丁轻松实现，而不必修改核心代码。</p>
+        
+        <h4>4. 兼容性维护</h4>
+        <p>在升级过程中，有时需要维护与旧API的兼容性。补丁系统允许在不破坏现有接口的情况下调整内部实现。</p>
+    </div>
+    
+    <h2>补丁系统的优势</h2>
+    <p>Odoo的补丁系统相比其他扩展机制有以下优势：</p>
+    
+    <div class="note">
+        <ul>
+            <li><strong>灵活性</strong>：可以修改任何对象或类的几乎任何方面</li>
+            <li><strong>可撤销</strong>：补丁可以轻松撤销，恢复原始功能</li>
+            <li><strong>链式应用</strong>：多个补丁可以应用到同一对象，形成功能链</li>
+            <li><strong>原型继承支持</strong>：通过巧妙的原型链管理，使super关键字正常工作</li>
+            <li><strong>低侵入性</strong>：不需要修改原始代码，适合模块化开发</li>
+            <li><strong>属性描述符保留</strong>：完全保留属性的特性，如可枚举性、可配置性等</li>
+        </ul>
+    </div>
+    
+    <h2>注意事项与限制</h2>
+    <p>使用patch函数时需要注意以下几点：</p>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li><strong>类补丁位置</strong>：补丁类时，通常应该补丁其原型(Class.prototype)，除非要修改静态属性/方法</li>
+            <li><strong>补丁顺序</strong>：多个补丁的应用顺序会影响最终行为，特别是当多个补丁修改同一属性时</li>
+            <li><strong>内存使用</strong>：每个补丁都会保存原始属性，对于频繁补丁的大型对象可能增加内存使用</li>
+            <li><strong>调试复杂性</strong>：大量使用补丁可能增加代码调试的复杂性</li>
+            <li><strong>循环引用</strong>：在处理具有循环引用的对象时要特别小心</li>
+            <li><strong>super关键字</strong>：在补丁方法中使用super只能访问被补丁的直接原型方法，不能跨级调用</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>patch.js是Odoo 18中一个强大而灵活的补丁系统，它提供了：</p>
+    <ul>
+        <li>动态修改对象和类的能力</li>
+        <li>支持多层补丁和补丁撤销</li>
+        <li>维护原型链和super关键字功能</li>
+        <li>精确处理属性描述符</li>
+        <li>模块化和非侵入式开发支持</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在Odoo开发中，当需要扩展或修改现有功能但不想或不能修改原始代码时，patch函数是首选工具。它特别适合模块间的功能增强和行为定制。为了保持代码的可维护性，应谨慎使用补丁，并清晰记录所有补丁的目的和影响。
+    </div>
+</body>
+</html> 

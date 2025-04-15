@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Mail Render Mixin模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <div class="content">
+        <h1>Odoo 18 Mail Render Mixin模块解析</h1>
+        
+        <h2>文件概述</h2>
+        <p><code>mail_render_mixin.py</code>文件定义了Odoo中的渲染混入类，提供了一套通用的模板渲染功能。该模块是Odoo模板系统的核心，允许在各种上下文中渲染动态内容，特别是在电子邮件和消息通信中。</p>
+        
+        <div class="note">
+            <strong>概念简介：</strong>MailRenderMixin是一个抽象模型，提供了模板渲染的通用功能。它支持多种渲染引擎（内联模板、QWeb、QWeb视图），并处理多语言渲染、安全限制和格式化等。其他需要渲染功能的模型可以继承这个混入类，从而获得统一的模板渲染能力。
+        </div>
+        
+        <h2>辅助函数</h2>
+        <p>文件开始定义了几个重要的辅助函数，用于日期和时间的格式化：</p>
+        
+        <div class="code-block">
+            <pre><code>def format_date(env, date, pattern=False, lang_code=False):
+    try:
+        return tools.format_date(env, date, date_format=pattern, lang_code=lang_code)
+    except babel.core.UnknownLocaleError:
+        return date
+
+
+def format_datetime(env, dt, tz=False, dt_format='medium', lang_code=False):
+    try:
+        return tools.format_datetime(env, dt, tz=tz, dt_format=dt_format, lang_code=lang_code)
+    except babel.core.UnknownLocaleError:
+        return dt
+
+def format_time(env, time, tz=False, time_format='medium', lang_code=False):
+    try:
+        return tools.format_time(env, time, tz=tz, time_format=time_format, lang_code=lang_code)
+    except babel.core.UnknownLocaleError:
+        return time</code></pre>
+        </div>
+        
+        <p>这些函数封装了Odoo核心格式化函数，并增加了错误处理，在遇到未知语言区域时优雅地回退到原始值。</p>
+        
+        <h2>类定义</h2>
+        <pre><code>class MailRenderMixin(models.AbstractModel):
+    _name = 'mail.render.mixin'
+    _description = 'Mail Render Mixin'
+
+    # If True, we trust the value on the model for rendering
+    # If False, we need the group "Template Editor" to render the model fields
+    _unrestricted_rendering = False
+
+    # language for rendering
+    lang = fields.Char(
+        'Language',
+        help="Optional translation language (ISO code) to select when sending out an email. "
+             "If not set, the english version will be used. This should usually be a placeholder expression "
+             "that provides the appropriate language, e.g. {{ object.partner_id.lang }}.")
+    # rendering context
+    render_model = fields.Char("Rendering Model", compute='_compute_render_model', store=False)</code></pre>
+        
+        <ul>
+            <li><strong>_name</strong>: 定义模型的技术名称为'mail.render.mixin'</li>
+            <li><strong>_description</strong>: 人类可读的描述</li>
+            <li><strong>_unrestricted_rendering</strong>: 布尔标志，控制渲染权限管理
+                <ul>
+                    <li>True: 信任模型上的值进行渲染</li>
+                    <li>False: 需要"模板编辑器"组权限来渲染模型字段</li>
+                </ul>
+            </li>
+            <li><strong>lang</strong>: 渲染使用的语言代码，通常是占位符表达式</li>
+            <li><strong>render_model</strong>: 渲染模型，计算字段</li>
+        </ul>
+        
+        <h2>主要方法</h2>
+        
+        <h3>基础方法</h3>
+        
+        <div class="code-block">
+            <pre><code>def _compute_render_model(self):
+    """ Give the target model for rendering. Void by default as models
+    inheriting from ``mail.render.mixin`` should define how to find this
+    model. """
+    self.render_model = False
+
+@api.model
+def _build_expression(self, field_name, sub_field_name, null_value):
+    """Returns a placeholder expression for use in a template field,
+    based on the values provided in the placeholder assistant.
+
+    :param field_name: main field name
+    :param sub_field_name: sub field name (M2O)
+    :param null_value: default value if the target value is empty
+    :return: final placeholder expression """
+    expression = ''
+    if field_name:
+        expression = "{{ object." + field_name
+        if sub_field_name:
+            expression += "." + sub_field_name
+        if null_value:
+            expression += f" ||| {null_value}"
+        expression += " }}"
+    return expression</code></pre>
+        </div>
+        
+        <p>这些方法提供了基础功能：</p>
+        <ul>
+            <li><strong>_compute_render_model</strong>: 用于计算渲染模型，默认为空，继承类应重写此方法</li>
+            <li><strong>_build_expression</strong>: 构建模板占位符表达式，用于生成类似"{{ object.name }}"的表达式</li>
+        </ul>
+        
+        <h3>ORM方法</h3>
+        <div class="code-block">
+            <pre><code>def _valid_field_parameter(self, field, name):
+    # allow specifying rendering options directly from field when using the render mixin
+    return name in ['render_engine', 'render_options'] or super()._valid_field_parameter(field, name)
+
+@api.model_create_multi
+def create(self, values_list):
+    record = super().create(values_list)
+    if self._unrestricted_rendering:
+        # If the rendering is unrestricted (e.g. mail.template),
+        # check the user is part of the mail editor group to create a new template if the template is dynamic
+        record._check_access_right_dynamic_template()
+    return record
+
+def write(self, vals):
+    super().write(vals)
+    if self._unrestricted_rendering:
+        # If the rendering is unrestricted (e.g. mail.template),
+        # check the user is part of the mail editor group to modify a template if the template is dynamic
+        self._check_access_right_dynamic_template()
+    return True
+
+def _update_field_translations(self, fname, translations, digest=None, source_lang=None):
+    res = super()._update_field_translations(fname, translations, digest=digest, source_lang=source_lang)
+    if self._unrestricted_rendering:
+        for lang in translations:
+            # If the rendering is unrestricted (e.g. mail.template),
+            # check the user is part of the mail editor group to modify a template if the template is dynamic
+            self.with_context(lang=lang)._check_access_right_dynamic_template()
+    return res</code></pre>
+        </div>
+        
+        <p>这些方法重写了标准ORM操作，增加了权限检查：</p>
+        <ul>
+            <li><strong>_valid_field_parameter</strong>: 允许在字段上指定渲染选项</li>
+            <li><strong>create</strong>, <strong>write</strong>: 创建和修改记录时检查动态模板的访问权限</li>
+            <li><strong>_update_field_translations</strong>: 更新字段翻译时检查权限</li>
+        </ul>
+        
+        <h3>工具方法</h3>
+        <div class="code-block">
+            <pre><code>def _replace_local_links(self, html, base_url=None):
+    """ Replace local links by absolute links. It is required in various
+    cases, for example when sending emails on chatter or sending mass
+    mailings. It replaces
+
+     * href of links (mailto will not match the regex)
+     * src of images/v:fill/v:image (base64 hardcoded data will not match the regex)
+     * styling using url like background-image: url or background="url"
+
+    It is done using regex because it is shorter than using an html parser
+    to create a potentially complex soupe and hope to have a result that
+    has not been harmed.
+    """
+    if not html:
+        return html
+
+    assert isinstance(html, str)
+    Wrapper = html.__class__
+
+    def _sub_relative2absolute(match):
+        # compute here to do it only if really necessary + cache will ensure it is done only once
+        # if not base_url
+        if not _sub_relative2absolute.base_url:
+            _sub_relative2absolute.base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        return match.group(1) + urls.url_join(_sub_relative2absolute.base_url, match.group(2))
+
+    _sub_relative2absolute.base_url = base_url
+    html = re.sub(r"""(<(?:img|v:fill|v:image)(?=\s)[^>]*\ssrc=")(/[^/][^"]+)""", _sub_relative2absolute, html)
+    html = re.sub(r"""(<a(?=\s)[^>]*\shref=")(/[^/][^"]+)""", _sub_relative2absolute, html)
+    html = re.sub(r"""(<[\w-]+(?=\s)[^>]*\sbackground=")(/[^/][^"]+)""", _sub_relative2absolute, html)
+    html = re.sub(re.compile(
+        r"""( # Group 1: element up to url in style
+            <[^>]+\bstyle=" # Element with a style attribute
+            [^"]+\burl\( # Style attribute contains "url(" style
+            (?:&\#34;|'|&quot;|&\#39;)?) # url style may start with (escaped) quote: capture it
+        ( # Group 2: url itself
+            /(?:[^'")]|(?!&\#34;)|(?!&\#39;))+ # stop at the first closing quote
+    )""", re.VERBOSE), _sub_relative2absolute, html)
+
+    return Wrapper(html)</code></pre>
+        </div>
+        
+        <p>这个方法用于将HTML内容中的相对链接转换为绝对链接，特别适用于电子邮件场景：</p>
+        <ul>
+            <li>替换图片的src属性中的相对链接</li>
+            <li>替换a标签href属性中的相对链接</li>
+            <li>替换背景图片URL中的相对链接</li>
+            <li>替换style属性中url()函数内的相对链接</li>
+        </ul>
+        
+        <div class="code-block">
+            <pre><code>@api.model
+def _render_encapsulate(self, layout_xmlid, html, add_context=None, context_record=None):
+    template_ctx = {
+        'body': html,
+        'record_name': context_record.display_name if context_record else '',
+        'model_description': self.env['ir.model']._get(context_record._name).display_name if context_record else False,
+        'company': context_record['company_id'] if (context_record and 'company_id' in context_record) else self.env.company,
+        'record': context_record,
+    }
+    if add_context:
+        template_ctx.update(**add_context)
+
+    html = self.env['ir.qweb']._render(layout_xmlid, template_ctx, minimal_qcontext=True, raise_if_not_found=False)
+    if not html:
+        _logger.warning('QWeb template %s not found when rendering encapsulation template.' % (layout_xmlid))
+    html = self.env['mail.render.mixin']._replace_local_links(html)
+    return html</code></pre>
+        </div>
+        
+        <p>此方法用于将HTML内容封装到布局模板中：</p>
+        <ul>
+            <li>创建包含原始HTML和上下文记录信息的模板上下文</li>
+            <li>使用QWeb渲染指定的布局模板</li>
+            <li>处理找不到模板的情况</li>
+            <li>替换生成的HTML中的本地链接</li>
+        </ul>
+        
+        <div class="code-block">
+            <pre><code>@api.model
+def _prepend_preview(self, html, preview):
+    """ Prepare the email body before sending. Add the text preview at the
+    beginning of the mail. The preview text is displayed bellow the mail
+    subject of most mail client (gmail, outlook...).
+
+    :param html: html content for which we want to prepend a preview
+    :param preview: the preview to add before the html content
+    :return: html with preprended preview
+    """
+    if preview:
+        preview = preview.strip()
+
+    preview_markup = convert_inline_template_to_qweb(preview)
+
+    if preview:
+        html_preview = Markup("""
+            <div style="display:none;font-size:1px;height:0px;width:0px;opacity:0;">
+                {}
+            </div>
+        """).format(preview_markup)
+        return prepend_html_content(html, html_preview)
+    return html</code></pre>
+        </div>
+        
+        <p>此方法在HTML内容前添加预览文本，用于电子邮件通信：</p>
+        <ul>
+            <li>处理预览文本，如果存在则去除前后空白</li>
+            <li>将内联模板转换为QWeb</li>
+            <li>将预览包装在隐藏的div中（通常显示在邮件客户端的主题下方）</li>
+            <li>将预览添加到HTML内容前</li>
+        </ul>
+    </div>
+</body>
+</html> 

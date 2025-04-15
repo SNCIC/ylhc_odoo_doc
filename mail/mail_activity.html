@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo活动模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo活动系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_activity.py</code>是Odoo框架中的一个核心模块，它定义了活动系统的基础模型。活动是指分配给用户的待办任务，与特定业务记录相关联，具有截止日期和状态。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>活动系统是Odoo的一个重要功能，提供跨模块的任务管理和跟踪机制。它允许用户创建、分配和处理与业务对象关联的活动（如电话、会议、待办事项等），并通过截止日期和看板视图提供直观的管理界面。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>活动定义</strong>：创建和定义与业务记录关联的活动</li>
+        <li><strong>状态管理</strong>：根据截止日期自动计算活动状态（逾期、今天、计划中）</li>
+        <li><strong>用户分配</strong>：将活动分配给特定用户负责</li>
+        <li><strong>反馈和完成</strong>：记录活动完成时的反馈信息</li>
+        <li><strong>活动链</strong>：支持完成一个活动后自动安排下一个活动</li>
+        <li><strong>活动视图</strong>：提供专门的活动视图和看板显示</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>MailActivity是活动系统的核心模型，它定义了活动的基本结构和行为：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailActivity(models.Model):
+    """ An actual activity to perform. Activities are linked to
+    documents using res_id and res_model_id fields. Activities have a deadline
+    that can be used in kanban view to display a status. Once done activities
+    are unlinked and a message is posted. This message has a new activity_type_id
+    field that indicates the activity linked to the message. """
+    _name = 'mail.activity'
+    _description = 'Activity'
+    _order = 'date_deadline ASC, id ASC'
+    _rec_name = 'summary'</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>_name = 'mail.activity'</code>：定义模型的技术名称</li>
+        <li><code>_description = 'Activity'</code>：提供人类可读的描述</li>
+        <li><code>_order = 'date_deadline ASC, id ASC'</code>：默认按截止日期升序排序，确保优先显示更紧急的活动</li>
+        <li><code>_rec_name = 'summary'</code>：使用summary字段作为记录的显示名称</li>
+    </ul>
+    
+    <h3>主要字段详解</h3>
+    <table>
+        <tr>
+            <th>字段分类</th>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td rowspan="4">目标记录</td>
+            <td>res_model_id</td>
+            <td>Many2one</td>
+            <td>引用活动所关联的模型（ir.model）</td>
+        </tr>
+        <tr>
+            <td>res_model</td>
+            <td>Char</td>
+            <td>关联模型的技术名称（如'crm.lead'）</td>
+        </tr>
+        <tr>
+            <td>res_id</td>
+            <td>Many2oneReference</td>
+            <td>关联记录的ID，引用res_model中的记录</td>
+        </tr>
+        <tr>
+            <td>res_name</td>
+            <td>Char</td>
+            <td>关联记录的显示名称，计算字段</td>
+        </tr>
+        <tr>
+            <td rowspan="5">活动定义</td>
+            <td>activity_type_id</td>
+            <td>Many2one</td>
+            <td>活动类型，如电话、会议等</td>
+        </tr>
+        <tr>
+            <td>summary</td>
+            <td>Char</td>
+            <td>活动摘要</td>
+        </tr>
+        <tr>
+            <td>note</td>
+            <td>Html</td>
+            <td>活动详细描述</td>
+        </tr>
+        <tr>
+            <td>date_deadline</td>
+            <td>Date</td>
+            <td>活动截止日期</td>
+        </tr>
+        <tr>
+            <td>date_done</td>
+            <td>Date</td>
+            <td>活动完成日期</td>
+        </tr>
+        <tr>
+            <td rowspan="3">责任人</td>
+            <td>user_id</td>
+            <td>Many2one</td>
+            <td>负责活动的用户</td>
+        </tr>
+        <tr>
+            <td>user_tz</td>
+            <td>Selection</td>
+            <td>用户时区，用于计算截止日期状态</td>
+        </tr>
+        <tr>
+            <td>request_partner_id</td>
+            <td>Many2one</td>
+            <td>请求活动的合作伙伴</td>
+        </tr>
+        <tr>
+            <td rowspan="2">状态</td>
+            <td>state</td>
+            <td>Selection</td>
+            <td>活动状态：逾期/今天/计划中/完成</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活，用于归档功能</td>
+        </tr>
+    </table>
+    
+    <h3>活动状态计算</h3>
+    <div class="code-block">
+        <pre><code>    @api.depends('active', 'date_deadline')
+    def _compute_state(self):
+        for record in self.filtered('active'):
+            record.state = self._compute_state_from_date(record.date_deadline, record.user_tz)
+        for record in self.filtered(lambda a: not a.active):
+            record.state = 'done'
+            
+    @api.model
+    def _compute_state_from_date(self, date_deadline, tz=False):
+        today = fields.Date.context_today(self, timestamp=fields.Datetime.now().replace(tzinfo=pytz.UTC))
+        if tz:
+            today_utc = pytz.UTC.localize(fields.Datetime.now().replace(hour=0, minute=0, second=0))
+            today_tz = today_utc.astimezone(pytz.timezone(tz))
+            today = today_tz.date()
+
+        if date_deadline:
+            if date_deadline < today:
+                return 'overdue'
+            elif date_deadline == today:
+                return 'today'
+            else:
+                return 'planned'
+        return 'today'</code></pre>
+    </div>
+    
+    <p>这些方法计算活动的状态，基于当前日期与截止日期的比较：</p>
+    <ul>
+        <li>如果截止日期早于今天，状态为"逾期"</li>
+        <li>如果截止日期是今天，状态为"今天"</li>
+        <li>如果截止日期晚于今天，状态为"计划中"</li>
+        <li>如果活动不活跃（已归档），状态为"完成"</li>
+    </ul>
+    <p>计算考虑了用户的时区设置，确保在正确的上下文中比较日期。</p>
+    
+    <h3>访问权限控制</h3>
+    <div class="code-block">
+        <pre><code>    @api.depends('res_model', 'res_id', 'user_id')
+    def _compute_can_write(self):
+        for activity in self:
+            activity.can_write = False
+            model = self.env[activity.res_model] if activity.res_model else None
+            if not model or not model.check_access_rights('read', False):
+                continue
+            try:
+                res_rec = model.browse(activity.res_id) if activity.res_id else None
+                if res_rec and res_rec.check_access_rights('write', False) and res_rec.check_access_rule('write'):
+                    activity.can_write = True
+            except (AccessError, MissingError):
+                pass
+                
+    def _check_access(self, operation: str) -> tuple | None:
+        # 实现略
+        pass
+        
+    def _make_access_error(self, operation: str) -> AccessError:
+        # 实现略
+        pass</code></pre>
+    </div>
+    
+    <p>这些方法实现了活动的访问控制：</p>
+    <ul>
+        <li>_compute_can_write计算当前用户是否可以修改活动，用于在UI中隐藏不可用按钮</li>
+        <li>_check_access检查用户对活动的访问权限，考虑了相关记录和模型的权限</li>
+        <li>_make_access_error创建适当的访问错误消息</li>
+    </ul>
+    
+    <h3>活动完成和反馈</h3>
+    <div class="code-block">
+        <pre><code>    def action_done(self):
+        """将活动标记为已完成"""
+        messages = self._action_done()
+        return messages[0].id if messages else False
+        
+    def action_feedback(self, feedback=False, attachment_ids=None):
+        """提供反馈并完成活动"""
+        return self._action_done(feedback=feedback, attachment_ids=attachment_ids)
+        
+    def _action_done(self, feedback=False, attachment_ids=None):
+        """活动完成的核心实现逻辑"""
+        # 实现略
+        pass</code></pre>
+    </div>
+    
+    <p>这些方法处理活动的完成和反馈：</p>
+    <ul>
+        <li>action_done：简单地将活动标记为已完成</li>
+        <li>action_feedback：完成活动并提供反馈信息</li>
+        <li>_action_done：核心实现逻辑，创建消息记录活动完成，并删除或存档活动</li>
+    </ul>
+    
+    <h2>活动链和后续活动</h2>
+    <div class="code-block">
+        <pre><code>    def action_done_schedule_next(self):
+        """完成活动并安排推荐的下一个活动"""
+        return self.action_feedback_schedule_next()
+        
+    def action_feedback_schedule_next(self, feedback=False, attachment_ids=None):
+        """提供反馈、完成活动并安排下一个活动"""
+        ctx = dict(
+            clean_context(self.env.context),
+            default_previous_activity_type_id=self.activity_type_id.id,
+            activity_previous_deadline=self.date_deadline,
+            default_res_id=self.res_id,
+            default_res_model=self.res_model,
+        )
+        self.action_feedback(feedback, attachment_ids)
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Schedule an Activity'),
+            'res_model': 'mail.activity',
+            'views': [[False, 'form']],
+            'context': ctx,
+            'target': 'new',
+        }
+        
+    def _prepare_next_activity_values(self):
+        """准备下一个活动的值"""
+        # 实现略
+        pass</code></pre>
+    </div>
+    
+    <p>这些方法实现了活动链功能，允许完成一个活动后安排下一个活动：</p>
+    <ul>
+        <li>action_done_schedule_next：完成活动并打开表单创建下一个活动</li>
+        <li>action_feedback_schedule_next：提供反馈、完成活动并打开表单创建下一个活动</li>
+        <li>_prepare_next_activity_values：准备下一个活动的默认值，基于当前活动的设置</li>
+    </ul>
+    
+    <h2>活动数据格式化</h2>
+    <div class="code-block">
+        <pre><code>    @api.readonly
+    def activity_format(self):
+        """将活动格式化为前端友好的格式"""
+        # 实现略
+        pass
+        
+    @api.readonly
+    @api.model
+    def get_activity_data(self, res_model, domain, limit=None, offset=0, fetch_done=False):
+        """获取指定模型的活动数据，用于前端显示"""
+        # 实现略
+        pass</code></pre>
+    </div>
+    
+    <p>这些方法提供了活动数据的格式化和获取功能，主要用于前端界面显示：</p>
+    <ul>
+        <li>activity_format：将活动记录转换为结构化字典，便于前端处理</li>
+        <li>get_activity_data：获取符合条件的活动数据，支持分页和过滤</li>
+    </ul>
+    
+    <h2>自动化功能</h2>
+    <div class="code-block">
+        <pre><code>    @api.autovacuum
+    def _gc_delete_old_overdue_activities(self):
+        """自动清理非常旧的逾期活动"""
+        internal_overdue_months = self.env['ir.config_parameter'].sudo().get_param(
+            'mail.activity.autovacuum.age', 3)
+        try:
+            internal_overdue_months = int(internal_overdue_months)
+        except ValueError:
+            internal_overdue_months = 3
+
+        if internal_overdue_months <= 0:
+            return
+
+        cutoff = fields.Date.today() - relativedelta(months=internal_overdue_months)
+        return self.search([('date_deadline', '<', cutoff)]).unlink()</code></pre>
+    </div>
+    
+    <p>这个方法是一个自动清理功能，定期删除非常旧的逾期活动，以保持数据库的整洁：</p>
+    <ul>
+        <li>使用@api.autovacuum注解，由Odoo的自动清理机制调用</li>
+        <li>根据配置参数确定清理的时间阈值，默认为3个月</li>
+        <li>删除截止日期早于阈值的所有活动</li>
+    </ul>
+    
+    <h2>使用场景</h2>
+    <p>活动系统主要用于以下场景：</p>
+    
+    <div class="flow-diagram">
+        <h3>基本流程</h3>
+        <ol>
+            <li>用户在业务记录（如客户或销售线索）上创建活动</li>
+            <li>指定活动类型、负责人和截止日期</li>
+            <li>负责人接收通知，查看和处理分配的活动</li>
+            <li>活动完成时，用户提供反馈并标记为已完成</li>
+            <li>根据活动类型的链接设置，可能会自动建议下一个活动</li>
+        </ol>
+    </div>
+    
+    <h3>活动状态流转</h3>
+    <div class="image-example">
+        <div class="image-card">
+            <div class="size">planned</div>
+            <div>计划中</div>
+            <div>截止日期在未来</div>
+        </div>
+        <div class="image-card">
+            <div class="size">today</div>
+            <div>今天</div>
+            <div>截止日期是今天</div>
+        </div>
+        <div class="image-card">
+            <div class="size">overdue</div>
+            <div>逾期</div>
+            <div>截止日期已过</div>
+        </div>
+        <div class="image-card">
+            <div class="size">done</div>
+            <div>已完成</div>
+            <div>活动已处理</div>
+        </div>
+    </div>
+    
+    <h2>使用实例</h2>
+    <div class="code-block">
+        <pre><code># 为客户创建一个电话活动
+customer = self.env['res.partner'].browse(partner_id)
+activity_type = self.env.ref('mail.mail_activity_data_call')
+
+self.env['mail.activity'].create({
+    'activity_type_id': activity_type.id,
+    'summary': '跟进电话',
+    'note': '讨论新产品发布和客户需求',
+    'date_deadline': fields.Date.today() + timedelta(days=2),
+    'user_id': self.env.user.id,
+    'res_model_id': self.env['ir.model']._get_id('res.partner'),
+    'res_id': customer.id,
+})
+
+# 完成活动并提供反馈
+activity = self.env['mail.activity'].browse(activity_id)
+activity.action_feedback(feedback="已与客户通话，他们对新产品感兴趣，计划下周进行演示。")</code></pre>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>活动系统与其他模块的关系包括：</p>
+    <ul>
+        <li><strong>mail.activity.type</strong>：定义活动类型及其属性</li>
+        <li><strong>mail.activity.mixin</strong>：为模型提供活动功能的混入类</li>
+        <li><strong>mail.thread</strong>：提供消息和跟踪功能，活动完成后创建的消息</li>
+        <li><strong>mail.activity.plan</strong>：定义活动计划模板，用于批量创建活动</li>
+        <li><strong>mail.activity.plan.template</strong>：定义活动计划中的活动模板</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，活动系统具有以下特性和改进：</p>
+    <ul>
+        <li>更强大的活动链功能，支持根据活动类型推荐下一步活动</li>
+        <li>更好的时区支持，确保截止日期状态在不同时区正确计算</li>
+        <li>活动计划功能，支持批量创建标准化活动序列</li>
+        <li>更完善的活动视图和过滤功能</li>
+        <li>增强的访问控制和权限检查，确保活动安全</li>
+        <li>自动清理机制，删除过期很久的活动</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用活动系统？下面是一个示例：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import models, fields, api
+from datetime import timedelta
+
+class CustomProject(models.Model):
+    _name = 'custom.project'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
+    _description = '自定义项目'
+    
+    name = fields.Char('项目名称', required=True)
+    user_id = fields.Many2one('res.users', string='项目经理')
+    start_date = fields.Date('开始日期')
+    
+    def action_create_kick_off_activities(self):
+        """创建项目启动活动序列"""
+        for project in self:
+            # 创建启动会议活动
+            self.env['mail.activity'].create({
+                'activity_type_id': self.env.ref('mail.mail_activity_data_meeting').id,
+                'summary': '项目启动会议',
+                'note': f'为项目 {project.name} 安排启动会议，确定项目范围和团队分工。',
+                'date_deadline': fields.Date.today() + timedelta(days=3),
+                'user_id': project.user_id.id or self.env.user.id,
+                'res_model_id': self.env['ir.model']._get_id('custom.project'),
+                'res_id': project.id,
+            })
+            
+            # 创建文档准备活动
+            self.env['mail.activity'].create({
+                'activity_type_id': self.env.ref('mail.mail_activity_data_todo').id,
+                'summary': '准备项目文档',
+                'note': '准备项目计划、风险评估和资源分配文档。',
+                'date_deadline': fields.Date.today() + timedelta(days=5),
+                'user_id': project.user_id.id or self.env.user.id,
+                'res_model_id': self.env['ir.model']._get_id('custom.project'),
+                'res_id': project.id,
+            })
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '活动已创建',
+                'message': '项目启动活动已创建',
+                'sticky': False,
+            }
+        }</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用活动系统时，请注意以下几点：
+        <ul>
+            <li>确保模型继承了mail.activity.mixin，以获得完整的活动支持</li>
+            <li>创建活动时必须设置正确的res_model_id和res_id</li>
+            <li>考虑用户的工作量，避免分配过多活动给同一个用户</li>
+            <li>使用适当的活动类型，不同的活动类型有不同的图标和默认设置</li>
+            <li>检查用户对目标记录的访问权限，确保其可以查看和处理活动</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>活动系统是Odoo的核心功能之一，它提供了：</p>
+    <ul>
+        <li>跨模块的任务管理和跟踪</li>
+        <li>基于截止日期的自动状态计算</li>
+        <li>活动链和后续活动建议</li>
+        <li>完善的用户界面集成</li>
+        <li>灵活的活动类型和计划系统</li>
+        <li>详细的活动完成反馈记录</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>充分利用活动系统帮助用户管理和跟踪工作任务。规划标准的活动流程，确保业务流程的一致性和完整性。根据业务需求选择合适的活动类型，并利用活动链功能引导用户完成完整的工作流程。定期审查和清理过期活动，保持系统的整洁和高效。
+    </div>
+</body>
+</html> 
