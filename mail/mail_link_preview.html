@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo链接预览功能解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo链接预览功能解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_link_preview.py</code>是Odoo邮件模块中的重要组件，它提供了消息中URL链接的预览功能。这个模块使聊天和消息中的链接更加丰富和直观，通过提取链接内容的元信息生成预览卡片。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>链接预览功能类似于现代社交媒体和聊天工具中常见的功能，当用户发送包含URL的消息时，系统会自动抓取该URL的标题、描述、图片等信息，生成一个可视化的预览，让收件人无需点击链接即可了解链接内容的概要。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>链接预览生成</strong>：从消息中自动提取URL并获取其预览信息</li>
+        <li><strong>元数据存储</strong>：保存链接的标题、描述、图片等元数据</li>
+        <li><strong>预览缓存</strong>：避免重复请求相同URL，提高性能</li>
+        <li><strong>生命周期管理</strong>：自动清理过期的预览数据</li>
+        <li><strong>实时更新</strong>：通过总线系统向前端推送链接预览信息</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>LinkPreview类定义了存储和管理链接预览数据的核心结构：</p>
+    
+    <div class="code-block">
+        <pre><code>class LinkPreview(models.Model):
+    _name = 'mail.link.preview'
+    _inherit = "bus.listener.mixin"
+    _description = "Store link preview data"
+
+    message_id = fields.Many2one('mail.message', string='Message', index=True, ondelete='cascade')
+    is_hidden = fields.Boolean()
+    source_url = fields.Char('URL', required=True)
+    og_type = fields.Char('Type')
+    og_title = fields.Char('Title')
+    og_site_name = fields.Char('Site name')
+    og_image = fields.Char('Image')
+    og_description = fields.Text('Description')
+    og_mimetype = fields.Char('MIME type')
+    image_mimetype = fields.Char('Image MIME type')
+    create_date = fields.Datetime(index=True)</code></pre>
+    </div>
+    
+    <h3>模型定义解析</h3>
+    <ul>
+        <li><code>_name = 'mail.link.preview'</code>：定义模型的技术名称</li>
+        <li><code>_inherit = "bus.listener.mixin"</code>：继承bus.listener.mixin，获得实时通知功能</li>
+        <li><code>_description = "Store link preview data"</code>：提供人类可读的描述</li>
+    </ul>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>作用</th>
+        </tr>
+        <tr>
+            <td>message_id</td>
+            <td>Many2one</td>
+            <td>关联消息</td>
+            <td>链接所在的消息，级联删除</td>
+        </tr>
+        <tr>
+            <td>is_hidden</td>
+            <td>Boolean</td>
+            <td>是否隐藏</td>
+            <td>标记用户是否手动隐藏了预览</td>
+        </tr>
+        <tr>
+            <td>source_url</td>
+            <td>Char</td>
+            <td>源URL</td>
+            <td>原始链接地址</td>
+        </tr>
+        <tr>
+            <td>og_type</td>
+            <td>Char</td>
+            <td>OG类型</td>
+            <td>Open Graph类型(如article, website等)</td>
+        </tr>
+        <tr>
+            <td>og_title</td>
+            <td>Char</td>
+            <td>OG标题</td>
+            <td>页面标题</td>
+        </tr>
+        <tr>
+            <td>og_site_name</td>
+            <td>Char</td>
+            <td>OG站点名称</td>
+            <td>网站名称</td>
+        </tr>
+        <tr>
+            <td>og_image</td>
+            <td>Char</td>
+            <td>OG图片</td>
+            <td>预览图片URL</td>
+        </tr>
+        <tr>
+            <td>og_description</td>
+            <td>Text</td>
+            <td>OG描述</td>
+            <td>页面描述文本</td>
+        </tr>
+        <tr>
+            <td>og_mimetype</td>
+            <td>Char</td>
+            <td>OG MIME类型</td>
+            <td>内容MIME类型</td>
+        </tr>
+        <tr>
+            <td>image_mimetype</td>
+            <td>Char</td>
+            <td>图片MIME类型</td>
+            <td>预览图片的MIME类型</td>
+        </tr>
+        <tr>
+            <td>create_date</td>
+            <td>Datetime</td>
+            <td>创建日期</td>
+            <td>预览创建时间，用于过期清理</td>
+        </tr>
+    </table>
+    
+    <h3>主要方法详解</h3>
+    
+    <h4>1. _bus_channel方法</h4>
+    <div class="code-block">
+        <pre><code>def _bus_channel(self):
+    return self.message_id._bus_channel()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>定义实时通知的频道：</p>
+    <ul>
+        <li>继承自bus.listener.mixin的方法</li>
+        <li>使用关联消息的频道作为预览更新的通知频道</li>
+        <li>确保链接预览更新能发送给正确的接收者</li>
+    </ul>
+    
+    <h4>2. _create_from_message_and_notify方法</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _create_from_message_and_notify(self, message, request_url=None):
+    if tools.is_html_empty(message.body):
+        return self
+    urls = OrderedSet(html.fromstring(message.body).xpath('//a[not(@data-oe-model)]/@href'))
+    link_previews = self.env['mail.link.preview']
+    requests_session = requests.Session()
+    link_preview_values = []
+    link_previews_by_url = {
+        preview.source_url: preview for preview in message.sudo().link_preview_ids
+    }
+    ignore_pattern = (
+        re.compile(f"{re.escape(request_url)}(odoo|web|chat)(/|$|#|\\?)") if request_url else None
+    )
+    for url in urls:
+        if ignore_pattern and ignore_pattern.match(url):
+            continue
+        if url in link_previews_by_url:
+            preview = link_previews_by_url.pop(url)
+            if not preview.is_hidden:
+                link_previews += preview
+            continue
+        if preview := get_link_preview_from_url(url, requests_session):
+            preview['message_id'] = message.id
+            link_preview_values.append(preview)
+        if len(link_preview_values) + len(link_previews) > 5:
+            break
+    for unused_preview in link_previews_by_url.values():
+        unused_preview._unlink_and_notify()
+    if link_preview_values:
+        link_previews += link_previews.create(link_preview_values)
+    if link_previews := link_previews.sorted(key=lambda p: list(urls).index(p.source_url)):
+        message._bus_send_store(message, {"linkPreviews": Store.many(link_previews)})</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>创建链接预览并发送通知：</p>
+    <ul>
+        <li>从消息中提取所有URL链接</li>
+        <li>创建一个requests会话以复用连接，提高性能</li>
+        <li>跳过当前Odoo实例相关的URL（如odoo, web, chat路径）</li>
+        <li>检查URL是否已有预览，避免重复创建</li>
+        <li>对新URL，调用get_link_preview_from_url获取预览信息</li>
+        <li>限制每条消息最多5个预览，避免过载</li>
+        <li>清理未使用的旧预览</li>
+        <li>创建新的预览记录并按原始URL顺序排序</li>
+        <li>通过总线系统向前端发送预览更新</li>
+    </ul>
+    
+    <h4>3. _hide_and_notify和_unlink_and_notify方法</h4>
+    <div class="code-block">
+        <pre><code>def _hide_and_notify(self):
+    if not self:
+        return True
+    for link_preview in self:
+        link_preview._bus_send_store(
+            link_preview.message_id,
+            {"linkPreviews": Store.many(link_preview, "DELETE", only_id=True)},
+        )
+    self.is_hidden = True
+
+def _unlink_and_notify(self):
+    if not self:
+        return True
+    for link_preview in self:
+        link_preview._bus_send_store(
+            link_preview.message_id,
+            {"linkPreviews": Store.many(link_preview, "DELETE", only_id=True)},
+        )
+    self.unlink()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>处理预览的隐藏和删除：</p>
+    <ul>
+        <li>_hide_and_notify：将预览标记为隐藏，但保留记录</li>
+        <li>_unlink_and_notify：完全删除预览记录</li>
+        <li>两个方法都会通知前端更新，移除预览显示</li>
+        <li>使用Store.many(preview, "DELETE", only_id=True)标记删除操作</li>
+        <li>通过总线系统实时更新所有相关用户的界面</li>
+    </ul>
+    
+    <h4>4. _is_link_preview_enabled方法</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _is_link_preview_enabled(self):
+    link_preview_throttle = int(self.env['ir.config_parameter'].sudo().get_param('mail.link_preview_throttle', 99))
+    return link_preview_throttle > 0</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>检查链接预览功能是否启用：</p>
+    <ul>
+        <li>读取系统参数mail.link_preview_throttle</li>
+        <li>默认值为99，表示允许预览</li>
+        <li>当值大于0时，链接预览功能启用</li>
+        <li>通过系统参数，管理员可以全局控制预览功能</li>
+    </ul>
+    
+    <h4>5. _search_or_create_from_url方法</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _search_or_create_from_url(self, url):
+    """Return the URL preview, first from the database if available otherwise make the request."""
+    lifetime = int(self.env['ir.config_parameter'].sudo().get_param('mail.mail_link_preview_lifetime_days', 3))
+    preview = self.env['mail.link.preview'].search([
+        ('source_url', '=', url),
+        ('create_date', '>=', fields.Datetime.now() - timedelta(days=lifetime)),
+    ], order='create_date DESC', limit=1)
+    if not preview:
+        preview_values = get_link_preview_from_url(url)
+        if not preview_values:
+            return self.env["mail.link.preview"]
+        preview = self.env['mail.link.preview'].create(preview_values)
+    return preview</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>查找或创建URL预览：</p>
+    <ul>
+        <li>首先尝试在数据库中查找最近的有效预览</li>
+        <li>使用mail.mail_link_preview_lifetime_days参数（默认3天）确定预览有效期</li>
+        <li>如果没有找到有效预览，则请求新预览</li>
+        <li>创建新的预览记录</li>
+        <li>返回找到的或新创建的预览记录</li>
+        <li>避免重复请求相同URL，提高性能</li>
+    </ul>
+    
+    <h4>6. _to_store方法</h4>
+    <div class="code-block">
+        <pre><code>def _to_store(self, store: Store, /):
+    for preview in self:
+        data = preview._read_format(
+            [
+                "image_mimetype",
+                "og_description",
+                "og_image",
+                "og_mimetype",
+                "og_site_name",
+                "og_title",
+                "og_type",
+                "source_url",
+            ],
+            load=False,
+        )[0]
+        data["message"] = Store.one(preview.message_id, only_id=True)
+        store.add(preview, data)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>将预览数据转换为前端存储格式：</p>
+    <ul>
+        <li>为前端JavaScript框架准备链接预览数据</li>
+        <li>提取所有相关字段</li>
+        <li>添加关联的消息ID</li>
+        <li>将数据添加到Store中，用于前端渲染</li>
+    </ul>
+    
+    <h4>7. _gc_mail_link_preview方法</h4>
+    <div class="code-block">
+        <pre><code>@api.autovacuum
+def _gc_mail_link_preview(self):
+    lifetime = int(self.env['ir.config_parameter'].sudo().get_param('mail.mail_link_preview_lifetime_days', 3))
+    self.env['mail.link.preview'].search([
+        ('message_id', '=', False),
+        ('create_date', '<', fields.Datetime.now() - timedelta(days=lifetime)),
+    ], order='create_date ASC', limit=1000).unlink()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>自动清理过期预览数据：</p>
+    <ul>
+        <li>使用@api.autovacuum装饰器，自动定期执行</li>
+        <li>查找未关联消息且超过生命周期的预览</li>
+        <li>每次最多删除1000条记录，避免长时间运行</li>
+        <li>按创建日期排序，优先删除最旧的记录</li>
+        <li>保持数据库大小可控，避免无限增长</li>
+    </ul>
+    
+    <h2>链接预览工作流程</h2>
+    <p>链接预览功能的完整工作流程如下：</p>
+    
+    <div class="workflow">
+        <h3>链接预览生成流程</h3>
+        <ol>
+            <li><strong>消息解析</strong>：当新消息创建时，系统解析消息正文中的URL</li>
+            <li><strong>链接过滤</strong>：过滤掉内部Odoo链接和已经处理过的URL</li>
+            <li><strong>预览获取</strong>：对每个有效URL，获取其Open Graph元数据</li>
+            <li><strong>数据存储</strong>：将获取到的标题、描述、图片等信息存储为预览记录</li>
+            <li><strong>实时推送</strong>：通过总线系统将预览信息推送给前端</li>
+            <li><strong>前端渲染</strong>：客户端接收预览数据并渲染为可视化卡片</li>
+            <li><strong>用户交互</strong>：用户可以查看、点击或隐藏预览</li>
+            <li><strong>定期清理</strong>：系统自动清理过期的预览数据</li>
+        </ol>
+    </div>
+    
+    <h3>Open Graph协议</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>什么是Open Graph?</h4>
+            <p>Open Graph是Facebook创建的一个协议，用于在网页中定义元数据：</p>
+            <ul>
+                <li>通过HTML的meta标签提供结构化信息</li>
+                <li>使外部系统可以提取网页的核心信息</li>
+                <li>标准化的属性如title, description, image等</li>
+                <li>被大多数现代网站和社交媒体支持</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>如何工作?</h4>
+            <p>一个典型的Open Graph实现：</p>
+            <pre><code>&lt;meta property="og:title" content="Odoo: the #1 Open Source ERP" /&gt;
+&lt;meta property="og:type" content="website" /&gt;
+&lt;meta property="og:image" content="https://example.com/image.jpg" /&gt;
+&lt;meta property="og:description" content="Odoo是领先的开源ERP..." /&gt;
+&lt;meta property="og:site_name" content="Odoo" /&gt;</code></pre>
+            <p>Odoo链接预览功能会提取这些标签，生成丰富的预览卡片。</p>
+        </div>
+    </div>
+    
+    <h2>性能和资源考量</h2>
+    <p>链接预览功能在设计时考虑了性能和资源使用：</p>
+    
+    <div class="advanced-features">
+        <div class="feature-item">
+            <h4>请求限制</h4>
+            <p>避免过多外部请求：</p>
+            <ul>
+                <li>每条消息最多处理5个链接</li>
+                <li>可通过mail.link_preview_throttle控制全局限制</li>
+                <li>会话复用：使用requests.Session()减少连接开销</li>
+                <li>忽略明显的内部链接</li>
+            </ul>
+        </div>
+        <div class="feature-item">
+            <h4>数据缓存</h4>
+            <p>通过缓存减少重复请求：</p>
+            <ul>
+                <li>对同一URL的预览在生命周期内复用</li>
+                <li>默认3天的预览有效期</li>
+                <li>通过source_url索引优化查询性能</li>
+                <li>定期清理过期数据，减少存储占用</li>
+            </ul>
+        </div>
+        <div class="feature-item">
+            <h4>错误处理</h4>
+            <p>稳健的异常处理：</p>
+            <ul>
+                <li>容忍外部网站请求失败</li>
+                <li>处理不完整或无效的Open Graph数据</li>
+                <li>超时控制，避免长时间阻塞</li>
+                <li>优雅降级：失败时简单地不显示预览</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，链接预览具有以下特性和改进：</p>
+    <ul>
+        <li>与Store系统集成，提供无缝的前端体验</li>
+        <li>自动垃圾回收机制，保持数据库清洁</li>
+        <li>实时通知系统，即时更新预览</li>
+        <li>可配置的生命周期和节流控制</li>
+        <li>改进的URL提取和过滤逻辑</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用或扩展链接预览功能？下面是一些示例：</p>
+    
+    <h3>1. 手动为特定URL生成预览</h3>
+    <div class="code-block">
+        <pre><code>def generate_preview_for_url(self, url):
+    """为指定URL生成预览"""
+    if not self.env['mail.link.preview']._is_link_preview_enabled():
+        return False
+        
+    preview = self.env['mail.link.preview']._search_or_create_from_url(url)
+    
+    if preview:
+        preview_data = {
+            'url': preview.source_url,
+            'title': preview.og_title,
+            'description': preview.og_description,
+            'image': preview.og_image,
+            'site_name': preview.og_site_name,
+        }
+        return preview_data
+    
+    return False</code></pre>
+    </div>
+    
+    <h3>2. 扩展预览逻辑支持自定义域名</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, api
+from urllib.parse import urlparse
+
+class CustomLinkPreview(models.Model):
+    _inherit = 'mail.link.preview'
+    
+    @api.model
+    def _create_from_message_and_notify(self, message, request_url=None):
+        # 首先调用原始方法
+        result = super(CustomLinkPreview, self)._create_from_message_and_notify(message, request_url)
+        
+        # 对于特定的内部域名，我们想要支持预览
+        if request_url:
+            parsed_url = urlparse(request_url)
+            internal_domains = ['internal.example.com', 'docs.mycompany.com']
+            
+            # 检查是否需要修改忽略策略
+            if any(domain in parsed_url.netloc for domain in internal_domains):
+                # 对这些域名进行特殊处理，重新解析消息中的链接
+                urls = self._extract_urls_from_message(message, ignore_pattern=None)
+                # 处理这些特殊URL的预览...
+        
+        return result
+        
+    def _extract_urls_from_message(self, message, ignore_pattern=None):
+        """从消息中提取URL，可选忽略特定模式"""
+        if tools.is_html_empty(message.body):
+            return []
+            
+        urls = []
+        for href in html.fromstring(message.body).xpath('//a/@href'):
+            if ignore_pattern and ignore_pattern.match(href):
+                continue
+            urls.append(href)
+        
+        return urls</code></pre>
+    </div>
+    
+    <h3>3. 在前端展示链接预览</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript代码示例
+odoo.define('my_module.LinkPreviewRenderer', function (require) {
+"use strict";
+
+const { Component } = owl;
+const { useState, useEffect } = owl.hooks;
+
+class LinkPreviewCard extends Component {
+    setup() {
+        this.state = useState({
+            isLoading: false,
+            preview: this.props.preview || {},
+        });
+    }
+    
+    get hasValidImage() {
+        return this.state.preview.og_image && this.state.preview.image_mimetype;
+    }
+    
+    get hasValidContent() {
+        return this.state.preview.og_title || this.state.preview.og_description;
+    }
+    
+    onHidePreview() {
+        this.env.services.rpc({
+            model: 'mail.link.preview',
+            method: '_hide_and_notify',
+            args: [[this.props.previewId]],
+        });
+    }
+    
+    onClickPreview() {
+        // 打开链接
+        window.open(this.state.preview.source_url, '_blank');
+    }
+}
+
+return LinkPreviewCard;
+});</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用链接预览功能时，请注意以下几点：
+        <ul>
+            <li>考虑隐私问题：每次预览都会发出外部请求，可能泄露用户正在讨论的URL</li>
+            <li>注意性能影响：过多的URL预览会增加服务器负载和数据库大小</li>
+            <li>处理安全考虑：链接预览可能包含来自不受信任源的内容</li>
+            <li>遵守跨域限制：某些网站可能阻止外部爬取其内容</li>
+            <li>合理设置生命周期：过长会占用存储空间，过短会增加重复请求</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>mail_link_preview.py提供了Odoo消息系统中的重要增强功能：</p>
+    <ul>
+        <li>自动为消息中的链接生成丰富的预览</li>
+        <li>提取和存储Open Graph元数据</li>
+        <li>实现缓存和复用，避免重复请求</li>
+        <li>通过总线提供实时预览更新</li>
+        <li>自动管理数据生命周期</li>
+        <li>可配置的控制机制，平衡功能与资源使用</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在使用链接预览功能时，建议配置合理的限制参数，特别是对于高流量的Odoo实例。对于性能敏感的环境，可以考虑增加预览生命周期（如7天）减少重复请求，同时确保定期执行垃圾回收。对于包含敏感信息的内部部署，考虑为特定域名禁用预览功能。
+    </div>
+</body>
+</html> 

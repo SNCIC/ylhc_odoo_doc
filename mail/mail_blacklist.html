@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件黑名单模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件黑名单系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_blacklist.py</code>是Odoo框架中的一个模块，它提供了邮件黑名单功能，允许系统阻止向特定电子邮件地址发送邮件。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>邮件黑名单是一种保护机制，用于记录不应向其发送邮件的电子邮件地址。这通常用于遵守用户的退订请求、避免向无效地址发送邮件，或者遵守相关法规如GDPR。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>黑名单管理</strong>：添加、移除和管理黑名单中的电子邮件地址</li>
+        <li><strong>邮件地址正规化</strong>：确保黑名单中的邮件地址格式一致</li>
+        <li><strong>查询优化</strong>：支持不区分大小写的邮件地址搜索</li>
+        <li><strong>避免重复</strong>：防止重复添加相同的邮件地址</li>
+        <li><strong>归档机制</strong>：支持通过active字段暂时禁用或启用黑名单记录</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>MailBlackList是一个基础模型，提供邮件黑名单的核心功能，其代码结构如下：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailBlackList(models.Model):
+    """ Model of blacklisted email addresses to stop sending emails."""
+    _name = 'mail.blacklist'
+    _inherit = ['mail.thread']
+    _description = 'Mail Blacklist'
+    _rec_name = 'email'
+
+    email = fields.Char(string='Email Address', required=True, index='trigram', help='This field is case insensitive.',
+                        tracking=1)
+    active = fields.Boolean(default=True, tracking=2)
+
+    _sql_constraints = [
+        ('unique_email', 'unique (email)', 'Email address already exists!')
+    ]</code></pre>
+    </div>
+    
+    <h3>基本属性解释</h3>
+    <ul>
+        <li><code>_name = 'mail.blacklist'</code>：定义模型的技术名称</li>
+        <li><code>_inherit = ['mail.thread']</code>：继承mail.thread，支持消息和跟踪功能</li>
+        <li><code>_description = 'Mail Blacklist'</code>：提供人类可读的描述</li>
+        <li><code>_rec_name = 'email'</code>：使用email字段作为记录的显示名称</li>
+    </ul>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>参数</th>
+        </tr>
+        <tr>
+            <td>email</td>
+            <td>Char</td>
+            <td>电子邮件地址</td>
+            <td>required=True, index='trigram', tracking=1</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活</td>
+            <td>default=True, tracking=2</td>
+        </tr>
+    </table>
+    
+    <h3>SQL约束</h3>
+    <p>模型定义了一个唯一性约束，确保不会添加重复的电子邮件地址：</p>
+    <pre><code>_sql_constraints = [
+    ('unique_email', 'unique (email)', 'Email address already exists!')
+]</code></pre>
+    
+    <h2>创建记录重载</h2>
+    <div class="code-block">
+        <pre><code>    @api.model_create_multi
+    def create(self, values):
+        # First of all, extract values to ensure emails are really unique (and don't modify values in place)
+        new_values = []
+        all_emails = []
+        for value in values:
+            email = tools.email_normalize(value.get('email'))
+            if not email:
+                raise UserError(_('Invalid email address "%s"', value['email']))
+            if email in all_emails:
+                continue
+            all_emails.append(email)
+            new_value = dict(value, email=email)
+            new_values.append(new_value)
+
+        """ To avoid crash during import due to unique email, return the existing records if any """
+        to_create = []
+        bl_entries = {}
+        if new_values:
+            sql = '''SELECT email, id FROM mail_blacklist WHERE email = ANY(%s)'''
+            emails = [v['email'] for v in new_values]
+            self._cr.execute(sql, (emails,))
+            bl_entries = dict(self._cr.fetchall())
+            to_create = [v for v in new_values if v['email'] not in bl_entries]
+
+        # TODO DBE Fixme : reorder ids according to incoming ids.
+        results = super(MailBlackList, self).create(to_create)
+        return self.env['mail.blacklist'].browse(bl_entries.values()) | results</code></pre>
+    </div>
+    
+    <p>create方法重载提供了以下功能：</p>
+    <ol>
+        <li>对所有电子邮件地址进行正规化处理，确保一致的格式</li>
+        <li>过滤掉无效的电子邮件地址，并抛出用户错误</li>
+        <li>内部去重，避免批量创建中的重复邮件</li>
+        <li>检查数据库中是否已存在相同的邮件地址，避免违反唯一性约束</li>
+        <li>返回新创建的记录和已存在的记录的组合，确保调用者获得完整的结果集</li>
+    </ol>
+    
+    <h2>写入记录重载</h2>
+    <div class="code-block">
+        <pre><code>    def write(self, values):
+        if 'email' in values:
+            values['email'] = tools.email_normalize(values['email'])
+        return super(MailBlackList, self).write(values)</code></pre>
+    </div>
+    
+    <p>write方法确保更新电子邮件地址时也进行正规化处理。</p>
+    
+    <h2>搜索方法重载</h2>
+    <div class="code-block">
+        <pre><code>    def _search(self, domain, offset=0, limit=None, order=None):
+        """ Override _search in order to grep search on email field and make it
+        lower-case and sanitized """
+        def normalize(arg):
+            if isinstance(arg, (list, tuple)) and arg[0] == 'email' and isinstance(arg[2], str):
+                normalized = tools.email_normalize(arg[2])
+                if normalized:
+                    return (arg[0], arg[1], normalized)
+            return arg
+
+        domain = [normalize(item) for item in domain]
+        return super()._search(domain, offset, limit, order)</code></pre>
+    </div>
+    
+    <p>_search方法的重载确保在搜索电子邮件地址时，也对搜索条件中的邮件地址进行正规化处理，使得搜索不区分大小写并且格式一致。</p>
+    
+    <h2>黑名单管理方法</h2>
+    
+    <h3>添加邮件到黑名单</h3>
+    <div class="code-block">
+        <pre><code>    def _add(self, email, message=None):
+        normalized = tools.email_normalize(email)
+        record = self.env["mail.blacklist"].with_context(active_test=False).search([('email', '=', normalized)])
+        if len(record) > 0:
+            if message:
+                record._track_set_log_message(message)
+            record.action_unarchive()
+        else:
+            record = self.create({'email': email})
+            if message:
+                record.with_context(mail_create_nosubscribe=True).message_post(
+                    body=message,
+                    subtype_xmlid='mail.mt_note',
+                )
+        return record</code></pre>
+    </div>
+    
+    <p>_add方法负责将邮件地址添加到黑名单：</p>
+    <ol>
+        <li>正规化电子邮件地址</li>
+        <li>检查黑名单中是否已存在该地址（包括归档的记录）</li>
+        <li>如果存在，则重新激活记录并可选添加日志消息</li>
+        <li>如果不存在，则创建新记录并可选添加日志消息</li>
+    </ol>
+    
+    <h3>从黑名单移除邮件</h3>
+    <div class="code-block">
+        <pre><code>    def _remove(self, email, message=None):
+        normalized = tools.email_normalize(email)
+        record = self.env["mail.blacklist"].with_context(active_test=False).search([('email', '=', normalized)])
+        if len(record) > 0:
+            if message:
+                record._track_set_log_message(message)
+            record.action_archive()
+        else:
+            record = record.create({'email': email, 'active': False})
+            if message:
+                record.with_context(mail_create_nosubscribe=True).message_post(
+                    body=message,
+                    subtype_xmlid='mail.mt_note',
+                )
+        return record</code></pre>
+    </div>
+    
+    <p>_remove方法负责从黑名单中移除邮件地址：</p>
+    <ol>
+        <li>正规化电子邮件地址</li>
+        <li>检查黑名单中是否存在该地址（包括归档的记录）</li>
+        <li>如果存在，则归档记录（而非删除）并可选添加日志消息</li>
+        <li>如果不存在，则创建一个已归档的记录并可选添加日志消息</li>
+    </ol>
+    
+    <h2>用户界面操作</h2>
+    <div class="code-block">
+        <pre><code>    def mail_action_blacklist_remove(self):
+        return {
+            'name': _('Are you sure you want to unblacklist this email address?'),
+            'type': 'ir.actions.act_window',
+            'view_mode': 'form',
+            'res_model': 'mail.blacklist.remove',
+            'target': 'new',
+            'context': {'dialog_size': 'medium'},
+        }
+
+    def action_add(self):
+        self._add(self.email)</code></pre>
+    </div>
+    
+    <p>这些方法提供用户界面的操作：</p>
+    <ul>
+        <li>mail_action_blacklist_remove：打开确认对话框，询问用户是否确定要将地址从黑名单中移除</li>
+        <li>action_add：直接将当前记录的邮件地址添加到黑名单</li>
+    </ul>
+    
+    <h2>使用场景</h2>
+    <p>邮件黑名单模块主要用于以下场景：</p>
+    
+    <div class="flow-diagram">
+        <h3>主要流程</h3>
+        <ol>
+            <li>用户退订特定类型的邮件，系统将其地址加入黑名单</li>
+            <li>系统在发送邮件前检查接收者是否在黑名单中</li>
+            <li>管理员可以手动管理黑名单，添加或移除邮件地址</li>
+            <li>系统跟踪黑名单变更，记录添加和移除操作的原因</li>
+        </ol>
+    </div>
+    
+    <h2>邮件地址正规化</h2>
+    <p>邮件黑名单系统的一个核心功能是邮件地址的正规化，这由Odoo的tools.email_normalize函数实现：</p>
+    <ul>
+        <li>转换为小写</li>
+        <li>删除名称部分，只保留实际邮件地址</li>
+        <li>处理域名别名（如去除Gmail中的点）</li>
+        <li>验证邮件地址格式</li>
+    </ul>
+    <p>这确保了相同的邮件地址以不同的格式输入时（如不同的大小写或额外的空格），系统仍能识别它们为同一地址。</p>
+    
+    <h2>使用示例</h2>
+    <div class="code-block">
+        <pre><code># 添加邮件地址到黑名单
+self.env['mail.blacklist']._add('example@example.com', message='客户请求退订')
+
+# 检查邮件地址是否在黑名单中
+email = 'example@example.com'
+normalized_email = tools.email_normalize(email)
+is_blacklisted = self.env['mail.blacklist'].search([('email', '=', normalized_email), ('active', '=', True)], limit=1)
+
+# 从黑名单中移除邮件地址
+self.env['mail.blacklist']._remove('example@example.com', message='客户请求重新订阅')</code></pre>
+    </div>
+    
+    <h3>与群发邮件集成</h3>
+    <div class="code-block">
+        <pre><code># 在发送群发邮件时过滤黑名单中的收件人
+def _get_recipients(self):
+    """获取有效的群发邮件收件人，排除黑名单中的地址"""
+    recipients = super()._get_recipients()
+    
+    if not recipients:
+        return recipients
+        
+    # 获取所有收件人的邮件地址
+    emails = [r.email_normalized for r in recipients if r.email_normalized]
+    
+    if not emails:
+        return recipients
+        
+    # 查询黑名单中的地址
+    blacklist = self.env['mail.blacklist'].search([('email', 'in', emails)])
+    blacklisted_emails = set(blacklist.mapped('email'))
+    
+    # 排除黑名单中的收件人
+    return recipients.filtered(lambda r: r.email_normalized not in blacklisted_emails)</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，邮件黑名单系统具有以下特性和改进：</p>
+    <ul>
+        <li>改进的电子邮件地址正规化处理</li>
+        <li>更好的集成到邮件发送流程中</li>
+        <li>更详细的黑名单操作跟踪和日志记录</li>
+        <li>支持通过trigram索引进行高效的模糊搜索</li>
+        <li>优化的SQL查询，直接使用数组参数避免多次单独查询</li>
+    </ul>
+    
+    <h2>与其他模块的关系</h2>
+    <p>邮件黑名单模块与其他模块的关系包括：</p>
+    <ul>
+        <li><strong>mail.thread</strong>：继承此模块以支持消息跟踪</li>
+        <li><strong>mass_mailing</strong>：群发邮件模块使用黑名单过滤收件人</li>
+        <li><strong>mail_blacklist.remove</strong>：提供从黑名单中移除地址的向导</li>
+        <li><strong>mail.thread.blacklist</strong>：为邮件线程提供黑名单功能</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用邮件黑名单？下面是几个常见场景的示例：</p>
+    
+    <h3>集成到电子邮件发送流程</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, api, tools
+from odoo.exceptions import UserError
+
+class CustomMailSender(models.Model):
+    _name = 'custom.mail.sender'
+    _description = '自定义邮件发送器'
+    
+    def send_email(self, email_to, subject, body):
+        """发送邮件，检查黑名单"""
+        # 正规化邮件地址
+        normalized_email = tools.email_normalize(email_to)
+        if not normalized_email:
+            raise UserError('无效的电子邮件地址')
+            
+        # 检查是否在黑名单中
+        is_blacklisted = self.env['mail.blacklist'].search([
+            ('email', '=', normalized_email), 
+            ('active', '=', True)
+        ], limit=1)
+        
+        if is_blacklisted:
+            return {
+                'status': 'blocked',
+                'message': '收件人在黑名单中，邮件未发送'
+            }
+            
+        # 继续发送邮件
+        # ...
+        
+        return {
+            'status': 'sent',
+            'message': '邮件已成功发送'
+        }</code></pre>
+    </div>
+    
+    <h3>添加退订功能</h3>
+    <div class="code-block">
+        <pre><code>class CustomNewsletter(models.Model):
+    _name = 'custom.newsletter'
+    _description = '自定义新闻简报'
+    
+    def unsubscribe(self, email):
+        """处理退订请求"""
+        # 将地址添加到黑名单
+        self.env['mail.blacklist']._add(
+            email, 
+            message=f'通过新闻简报退订功能退订，时间: {fields.Datetime.now()}'
+        )
+        
+        return {
+            'status': 'success',
+            'message': '您已成功退订我们的邮件'
+        }
+        
+    def subscribe(self, email):
+        """处理订阅请求"""
+        # 检查是否在黑名单中
+        normalized_email = tools.email_normalize(email)
+        blacklist_record = self.env['mail.blacklist'].search([
+            ('email', '=', normalized_email)
+        ], limit=1)
+        
+        if blacklist_record:
+            # 从黑名单中移除
+            blacklist_record._remove(
+                email,
+                message=f'通过新闻简报订阅功能重新订阅，时间: {fields.Datetime.now()}'
+            )
+            
+        # 继续处理订阅
+        # ...
+        
+        return {
+            'status': 'success',
+            'message': '您已成功订阅我们的邮件'
+        }</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用邮件黑名单时，请注意以下几点：
+        <ul>
+            <li>总是使用tools.email_normalize函数处理邮件地址，确保格式一致</li>
+            <li>查询黑名单时，考虑active字段的值，通常只检查active=True的记录</li>
+            <li>使用message参数记录添加或移除的原因，便于审计和跟踪</li>
+            <li>考虑法律和隐私合规性，如GDPR，确保适当的退订机制</li>
+            <li>在大规模邮件发送前，批量检查收件人是否在黑名单中，而不是逐个检查</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>邮件黑名单是Odoo邮件系统中的重要组成部分，它提供了：</p>
+    <ul>
+        <li>高效的电子邮件阻止机制</li>
+        <li>电子邮件地址的正规化和去重处理</li>
+        <li>软删除（归档）而非硬删除的黑名单管理</li>
+        <li>完整的操作日志和审计跟踪</li>
+        <li>良好的用户界面集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>将邮件黑名单系统集成到所有的外发邮件流程中，确保尊重收件人的退订请求。在发送大量营销邮件时，应先批量过滤黑名单中的地址。保留详细的黑名单操作日志，记录添加和移除操作的原因和时间。
+    </div>
+</body>
+</html> 

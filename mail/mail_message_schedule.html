@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo消息定时发送系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo消息定时发送系统(mail.message.schedule)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_message_schedule.py</code>是Odoo 18框架中的一个重要模块，它提供了消息定时发送的功能。与mail.mail模型的定时发送不同，这个模型专注于控制消息通知的发送时间，包括即时通知和邮件通知。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>消息定时发送队列允许系统延迟发送通知，为用户提供更灵活的消息传递策略。这对于需要在特定时间点发送通知的场景非常有用，例如在工作时间发送通知，或者按照不同时区调整发送时间。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息定时</strong>：安排消息在特定时间点发送</li>
+        <li><strong>通知队列</strong>：维护待发送通知的队列</li>
+        <li><strong>即时通知控制</strong>：控制bus.bus通知的发送时间</li>
+        <li><strong>批量处理</strong>：通过定时任务批量处理到期的通知</li>
+        <li><strong>手动触发</strong>：支持强制发送已计划的消息</li>
+    </ol>
+    
+    <h2>模型定义</h2>
+    <p>MailMessageSchedule模型定义如下：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailMessageSchedule(models.Model):
+    """ Mail message notification schedule queue.
+
+    This model is used to store the mail messages scheduled. So we can
+    delay the sending of the notifications. A scheduled date field already
+    exists on the <mail.mail> but it does not allow us to delay the sending
+    of the <bus.bus> notifications.
+    """
+    _name = 'mail.message.schedule'
+    _description = 'Scheduled Messages'
+    _order = 'scheduled_datetime DESC, id DESC'
+    _rec_name = 'mail_message_id'</code></pre>
+    </div>
+    
+    <h3>模型特性</h3>
+    <ul>
+        <li><code>_name = 'mail.message.schedule'</code>：模型技术名称</li>
+        <li><code>_description = 'Scheduled Messages'</code>：模型人类可读描述</li>
+        <li><code>_order = 'scheduled_datetime DESC, id DESC'</code>：记录按计划时间和ID降序排列</li>
+        <li><code>_rec_name = 'mail_message_id'</code>：使用关联的消息作为记录名称</li>
+    </ul>
+    
+    <h2>关键字段详解</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail_message_id</td>
+            <td>Many2one</td>
+            <td>消息</td>
+            <td>关联到mail.message模型，指定要发送的消息</td>
+        </tr>
+        <tr>
+            <td>notification_parameters</td>
+            <td>Text</td>
+            <td>通知参数</td>
+            <td>存储通知相关的参数，用于发送时传递给通知方法</td>
+        </tr>
+        <tr>
+            <td>scheduled_datetime</td>
+            <td>Datetime</td>
+            <td>计划发送日期</td>
+            <td>指定通知应该被发送的时间</td>
+        </tr>
+    </table>
+    
+    <h2>记录创建与触发</h2>
+    <p>当创建新的定时消息记录时，会自动触发相关的定时任务：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    schedules = super().create(vals_list)
+    if schedules:
+        self.env.ref('mail.ir_cron_send_scheduled_message')._trigger_list(
+            set(schedules.mapped('scheduled_datetime'))
+        )
+    return schedules</code></pre>
+    </div>
+    
+    <p>此方法的关键功能：</p>
+    <ul>
+        <li>创建定时消息记录</li>
+        <li>收集所有计划时间点</li>
+        <li>触发定时任务在这些时间点执行</li>
+    </ul>
+    
+    <h2>定时任务处理</h2>
+    <p>系统通过定时任务处理到期的消息通知：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+def _send_notifications_cron(self):
+    messages_scheduled = self.env['mail.message.schedule'].search(
+        [('scheduled_datetime', '<=', datetime.utcnow())]
+    )
+    if messages_scheduled:
+        _logger.info('Send %s scheduled messages', len(messages_scheduled))
+        messages_scheduled._send_notifications()</code></pre>
+    </div>
+    
+    <p>处理流程：</p>
+    <ol>
+        <li>查找所有已到期的定时消息</li>
+        <li>记录日志信息，包括发送的消息数量</li>
+        <li>调用_send_notifications方法发送通知</li>
+    </ol>
+    
+    <h2>通知发送机制</h2>
+    <p>_send_notifications方法是核心处理逻辑，负责发送实际的通知：</p>
+    
+    <div class="code-block">
+        <pre><code>def _send_notifications(self, default_notify_kwargs=None):
+    """ Send notification for scheduled messages.
+
+    :param dict default_notify_kwargs: optional parameters to propagate to
+      ``notify_thread``. Those are default values overridden by content of
+      ``notification_parameters`` field.
+    """
+    for model, schedules in self._group_by_model().items():
+        if model:
+            records = self.env[model].browse(schedules.mapped('mail_message_id.res_id'))
+        else:
+            records = [self.env['mail.thread']] * len(schedules)
+
+        for record, schedule in zip(records, schedules):
+            notify_kwargs = dict(default_notify_kwargs or {}, skip_existing=True)
+            try:
+                schedule_notify_kwargs = json.loads(schedule.notification_parameters)
+            except Exception:
+                pass
+            else:
+                schedule_notify_kwargs.pop('scheduled_date', None)
+                notify_kwargs.update(schedule_notify_kwargs)
+
+            record._notify_thread(schedule.mail_message_id, msg_vals=False, **notify_kwargs)
+
+    self.unlink()
+    return True</code></pre>
+    </div>
+    
+    <h3>方法流程详解</h3>
+    <ol>
+        <li><strong>按模型分组</strong>：使用_group_by_model方法将计划消息按目标模型分组</li>
+        <li><strong>获取记录</strong>：对每个模型，获取相关的记录</li>
+        <li><strong>参数处理</strong>：
+            <ul>
+                <li>设置基本通知参数，包括skip_existing=True（跳过已存在的通知）</li>
+                <li>解析存储在notification_parameters字段中的JSON参数</li>
+                <li>移除scheduled_date参数，因为它仅用于调度</li>
+                <li>将解析的参数合并到notify_kwargs中</li>
+            </ul>
+        </li>
+        <li><strong>发送通知</strong>：调用记录的_notify_thread方法发送通知</li>
+        <li><strong>清理记录</strong>：发送完成后删除计划记录</li>
+    </ol>
+    
+    <h2>辅助方法</h2>
+    <p>模型提供了几个辅助方法来简化操作：</p>
+    
+    <h3>手动触发发送</h3>
+    <div class="code-block">
+        <pre><code>def force_send(self):
+    """ Launch notification process independently from the expected date. """
+    return self._send_notifications()</code></pre>
+    </div>
+    
+    <h3>按模型分组</h3>
+    <div class="code-block">
+        <pre><code>def _group_by_model(self):
+    grouped = {}
+    for schedule in self:
+        model = schedule.mail_message_id.model if schedule.mail_message_id.model and schedule.mail_message_id.res_id else False
+        if model not in grouped:
+            grouped[model] = schedule
+        else:
+            grouped[model] += schedule
+    return grouped</code></pre>
+    </div>
+    
+    <h3>发送特定消息的通知</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _send_message_notifications(self, messages, default_notify_kwargs=None):
+    """ Send scheduled notification for given messages.
+
+    :param <mail.message> messages: scheduled sending related to those messages
+      will be sent now;
+    :param dict default_notify_kwargs: optional parameters to propagate to
+      ``notify_thread``. Those are default values overridden by content of
+      ``notification_parameters`` field.
+
+    :return bool: False if no schedule has been found, True otherwise
+    """
+    messages_scheduled = self.search(
+        [('mail_message_id', 'in', messages.ids)]
+    )
+    if not messages_scheduled:
+        return False
+
+    messages_scheduled._send_notifications(default_notify_kwargs=default_notify_kwargs)
+    return True</code></pre>
+    </div>
+    
+    <h3>更新计划时间</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _update_message_scheduled_datetime(self, messages, new_datetime):
+    """ Update scheduled datetime for scheduled sending related to messages.
+
+    :param <mail.message> messages: scheduled sending related to those messages
+      will be updated. Missing one are skipped;
+    :param datetime new_datetime: new datetime for sending. New triggers
+      are created based on it;
+
+    :return bool: False if no schedule has been found, True otherwise
+    """
+    messages_scheduled = self.search(
+        [('mail_message_id', 'in', messages.ids)]
+    )
+    if not messages_scheduled:
+        return False
+
+    messages_scheduled.scheduled_datetime = new_datetime
+    self.env.ref('mail.ir_cron_send_scheduled_message')._trigger(new_datetime)
+    return True</code></pre>
+    </div>
+    
+    <h2>使用场景与示例</h2>
+    <p>以下是mail.message.schedule模型的一些常见使用场景和代码示例：</p>
+    
+    <h3>1. 创建定时发送的消息通知</h3>
+    <div class="code-block">
+        <pre><code># 首先创建一条消息
+message = self.env['mail.message'].create({
+    'model': 'res.partner',
+    'res_id': partner.id,
+    'message_type': 'notification',
+    'subject': '计划通知',
+    'body': '&lt;p&gt;这是一条定时通知&lt;/p&gt;',
+    'author_id': self.env.user.partner_id.id,
+})
+
+# 设置通知参数
+notification_params = {
+    'email_layout_xmlid': 'mail.mail_notification_light',
+    'force_email': True,
+    'email_add_signature': True
+}
+
+# 创建定时计划，设置为2小时后发送
+from datetime import datetime, timedelta
+schedule_time = datetime.now() + timedelta(hours=2)
+
+self.env['mail.message.schedule'].create({
+    'mail_message_id': message.id,
+    'notification_parameters': json.dumps(notification_params),
+    'scheduled_datetime': schedule_time
+})</code></pre>
+    </div>
+    
+    <h3>2. 强制发送已计划的消息</h3>
+    <div class="code-block">
+        <pre><code># 查找指定合作伙伴的所有计划消息
+partner_messages = self.env['mail.message'].search([
+    ('model', '=', 'res.partner'),
+    ('res_id', '=', partner.id)
+])
+
+# 查找这些消息的所有计划记录
+schedules = self.env['mail.message.schedule'].search([
+    ('mail_message_id', 'in', partner_messages.ids)
+])
+
+# 立即发送，不等待计划时间
+if schedules:
+    schedules.force_send()</code></pre>
+    </div>
+    
+    <h3>3. 更新消息的计划发送时间</h3>
+    <div class="code-block">
+        <pre><code># 查找特定消息
+messages = self.env['mail.message'].browse([message_id])
+
+# 更新计划时间为明天上午10点
+from datetime import datetime, timedelta
+import pytz
+
+# 获取用户时区
+user_tz = pytz.timezone(self.env.user.tz or 'UTC')
+tomorrow = datetime.now() + timedelta(days=1)
+tomorrow = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+# 转换为UTC时间
+tomorrow_utc = user_tz.localize(tomorrow).astimezone(pytz.UTC).replace(tzinfo=None)
+
+# 更新计划时间
+self.env['mail.message.schedule']._update_message_scheduled_datetime(messages, tomorrow_utc)</code></pre>
+    </div>
+    
+    <h3>4. 创建工作时间内的通知</h3>
+    <div class="code-block">
+        <pre><code>def schedule_during_working_hours(self, message_id, notification_params=None):
+    """安排消息在工作时间内发送（9:00-17:00）"""
+    import pytz
+    from datetime import datetime, time, timedelta
+    
+    # 获取当前时间（UTC）
+    now_utc = datetime.utcnow()
+    
+    # 转换为用户时区
+    user_tz = pytz.timezone(self.env.user.tz or 'UTC')
+    now_user_tz = pytz.utc.localize(now_utc).astimezone(user_tz)
+    
+    # 判断当前是否在工作时间内（9:00-17:00）
+    working_start = time(9, 0, 0)
+    working_end = time(17, 0, 0)
+    
+    # 计算下一个工作时间点
+    if now_user_tz.time() < working_start:
+        # 今天的工作开始时间
+        next_time = now_user_tz.replace(hour=working_start.hour, 
+                                       minute=working_start.minute, 
+                                       second=working_start.second)
+    elif now_user_tz.time() > working_end:
+        # 明天的工作开始时间
+        next_time = (now_user_tz + timedelta(days=1)).replace(
+                                       hour=working_start.hour, 
+                                       minute=working_start.minute, 
+                                       second=working_start.second)
+    else:
+        # 已经在工作时间内，立即发送
+        next_time = now_user_tz
+    
+    # 转回UTC时间
+    next_time_utc = next_time.astimezone(pytz.UTC).replace(tzinfo=None)
+    
+    # 创建计划记录
+    return self.env['mail.message.schedule'].create({
+        'mail_message_id': message_id,
+        'notification_parameters': json.dumps(notification_params or {}),
+        'scheduled_datetime': next_time_utc
+    })</code></pre>
+    </div>
+    
+    <h2>定时任务配置</h2>
+    <p>mail.message.schedule依赖于一个定时任务来执行计划的消息发送，该任务在mail模块的数据文件中定义：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="ir_cron_send_scheduled_message" model="ir.cron"&gt;
+    &lt;field name="name"&gt;Mail: Send Scheduled Messages&lt;/field&gt;
+    &lt;field name="model_id" ref="model_mail_message_schedule"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;model._send_notifications_cron()&lt;/field&gt;
+    &lt;field name="interval_type"&gt;minutes&lt;/field&gt;
+    &lt;field name="interval_number"&gt;5&lt;/field&gt;
+    &lt;field name="doall"&gt;False&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>定时任务配置说明：</p>
+    <ul>
+        <li>任务名称：Mail: Send Scheduled Messages</li>
+        <li>执行模型：mail.message.schedule</li>
+        <li>执行方法：_send_notifications_cron</li>
+        <li>执行频率：每5分钟执行一次</li>
+        <li>doall=False：如果服务器关闭，错过的执行不会在重启后立即执行</li>
+    </ul>
+    
+    <h2>与mail.mail的区别</h2>
+    <p>mail.message.schedule和mail.mail模型都支持定时发送，但它们有明显的区别：</p>
+    
+    <table>
+        <tr>
+            <th>特性</th>
+            <th>mail.message.schedule</th>
+            <th>mail.mail</th>
+        </tr>
+        <tr>
+            <td>主要功能</td>
+            <td>控制消息通知的发送时间</td>
+            <td>控制电子邮件的发送时间</td>
+        </tr>
+        <tr>
+            <td>通知类型</td>
+            <td>支持所有通知渠道（邮件、即时消息等）</td>
+            <td>仅控制邮件发送</td>
+        </tr>
+        <tr>
+            <td>数据存储</td>
+            <td>存储较小，仅保存必要的引用和参数</td>
+            <td>保存完整的邮件内容</td>
+        </tr>
+        <tr>
+            <td>使用场景</td>
+            <td>适用于需要控制通知发送时间的一般场景</td>
+            <td>适用于需要控制电子邮件发送的特定场景</td>
+        </tr>
+    </table>
+    
+    <h2>性能考虑</h2>
+    <p>mail.message.schedule模型的设计考虑了性能优化：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>模型分组</h4>
+            <p>通过_group_by_model方法按模型分组处理，减少数据库查询次数。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>批量处理</h4>
+            <p>定时任务一次处理多个到期的通知，减少系统开销。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>发送后清理</h4>
+            <p>通知发送后立即删除计划记录，避免数据库膨胀。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>精确触发</h4>
+            <p>使用_trigger和_trigger_list方法在精确的时间点触发定时任务，避免频繁检查。</p>
+        </div>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>mail.message.schedule模型与其他模块的关系如下：</p>
+    <ul>
+        <li><strong>mail.message</strong>：存储被定时发送的消息内容</li>
+        <li><strong>mail.thread</strong>：提供_notify_thread方法发送实际通知</li>
+        <li><strong>bus.bus</strong>：用于发送即时通知</li>
+        <li><strong>ir.cron</strong>：提供定时任务执行机制</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>mail.message.schedule模型提供了灵活的消息定时发送功能：</p>
+    <ul>
+        <li>允许控制通知的精确发送时间</li>
+        <li>支持多种通知渠道，不仅限于电子邮件</li>
+        <li>提供丰富的API用于创建、更新和触发计划消息</li>
+        <li>性能优化设计，适合高负载环境</li>
+        <li>与Odoo的消息和通知系统无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在需要控制消息通知发送时间的场景中，应优先考虑使用mail.message.schedule，而不是直接操作mail.message或mail.mail模型。这样可以确保所有通知渠道（即时消息、邮件等）都能按预期时间发送。
+    </div>
+</body>
+</html> 

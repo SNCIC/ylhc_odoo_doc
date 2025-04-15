@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模板重置混入类解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模板重置系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>template_reset_mixin.py</code>是Odoo框架中的一个重要组件，它提供了一种机制，允许用户将已修改的模板重置回原始状态。这对于邮件模板、报表模板等可自定义元素尤为重要，使管理员能够在出现问题时轻松恢复到默认配置。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>模板重置混入类为Odoo中的模板提供了"恢复出厂设置"的能力，跟踪模板的源文件位置，并允许将修改过的模板重置为模块最初提供的状态，包括恢复模板的翻译。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>模板源文件跟踪</strong>：记录每个模板的原始源文件路径，便于后续重置</li>
+        <li><strong>模板完全重置</strong>：将模板恢复到原始模块定义的状态</li>
+        <li><strong>翻译重置</strong>：重置模板相关的翻译条目</li>
+        <li><strong>智能字段处理</strong>：在重置过程中保留某些特定字段</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>TemplateResetMixin是一个抽象模型，为需要重置功能的模板类提供基础设施：</p>
+    
+    <div class="code-block">
+        <pre><code>class TemplateResetMixin(models.AbstractModel):
+    _name = "template.reset.mixin"
+    _description = 'Template Reset Mixin'
+
+    template_fs = fields.Char(
+        string='Template Filename', copy=False,
+        help="""File from where the template originates. Used to reset broken template.""")</code></pre>
+    </div>
+    
+    <h3>核心字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特性</th>
+        </tr>
+        <tr>
+            <td>template_fs</td>
+            <td>Char</td>
+            <td>模板文件的路径</td>
+            <td>不会在复制时传递，用于记录模板的原始源文件位置</td>
+        </tr>
+    </table>
+    
+    <h2>核心方法详解</h2>
+    
+    <h3>1. 创建记录时自动设置源文件路径</h3>
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    for vals in vals_list:
+        if 'template_fs' not in vals and 'install_filename' in self.env.context:
+            # we store the relative path to the resource instead of the absolute path, if found
+            # (it will be missing e.g. when importing data-only modules using base_import_module)
+            path_info = get_resource_from_path(self.env.context['install_filename'])
+            if path_info:
+                vals['template_fs'] = '/'.join(path_info[0:2])
+    return super().create(vals_list)</code></pre>
+    </div>
+    <p>这个方法重写了create方法，主要功能是：</p>
+    <ul>
+        <li>在创建新记录时自动设置template_fs字段</li>
+        <li>从上下文中的install_filename提取相对路径</li>
+        <li>将模块路径转换为相对路径格式（模块名/路径）</li>
+        <li>只有在从XML文件加载数据时才会自动设置</li>
+    </ul>
+    <p>这种设计确保了系统能够跟踪每个模板的来源，为后续的重置操作提供必要信息。</p>
+    
+    <h3>2. 写入记录时的特殊处理</h3>
+    <div class="code-block">
+        <pre><code>def _load_records_write(self, values):
+    # OVERRIDE to make the fields blank that are not present in xml record
+    if self.env.context.get('reset_template'):
+        # We don't want to change anything for magic columns, values present in XML record, and 'template_fs'
+        fields_in_xml_record = values.keys()
+        fields_not_to_touch = set(models.MAGIC_COLUMNS) | fields_in_xml_record | {'template_fs'}
+        fields_to_empty = self._fields.keys() - fields_not_to_touch
+        # For the fields not defined in xml record, if they have default values, we should not
+        # enforce empty values for them and the default values should be kept
+        field_defaults = self.default_get(list(fields_to_empty))
+        # Update the values to be written and include the default values, prevent fields with
+        # default values from being empty
+        values.update(field_defaults)
+        fields_to_empty = fields_to_empty - set(field_defaults.keys())
+        # Finally, update the values with fields that should be empty
+        values.update(dict.fromkeys(fields_to_empty, False))
+    return super()._load_records_write(values)</code></pre>
+    </div>
+    <p>此方法重写了_load_records_write，用于在重置模板时特殊处理字段：</p>
+    <ul>
+        <li>只在reset_template上下文标志设置时执行特殊处理</li>
+        <li>识别XML记录中不存在的字段，准备将它们清空</li>
+        <li>保护特定字段不被清空（魔术列、XML中定义的字段和template_fs字段）</li>
+        <li>获取需要清空字段的默认值，避免覆盖那些有默认值的字段</li>
+        <li>更新值字典，将应该清空的字段设为False</li>
+    </ul>
+    <p>这种机制确保了重置操作会尽可能恢复模板到原始状态，同时尊重字段的默认值。</p>
+    
+    <h3>3. 覆盖翻译术语</h3>
+    <div class="code-block">
+        <pre><code>def _override_translation_term(self, module_name, xml_ids):
+    translation_importer = TranslationImporter(self.env.cr)
+
+    for lang, _ in self.env['res.lang'].get_installed():
+        for po_path in get_po_paths(module_name, lang):
+            translation_importer.load_file(po_path, lang, xmlids=xml_ids)
+
+    translation_importer.save(overwrite=True, force_overwrite=True)</code></pre>
+    </div>
+    <p>这个方法负责覆盖模板的翻译条目：</p>
+    <ul>
+        <li>创建一个翻译导入器实例</li>
+        <li>遍历系统中所有已安装的语言</li>
+        <li>对每种语言，加载模块的所有翻译文件（.po文件）</li>
+        <li>只导入与指定XML ID相关的翻译条目</li>
+        <li>强制覆盖数据库中的现有翻译</li>
+    </ul>
+    <p>这确保了重置模板时，不仅恢复原始模板内容，还恢复所有语言的原始翻译。</p>
+    
+    <h3>4. 重置模板核心方法</h3>
+    <div class="code-block">
+        <pre><code>def reset_template(self):
+    """Resets the Template with values given in source file. We ignore the case of
+    template being overridden in another modules because it is extremely less likely
+    to happen. This method also tries to reset the translation terms for the current
+    user lang (all langs are not supported due to costly file operation). """
+    expr = "//*[local-name() = $tag and (@id = $xml_id or @id = $external_id)]"
+    templates_with_missing_source = []
+    lang_false = {code: False for code, _ in self.env['res.lang'].get_installed() if code != 'en_US'}
+    for template in self.filtered('template_fs'):
+        external_id = template.get_external_id().get(template.id)
+        module, xml_id = external_id.split('.')
+        fullpath = file_path(template.template_fs)
+        if fullpath:
+            for field_name, field in template._fields.items():
+                if field.translate is True:
+                    template.update_field_translations(field_name, lang_false)
+            doc = etree.parse(fullpath)
+            for rec in doc.xpath(expr, tag='record', xml_id=xml_id, external_id=external_id):
+                # We don't have a way to pass context while loading record from a file, so we use this hack
+                # to pass the context key that is needed to reset the fields not available in data file
+                rec.set('context', json.dumps({'reset_template': 'True'}))
+                obj = xml_import(template.env, module, {}, mode='init', xml_filename=fullpath)
+                obj._tag_record(rec)
+                template._override_translation_term(module, [xml_id, external_id])
+        else:
+            templates_with_missing_source.append(template.display_name)
+    if templates_with_missing_source:
+        raise UserError(_("The following email templates could not be reset because their related source files could not be found:\n- %s", "\n- ".join(templates_with_missing_source)))</code></pre>
+    </div>
+    <p>这是整个混入类的核心方法，负责执行模板重置操作：</p>
+    <ul>
+        <li>定义XPath表达式以在源文件中查找匹配的记录</li>
+        <li>准备跟踪无法重置的模板列表</li>
+        <li>对每个有template_fs字段的模板执行重置</li>
+        <li>获取模板的外部ID并拆分为模块名和XML ID</li>
+        <li>查找完整的源文件路径</li>
+        <li>先清除可翻译字段的所有翻译（将它们设置为False）</li>
+        <li>解析源XML文件并查找匹配的记录</li>
+        <li>在记录上设置reset_template上下文标志</li>
+        <li>使用xml_import加载原始记录定义</li>
+        <li>重置模板的翻译</li>
+        <li>如果有无法重置的模板（找不到源文件），则抛出用户错误</li>
+    </ul>
+    <p>这个方法综合了XML解析、记录加载和翻译重置等复杂操作，提供了完整的模板重置功能。</p>
+    
+    <h2>业务流程解析</h2>
+    
+    <div class="flow-diagram">
+        <h3>模板创建流程</h3>
+        <ol>
+            <li>通过XML文件或API创建新模板</li>
+            <li>重写的create方法捕获源文件信息</li>
+            <li>将源文件路径存储在template_fs字段中</li>
+            <li>完成正常的记录创建流程</li>
+        </ol>
+    </div>
+    
+    <div class="flow-diagram">
+        <h3>模板重置流程</h3>
+        <ol>
+            <li>用户在界面上触发模板重置操作</li>
+            <li>系统调用reset_template方法</li>
+            <li>方法查找模板的源文件和外部ID</li>
+            <li>清空可翻译字段的翻译</li>
+            <li>从源文件中加载原始记录定义</li>
+            <li>使用特殊上下文重写模板内容</li>
+            <li>重置所有语言的翻译</li>
+            <li>完成重置过程</li>
+        </ol>
+    </div>
+    
+    <h2>技术亮点</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>自动源文件跟踪</h4>
+            <p>在模板创建时自动记录源文件路径，无需开发者手动设置，减少出错可能。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>全面重置机制</h4>
+            <p>不仅重置模板内容，还恢复翻译和清空扩展字段，确保完整的重置效果。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>智能字段处理</h4>
+            <p>在重置过程中区分处理不同类型的字段，保留应当保留的信息，清空应当清空的内容。</p>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，模板重置混入类有以下特点和改进：</p>
+    <ul>
+        <li>更稳健的源文件路径处理，支持各种模块结构</li>
+        <li>改进的翻译重置机制，更全面地恢复原始翻译</li>
+        <li>对默认值的更智能处理，避免不必要的字段清空</li>
+        <li>更清晰的错误处理，提供具体的失败原因</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模型中使用模板重置功能？下面是一个简单的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class CustomReportTemplate(models.Model):
+    _name = 'custom.report.template'
+    _inherit = ['template.reset.mixin']
+    _description = '自定义报表模板'
+    
+    name = fields.Char('模板名称', required=True)
+    html_content = fields.Html('HTML内容', translate=True)
+    css_style = fields.Text('CSS样式')
+    is_active = fields.Boolean('是否激活', default=True)
+    
+    # 可以添加自定义方法，比如预览、编译等</code></pre>
+    </div>
+    
+    <p>在XML文件中定义模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="custom_report_template_default" model="custom.report.template"&gt;
+    &lt;field name="name"&gt;默认报表模板&lt;/field&gt;
+    &lt;field name="html_content"&gt;
+        &lt;div class="report-header"&gt;
+            &lt;h1&gt;{{ object.name }}&lt;/h1&gt;
+        &lt;/div&gt;
+        &lt;div class="report-body"&gt;
+            &lt;p&gt;这是一个默认的报表模板&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/field&gt;
+    &lt;field name="css_style"&gt;
+        .report-header { color: #003366; }
+        .report-body { margin: 20px 0; }
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>添加重置按钮到表单视图：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="view_custom_report_template_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;custom.report.template.form&lt;/field&gt;
+    &lt;field name="model"&gt;custom.report.template&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;header&gt;
+                &lt;button name="reset_template" string="重置为默认" type="object" 
+                        confirm="这将删除您对此模板的所有自定义更改。确定要继续吗？"
+                        attrs="{'invisible': [('template_fs', '=', False)]}"
+                /&gt;
+            &lt;/header&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="name"/&gt;
+                    &lt;field name="is_active"/&gt;
+                    &lt;field name="template_fs" invisible="1"/&gt;
+                &lt;/group&gt;
+                &lt;notebook&gt;
+                    &lt;page string="HTML内容"&gt;
+                        &lt;field name="html_content"/&gt;
+                    &lt;/page&gt;
+                    &lt;page string="CSS样式"&gt;
+                        &lt;field name="css_style"/&gt;
+                    &lt;/page&gt;
+                &lt;/notebook&gt;
+            &lt;/sheet&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用模板重置功能时，请注意以下几点：
+        <ul>
+            <li>模板必须有正确的外部ID，否则无法重置</li>
+            <li>源文件必须在系统可访问的路径中，通常是模块的data目录</li>
+            <li>重置操作是不可逆的，会丢失所有自定义更改</li>
+            <li>对于复杂的模板，如果有继承或覆盖，重置可能不完全</li>
+            <li>翻译重置功能依赖于模块的翻译文件(.po)是否完整</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>TemplateResetMixin是Odoo中处理模板重置的重要组件，它提供了：</p>
+    <ul>
+        <li>自动的源文件跟踪机制</li>
+        <li>完整的模板内容重置功能</li>
+        <li>多语言翻译的重置能力</li>
+        <li>智能的字段处理逻辑</li>
+        <li>清晰的错误处理和反馈</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发需要用户自定义但可能需要重置的模板时，应考虑继承TemplateResetMixin。这为用户提供了"恢复出厂设置"的能力，避免用户因过度自定义而导致模板不可用的情况。对于邮件模板、报表模板、文档模板等功能尤其有用。
+    </div>
+</body>
+</html> 

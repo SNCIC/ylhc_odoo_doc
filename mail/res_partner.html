@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo合作伙伴模型邮件扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo合作伙伴模型邮件扩展解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_partner.py</code>文件扩展了Odoo的基础合作伙伴模型，增加了与邮件、通知和消息相关的功能。这个文件定义了合作伙伴在Odoo邮件系统中的行为和功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>合作伙伴模型是Odoo系统中最基础的实体之一，代表着与公司有业务往来的个人和组织。邮件扩展为合作伙伴增加了通信能力，使其能够发送、接收消息，参与讨论，并跟踪活动。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息跟踪</strong>：跟踪与合作伙伴相关的通信历史</li>
+        <li><strong>活动管理</strong>：规划和管理与合作伙伴相关的活动</li>
+        <li><strong>黑名单管理</strong>：处理邮件营销黑名单功能</li>
+        <li><strong>在线状态显示</strong>：显示合作伙伴的在线状态</li>
+        <li><strong>未读消息统计</strong>：跟踪和计算未读消息数量</li>
+        <li><strong>合作伙伴查找与创建</strong>：基于邮件地址查找或创建合作伙伴</li>
+        <li><strong>讨论功能集成</strong>：与Odoo讨论功能集成</li>
+    </ol>
+    
+    <h2>继承关系解析</h2>
+    <div class="code-block">
+        <pre><code>
+class Partner(models.Model):
+    """ Update partner to add a field about notification preferences. Add a generic opt-out field that can be used
+       to restrict usage of automatic email templates. """
+    _name = "res.partner"
+    _inherit = ['res.partner', 'mail.activity.mixin', 'mail.thread.blacklist']
+    _mail_flat_thread = False
+        </code></pre>
+    </div>
+    
+    <p>合作伙伴模型的继承关系说明：</p>
+    <ul>
+        <li><code>_name = "res.partner"</code>：保留原始模型名称</li>
+        <li><code>_inherit = ['res.partner', 'mail.activity.mixin', 'mail.thread.blacklist']</code>：继承多个模型
+            <ul>
+                <li><code>res.partner</code>：自身继承，扩展现有模型</li>
+                <li><code>mail.activity.mixin</code>：活动管理功能</li>
+                <li><code>mail.thread.blacklist</code>：邮件营销黑名单功能</li>
+            </ul>
+        </li>
+        <li><code>_mail_flat_thread = False</code>：配置消息线程不使用扁平结构，允许消息回复形成层级结构</li>
+    </ul>
+    
+    <h3>字段定义</h3>
+    <p>以下是该模型定义的字段：</p>
+    
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特殊属性</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>合作伙伴名称</td>
+            <td>覆盖继承字段，增加tracking=1属性</td>
+        </tr>
+        <tr>
+            <td>email</td>
+            <td>Char</td>
+            <td>电子邮件地址</td>
+            <td>覆盖继承字段，增加tracking=1属性</td>
+        </tr>
+        <tr>
+            <td>phone</td>
+            <td>Char</td>
+            <td>电话号码</td>
+            <td>覆盖继承字段，增加tracking=2属性</td>
+        </tr>
+        <tr>
+            <td>parent_id</td>
+            <td>Many2one</td>
+            <td>上级合作伙伴</td>
+            <td>覆盖继承字段，增加tracking=3属性</td>
+        </tr>
+        <tr>
+            <td>user_id</td>
+            <td>Many2one</td>
+            <td>销售员</td>
+            <td>覆盖继承字段，增加tracking=4属性</td>
+        </tr>
+        <tr>
+            <td>vat</td>
+            <td>Char</td>
+            <td>税号</td>
+            <td>覆盖继承字段，增加tracking=5属性</td>
+        </tr>
+        <tr>
+            <td>contact_address_inline</td>
+            <td>Char</td>
+            <td>内联完整地址</td>
+            <td>计算字段，用于消息跟踪</td>
+        </tr>
+        <tr>
+            <td>starred_message_ids</td>
+            <td>Many2many</td>
+            <td>星标消息</td>
+            <td>关联表为'mail_message_res_partner_starred_rel'</td>
+        </tr>
+    </table>
+    
+    <h3>计算方法解析</h3>
+    
+    <h4>_compute_contact_address_inline</h4>
+    <div class="code-block">
+        <pre><code>
+    @api.depends('contact_address')
+    def _compute_contact_address_inline(self):
+        """Compute an inline-friendly address based on contact_address."""
+        for partner in self:
+            # replace any successive \n with a single comma
+            partner.contact_address_inline = re.sub(r'\n(\s|\n)*', ', ', partner.contact_address).strip().strip(',')
+        </code></pre>
+    </div>
+    
+    <p>这个方法计算用于消息跟踪的内联地址格式：</p>
+    <ol>
+        <li>依赖于<code>contact_address</code>字段</li>
+        <li>使用正则表达式<code>re.sub</code>将地址中的所有换行符替换为逗号</li>
+        <li>使用<code>strip()</code>去除首尾空白字符</li>
+        <li>使用<code>strip(',')</code>去除首尾可能多余的逗号</li>
+    </ol>
+    
+    <p>这个格式化后的地址主要用于在邮件和消息中显示，使地址在一行内显示更加美观。</p>
+    
+    <h4>_compute_im_status</h4>
+    <div class="code-block">
+        <pre><code>
+    def _compute_im_status(self):
+        super()._compute_im_status()
+        odoobot_id = self.env['ir.model.data']._xmlid_to_res_id('base.partner_root')
+        odoobot = self.env['res.partner'].browse(odoobot_id)
+        if odoobot in self:
+            odoobot.im_status = 'bot'
+        </code></pre>
+    </div>
+    
+    <p>此方法重写父类的<code>_compute_im_status</code>方法，特别处理OdooBot的在线状态：</p>
+    <ol>
+        <li>首先调用父类方法计算所有合作伙伴的标准在线状态</li>
+        <li>通过XML ID找到OdooBot的合作伙伴ID</li>
+        <li>如果当前记录集中包含OdooBot，则将其状态设置为'bot'</li>
+    </ol>
+    
+    <p>这确保了OdooBot在聊天中显示为机器人图标，而不是普通的在线/离线状态。</p>
+    
+    <h4>_get_needaction_count</h4>
+    <div class="code-block">
+        <pre><code>
+    def _get_needaction_count(self):
+        """ compute the number of needaction of the current partner """
+        self.ensure_one()
+        self.env['mail.notification'].flush_model(['is_read', 'res_partner_id'])
+        self.env.cr.execute("""
+            SELECT count(*) as needaction_count
+            FROM mail_notification R
+            WHERE R.res_partner_id = %s AND (R.is_read = false OR R.is_read IS NULL)""", (self.id,))
+        return self.env.cr.dictfetchall()[0].get('needaction_count')
+        </code></pre>
+    </div>
+    
+    <p>此方法计算当前合作伙伴的未读通知数量：</p>
+    <ol>
+        <li>使用<code>ensure_one()</code>确保只对单个记录操作</li>
+        <li>调用<code>flush_model</code>确保数据库中的通知数据是最新的</li>
+        <li>直接执行SQL查询，统计满足条件的通知数量：
+            <ul>
+                <li>通知的接收者是当前合作伙伴</li>
+                <li>通知未读(is_read=false)或读取状态未设置(is_read IS NULL)</li>
+            </ul>
+        </li>
+        <li>返回查询结果中的'needaction_count'值</li>
+    </ol>
+    
+    <p>这个方法使用原生SQL查询而非ORM，主要是为了性能考虑，因为未读消息计数是高频操作。</p>
+    
+    <h2>消息相关的核心方法</h2>
+    
+    <h3>_mail_get_partners</h3>
+    <div class="code-block">
+        <pre><code>
+    def _mail_get_partners(self, introspect_fields=False):
+        return dict((partner.id, partner) for partner in self)
+        </code></pre>
+    </div>
+    
+    <p>此方法返回一个合作伙伴ID到合作伙伴记录的映射字典。它用于邮件系统内部处理，确保能快速通过ID查找到对应的合作伙伴记录。</p>
+    
+    <h3>_message_get_suggested_recipients</h3>
+    <div class="code-block">
+        <pre><code>
+    def _message_get_suggested_recipients(self):
+        recipients = super()._message_get_suggested_recipients()
+        self._message_add_suggested_recipient(recipients, partner=self, reason=_('Partner Profile'))
+        return recipients
+        </code></pre>
+    </div>
+    
+    <p>此方法用于获取发送消息时的建议收件人：</p>
+    <ol>
+        <li>调用父类方法获取基础的建议收件人列表</li>
+        <li>将当前合作伙伴自身添加为建议收件人，理由是"合作伙伴资料"</li>
+        <li>返回更新后的收件人列表</li>
+    </ol>
+    
+    <p>这确保了向合作伙伴发送消息时，合作伙伴本身总是出现在建议收件人列表中。</p>
+    
+    <h3>_message_get_default_recipients</h3>
+    <div class="code-block">
+        <pre><code>
+    def _message_get_default_recipients(self):
+        return {
+            r.id:
+            {'partner_ids': [r.id],
+             'email_to': False,
+             'email_cc': False
+            }
+            for r in self
+        }
+        </code></pre>
+    </div>
+    
+    <p>此方法定义了发送消息的默认收件人设置：</p>
+    <ul>
+        <li>为每个合作伙伴创建一个默认收件人配置</li>
+        <li>设置<code>partner_ids</code>为当前合作伙伴ID</li>
+        <li><code>email_to</code>和<code>email_cc</code>都设为False，表示不使用额外的电子邮件地址</li>
+    </ul>
+    
+    <p>这确保了系统默认只通过内部通知方式发送消息给合作伙伴，而不是外部电子邮件。</p>
+    
+    <h2>ORM方法扩展</h2>
+    
+    <h3>_get_view_cache_key</h3>
+    <div class="code-block">
+        <pre><code>
+    @api.model
+    def _get_view_cache_key(self, view_id=None, view_type='form', **options):
+        """Add context variable force_email in the key as _get_view depends on it."""
+        key = super()._get_view_cache_key(view_id, view_type, **options)
+        return key + (self._context.get('force_email'),)
+        </code></pre>
+    </div>
+    
+    <p>此方法扩展了视图缓存键生成逻辑：</p>
+    <ol>
+        <li>调用父类方法获取基础缓存键</li>
+        <li>将上下文中的<code>force_email</code>变量添加到缓存键中</li>
+    </ol>
+    
+    <p>这确保了当<code>force_email</code>上下文变量改变时，系统会使用不同的视图缓存，这在邮件发送和编辑界面中很重要。</p>
+    
+    <h3>find_or_create</h3>
+    <div class="code-block">
+        <pre><code>
+    @api.model
+    @api.returns('self', lambda value: value.id)
+    def find_or_create(self, email, assert_valid_email=False):
+        """ Override to use the email_normalized field. """
+        if not email:
+            raise ValueError(_('An email is required for find_or_create to work'))
+
+        parsed_name, parsed_email_normalized = tools.parse_contact_from_email(email)
+        if not parsed_email_normalized and assert_valid_email:
+            raise ValueError(_('%(email)s is not recognized as a valid email. This is required to create a new customer.'))
+        if parsed_email_normalized:
+            partners = self.search([('email_normalized', '=', parsed_email_normalized)], limit=1)
+            if partners:
+                return partners
+
+        # We don't want to call `super()` to avoid searching twice on the email
+        # Especially when the search `email =ilike` cannot be as efficient as
+        # a search on email_normalized with a btree index
+        # If you want to override `find_or_create()` your module should depend on `mail`
+        create_values = {self._rec_name: parsed_name or parsed_email_normalized}
+        if parsed_email_normalized:  # otherwise keep default_email in context
+            create_values['email'] = parsed_email_normalized
+        return self.create(create_values)
+        </code></pre>
+    </div>
+    
+    <p>这个方法是Odoo邮件系统的核心功能之一，它根据邮件地址查找或创建合作伙伴：</p>
+    <ol>
+        <li>验证邮件参数不为空</li>
+        <li>使用<code>parse_contact_from_email</code>函数解析邮件地址，提取名称和标准化的邮件地址</li>
+        <li>如果<code>assert_valid_email=True</code>且无法解析出有效邮件地址，则抛出错误</li>
+        <li>如果成功解析出标准化邮件地址，则搜索是否已存在使用该邮件地址的合作伙伴</li>
+        <li>如果找到合作伙伴，直接返回</li>
+        <li>如果没有找到，创建新的合作伙伴记录：
+            <ul>
+                <li>名称使用解析出的名称或邮件地址</li>
+                <li>邮件地址使用标准化的邮件地址</li>
+            </ul>
+        </li>
+    </ol>
+    
+    <p>注意：此方法不调用<code>super()</code>，而是完全重写父类方法，主要是为了优化性能，避免对邮件地址进行两次搜索。</p>
+    
+    <h2>最佳应用实例</h2>
+    
+    <h3>基于邮件地址查找或创建合作伙伴</h3>
+    <div class="code-block">
+        <pre><code>
+# 查找或创建合作伙伴
+partner = self.env['res.partner'].find_or_create('John Doe <john.doe@example.com>')
+print(f"合作伙伴ID: {partner.id}, 名称: {partner.name}, 邮件: {partner.email}")
+
+# 验证有效邮件
+try:
+    partner = self.env['res.partner'].find_or_create('Invalid Email', assert_valid_email=True)
+except ValueError as e:
+    print(f"错误: {e}")
+        </code></pre>
+    </div>
+    
+    <h3>获取需要处理的消息数量</h3>
+    <div class="code-block">
+        <pre><code>
+# 获取当前用户合作伙伴的未读消息数量
+current_partner = self.env.user.partner_id
+unread_count = current_partner._get_needaction_count()
+print(f"您有 {unread_count} 条未读消息")
+        </code></pre>
+    </div>
+    
+    <h3>格式化地址用于消息跟踪</h3>
+    <div class="code-block">
+        <pre><code>
+# 更新合作伙伴地址并查看内联格式
+partner = self.env['res.partner'].browse(1)
+partner.write({
+    'street': '123 Main Street',
+    'street2': 'Apartment 4B',
+    'city': 'New York',
+    'zip': '10001',
+    'country_id': self.env.ref('base.us').id
+})
+
+# 显示格式化的内联地址
+print(f"原始地址格式:\n{partner.contact_address}")
+print(f"内联地址格式: {partner.contact_address_inline}")
+        </code></pre>
+    </div>
+    
+    <h2>继续阅读</h2>
+    <p>关于res_partner.py文件中的更多高级功能，包括合作伙伴查找、消息提及建议和讨论功能集成，请参阅<a href="res_partner_part2.html">第二部分文档</a>。</p>
+    
+    <div class="note">
+        <strong>提示：</strong>合作伙伴模型是Odoo中最重要的模型之一，它的邮件扩展确保了系统中的所有通信都能正确关联到相关的人员和组织。充分理解这些功能对于开发邮件相关功能非常重要。
+    </div>
+</body>
+</html> 

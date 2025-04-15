@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 BaseModel 邮件功能解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 BaseModel 邮件功能解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>models.py</code>是Odoo邮件模块中的核心文件之一，它通过继承抽象模型<code>base</code>，为所有Odoo模型提供了基础的邮件功能支持。这个文件定义了许多通用方法，使得即使不直接继承<code>mail.thread</code>的模型也能使用邮件相关的功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>BaseModel通过继承机制为所有Odoo模型注入邮件处理能力，即使模型没有显式继承mail.thread，也可以使用一些基础的邮件和通知功能。
+    </div>
+    
+    <h2>主要功能分类</h2>
+    <ol>
+        <li><strong>字段助手函数</strong>：提供获取公司、合作伙伴和电子邮件字段的方法</li>
+        <li><strong>通用邮件功能</strong>：字段跟踪、获取默认收件人等功能</li>
+        <li><strong>别名管理</strong>：处理邮件别名相关的错误检查</li>
+        <li><strong>活动支持</strong>：提供活动视图的默认实现</li>
+        <li><strong>讨论功能</strong>：获取消息子类型等功能</li>
+        <li><strong>通知处理</strong>：生成邮件头等功能</li>
+        <li><strong>工具函数</strong>：生成HTML链接、获取时区等实用函数</li>
+    </ol>
+    
+    <h2>1. 字段助手函数</h2>
+    <p>这些函数帮助获取与邮件功能相关的字段和记录。</p>
+    
+    <h3>1.1 字段跟踪支持</h3>
+    <div class="code-block">
+        <pre><code>def _valid_field_parameter(self, field, name):
+    # allow tracking on abstract models; see also 'mail.thread'
+    return (
+        name == 'tracking' and self._abstract
+        or super()._valid_field_parameter(field, name)
+    )</code></pre>
+    </div>
+    <p>这个方法允许在抽象模型上使用<code>tracking</code>参数，使得即使是抽象模型也可以支持字段跟踪功能。</p>
+    
+    <h3>1.2 获取别名域名</h3>
+    <div class="code-block">
+        <pre><code>def _mail_get_alias_domains(self, default_company=False):
+    """ Return alias domain linked to each record in self..."""</code></pre>
+    </div>
+    <p>为每条记录返回其关联的邮件别名域名，首先基于记录的公司进行查找，如果未找到则使用默认值。</p>
+    <p><strong>使用场景：</strong>当需要为记录创建邮件别名时，此方法可以确定应该使用哪个域名。</p>
+    
+    <h3>1.3 公司字段与获取</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _mail_get_company_field(self):
+    return 'company_id' if 'company_id' in self else False
+
+def _mail_get_companies(self, default=False):
+    """ Return company linked to each record in self..."""</code></pre>
+    </div>
+    <p>这两个方法用于确定模型的公司字段名称，并为每条记录获取关联的公司。如果记录没有公司字段或值为空，则使用默认公司。</p>
+    
+    <h3>1.4 获取合作伙伴字段</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _mail_get_partner_fields(self, introspect_fields=False):
+    """ This method returns the fields to use to find the contact to link..."""
+    
+def _mail_get_partners(self, introspect_fields=False):
+    """ Give the default partners (customers) associated to customers..."""</code></pre>
+    </div>
+    <p>这两个方法用于查找模型中可能包含合作伙伴信息的字段，并返回每条记录关联的合作伙伴集合。如果启用<code>introspect_fields</code>参数，系统会自动搜索所有指向res.partner的关系字段。</p>
+    <p><strong>使用场景：</strong>当需要向记录关联的合作伙伴发送通知时，这些方法可以帮助找到相关的合作伙伴。</p>
+    
+    <h3>1.5 获取主要电子邮件字段</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _mail_get_primary_email_field(self):
+    """ Check if the "_primary_email" model attribute is correctly set and
+    matches an existing field, and return it. Otherwise return None. """</code></pre>
+    </div>
+    <p>检查模型是否定义了<code>_primary_email</code>属性，并验证它是否对应一个有效字段。这个方法帮助确定模型的主要电子邮件字段。</p>
+    
+    <h3>1.6 允许的QWeb表达式</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def mail_allowed_qweb_expressions(self):
+    # QWeb expressions allowed if we are not template editor
+    return (
+        "object.name",
+        "object.contact_name",
+        "object.partner_id",
+        "object.partner_id.name",
+        "object.user_id",
+        "object.user_id.name",
+        "object.user_id.signature",
+    )</code></pre>
+    </div>
+    <p>定义邮件模板中允许使用的QWeb表达式。这对于确保邮件模板的安全性很重要，因为它限制了用户可以在模板中使用的表达式。</p>
+    
+    <h2>2. 通用邮件功能</h2>
+    <p>这些方法实现了邮件系统的核心功能。</p>
+    
+    <h3>2.1 字段跟踪</h3>
+    <div class="code-block">
+        <pre><code>def _mail_track(self, tracked_fields, initial_values):
+    """ For a given record, fields to check and initial values,
+    return a valid command to create tracking values..."""</code></pre>
+    </div>
+    <p>此方法是字段值变更跟踪的核心实现。当记录上的跟踪字段发生变化时，它会创建跟踪值记录，记录字段的旧值和新值。</p>
+    <p><strong>参数：</strong></p>
+    <ul>
+        <li><code>tracked_fields</code>：要跟踪的字段信息字典</li>
+        <li><code>initial_values</code>：字段的初始值字典</li>
+    </ul>
+    <p><strong>返回值：</strong>一个元组 <code>(changes, tracking_value_ids)</code>，其中：</p>
+    <ul>
+        <li><code>changes</code>：已更新字段的集合</li>
+        <li><code>tracking_value_ids</code>：用于创建跟踪值记录的命令列表</li>
+    </ul>
+    
+    <p>相关的辅助方法：</p>
+    <div class="code-block">
+        <pre><code>def _mail_track_order_fields(self, tracked_fields):
+    """ Order tracking, based on sequence found on field definition..."""
+    
+def _mail_track_get_field_sequence(self, fname):
+    """ Find tracking sequence of a given field..."""</code></pre>
+    </div>
+    <p>这些方法帮助对跟踪字段进行排序和获取字段的跟踪序列号，影响显示在消息中的字段顺序。</p>
+    
+    <h3>2.2 默认收件人</h3>
+    <div class="code-block">
+        <pre><code>def _message_get_default_recipients(self):
+    """ Generic implementation for finding default recipient to mail on a recordset..."""</code></pre>
+    </div>
+    <p>为每条记录返回默认的邮件收件人信息。查找顺序如下：</p>
+    <ol>
+        <li>如果记录有<code>partner_id</code>字段，使用该合作伙伴</li>
+        <li>否则尝试查找<code>email_from</code>、<code>partner_email</code>、<code>email</code>或<code>email_normalized</code>字段</li>
+    </ol>
+    <p><strong>返回值：</strong>一个字典，包含每条记录的收件人信息（合作伙伴ID列表、电子邮件地址）。</p>
+    
+    <h3>2.3 回复地址</h3>
+    <div class="code-block">
+        <pre><code>def _notify_get_reply_to(self, default=None):
+    """ Returns the preferred reply-to email address when replying to a thread..."""</code></pre>
+    </div>
+    <p>这个方法确定回复记录时应使用的邮件地址。查找优先级如下：</p>
+    <ol>
+        <li>首先查找与记录直接关联的别名</li>
+        <li>如果没有找到别名，使用公司的统一回复地址</li>
+        <li>如果公司没有设置回复地址，使用提供的默认值</li>
+    </ol>
+    <p>回复地址格式化为："公司名称 记录名称 &lt;邮件地址&gt;"。</p>
+    
+    <p>相关的辅助方法：</p>
+    <div class="code-block">
+        <pre><code>def _notify_get_reply_to_formatted_email(self, record_email, record_name, company=False):
+    """ Compute formatted email for reply_to and try to avoid refold issue..."""</code></pre>
+    </div>
+    <p>这个方法负责格式化回复地址，并处理一些边缘情况，如长地址的处理和DKIM验证问题。</p>
+    
+    <h2>3. 别名管理</h2>
+    
+    <h3>3.1 别名错误处理</h3>
+    <div class="code-block">
+        <pre><code>def _alias_get_error(self, message, message_dict, alias):
+    """ Generic method that takes a record not necessarily inheriting from
+    mail.alias.mixin.
+    
+    :return AliasError: error if any, False otherwise
+    """</code></pre>
+    </div>
+    <p>检查邮件别名的权限设置，并根据发件人和记录的状态返回适当的错误。可能的错误包括：</p>
+    <ul>
+        <li>如果别名设置为"仅关注者"，但发件人不是记录的关注者</li>
+        <li>如果别名设置为"仅已知合作伙伴"，但发件人未在系统中注册</li>
+        <li>如果别名配置错误（如缺少必要的字段）</li>
+    </ul>
+    
+    <h2>4. 活动支持</h2>
+    
+    <h3>4.1 默认活动视图</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _get_default_activity_view(self):
+    """ Generates an empty activity view.
+    
+    :returns: a activity view as an lxml document
+    :rtype: etree._Element
+    """</code></pre>
+    </div>
+    <p>为模型生成一个默认的空活动视图，包含记录的名称字段。这是活动视图的基本骨架，可以被继承并扩展。</p>
+    
+    <h2>5. 讨论功能</h2>
+    
+    <h3>5.1 获取消息子类型</h3>
+    <div class="code-block">
+        <pre><code>def _mail_get_message_subtypes(self):
+    return self.env['mail.message.subtype'].search([
+        '&', ('hidden', '=', False),
+        '|', ('res_model', '=', self._name), ('res_model', '=', False)])</code></pre>
+    </div>
+    <p>返回适用于当前模型的所有可见消息子类型。这包括专门为该模型定义的子类型，以及通用（<code>res_model=False</code>）的子类型。</p>
+    
+    <h2>6. 通知处理</h2>
+    
+    <h3>6.1 邮件头生成</h3>
+    <div class="code-block">
+        <pre><code>def _notify_by_email_get_headers(self, headers=None):
+    """ Generate the email headers based on record..."""</code></pre>
+    </div>
+    <p>根据记录生成电子邮件头部。添加以下信息：</p>
+    <ul>
+        <li><code>X-Odoo-Objects</code>：包含模型名称和记录ID的标识符</li>
+        <li><code>Return-Path</code>：如果公司设置了退信邮箱，使用该地址</li>
+    </ul>
+    <p>这些头部有助于跟踪邮件源和处理退信邮件。</p>
+    
+    <h2>7. 工具函数</h2>
+    
+    <h3>7.1 HTML链接生成</h3>
+    <div class="code-block">
+        <pre><code>def _get_html_link(self, title=None):
+    """Generate the record html reference for chatter use..."""</code></pre>
+    </div>
+    <p>生成指向记录的HTML链接，用于在聊天区显示。格式为：<code>&lt;a href=# data-oe-model='...' data-oe-id='...'&gt;title&lt;/a&gt;</code>。</p>
+    
+    <h3>7.2 后端根菜单</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _get_backend_root_menu_ids(self):
+    """ Method meant to be overridden to define the root menu for the model..."""</code></pre>
+    </div>
+    <p>定义模型的根菜单ID列表。这个方法通常由具体模型重写，用于确定模型在后端界面中的入口点。</p>
+    
+    <h3>7.3 字段路径值查找</h3>
+    <div class="code-block">
+        <pre><code>def _find_value_from_field_path(self, field_path):
+    """Get the value of field, returning display_name(s) if the field is a model..."""</code></pre>
+    </div>
+    <p>根据字段路径获取值，支持链式字段（如<code>partner_id.country_id.state</code>）。特殊处理如下：</p>
+    <ul>
+        <li>如果字段值是记录集，返回其display_name的连接</li>
+        <li>如果字段值是日期时间，应用用户时区并格式化</li>
+        <li>如果字段是选择字段，返回选项的显示值而非键值</li>
+    </ul>
+    <p><strong>使用场景：</strong>在邮件模板和自动化操作中，需要根据字段路径获取值进行替换或条件判断。</p>
+    
+    <h3>7.4 获取时区</h3>
+    <div class="code-block">
+        <pre><code>def _mail_get_timezone(self):
+    """To be override to get desired timezone of the model
+    
+    :returns: selected timezone (e.g. 'UTC' or 'Asia/Kolkata')
+    """</code></pre>
+    </div>
+    <p>获取与记录相关的时区。查找顺序如下：</p>
+    <ol>
+        <li>首先检查记录上的时区字段（<code>date_tz</code>、<code>tz</code>、<code>timezone</code>）</li>
+        <li>如果未找到，使用当前用户的时区</li>
+        <li>如果用户未设置时区，默认使用UTC</li>
+    </ol>
+    <p><strong>使用场景：</strong>在格式化日期时间字段和计算截止日期时需要考虑时区。</p>
+    
+    <h2>使用实例</h2>
+    
+    <h3>示例1：在自定义模型中使用字段跟踪</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, fields, api
+
+class CustomTask(models.Model):
+    _name = 'custom.task'
+    _description = '自定义任务'
+    
+    name = fields.Char('名称', required=True)
+    deadline = fields.Date('截止日期', tracking=100)  # 跟踪优先级100
+    state = fields.Selection([
+        ('draft', '草稿'),
+        ('progress', '进行中'),
+        ('done', '完成')
+    ], string='状态', default='draft', tracking=90)  # 跟踪优先级90
+    
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        for record in records:
+            tracking_values = {}
+            for fname in self._fields:
+                field = self._fields[fname]
+                if getattr(field, 'tracking', False):
+                    tracking_values[fname] = False
+            if tracking_values:
+                changes, tracking_value_ids = record._mail_track(self.env['custom.task'].fields_get(tracking_values.keys()), tracking_values)
+                # 这里可以使用tracking_value_ids创建系统消息
+        return records</code></pre>
+    </div>
+    
+    <h3>示例2：使用HTML链接</h3>
+    <div class="code-block">
+        <pre><code>def action_send_notification(self):
+    self.ensure_one()
+    msg = f"任务 {self._get_html_link()} 需要您的关注。"
+    partner_ids = self.env.user.partner_id.ids
+    self.env['mail.thread'].message_notify(
+        body=msg,
+        partner_ids=partner_ids,
+        subject=f"关于任务 {self.name} 的提醒"
+    )</code></pre>
+    </div>
+    
+    <h3>示例3：获取记录的回复地址</h3>
+    <div class="code-block">
+        <pre><code>def send_custom_email(self):
+    self.ensure_one()
+    reply_to = self._notify_get_reply_to()[self.id]
+    
+    # 使用reply_to发送电子邮件
+    self.env['mail.mail'].create({
+        'subject': f'关于 {self.name} 的信息',
+        'body_html': f'<p>请查看此任务的详情</p>',
+        'email_to': 'customer@example.com',
+        'reply_to': reply_to,
+    }).send()</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>BaseModel的邮件功能扩展为Odoo中的所有模型提供了基础的邮件和通知支持。通过这些方法：</p>
+    <ul>
+        <li>即使不继承mail.thread，也可以使用基本的邮件功能</li>
+        <li>提供了统一的接口来处理收件人、回复地址和邮件头</li>
+        <li>支持字段跟踪和值变更记录</li>
+        <li>提供了解析字段路径、格式化时间和生成链接的工具函数</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>
+        <ul>
+            <li>对于需要完整邮件功能的模型，应继承mail.thread</li>
+            <li>对于仅需基础邮件支持的模型，可以直接使用base模型提供的方法</li>
+            <li>在字段定义中使用tracking参数来跟踪字段变更</li>
+            <li>使用_notify_get_reply_to方法来确保一致的回复地址格式</li>
+        </ul>
+    </div>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo字段跟踪系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo字段跟踪系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_model_fields.py</code>是Odoo邮件模块中的一个重要组件，它扩展了Odoo的模型字段系统，增加了字段值变更跟踪功能。这使得Odoo能够记录文档历史变更，并通过邮件通知相关用户。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>字段跟踪系统允许Odoo记录特定字段值的变化，是实现业务文档审计和变更通知的基础设施。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>字段变更跟踪</strong>：为字段添加跟踪功能，记录其值的变化历史</li>
+        <li><strong>跟踪优先级排序</strong>：通过整数值定义字段跟踪的显示顺序</li>
+        <li><strong>跟踪信息持久化</strong>：即使字段被删除，也保留其历史跟踪记录</li>
+        <li><strong>元数据管理</strong>：通过反射机制自动捕获和处理字段的跟踪属性</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>IrModelField类继承了ir.model.fields模型，添加了跟踪功能：</p>
+    
+    <div class="code-block">
+        <pre><code>class IrModelField(models.Model):
+    _inherit = 'ir.model.fields'
+
+    tracking = fields.Integer(
+        string="Enable Ordered Tracking",
+        help="If set every modification done to this field is tracked. Value is used to order tracking values.",
+    )</code></pre>
+    </div>
+    
+    <h3>关键字段解释</h3>
+    <ul>
+        <li><code>tracking</code>：整数字段，用于启用字段跟踪并设置排序顺序</li>
+    </ul>
+    
+    <h3>核心方法详解</h3>
+    
+    <h4>1. _reflect_field_params方法</h4>
+    <div class="code-block">
+        <pre><code>def _reflect_field_params(self, field, model_id):
+    """ Tracking value can be either a boolean enabling tracking mechanism
+    on field, either an integer giving the sequence. Default sequence is
+    set to 100. """
+    vals = super(IrModelField, self)._reflect_field_params(field, model_id)
+    tracking = getattr(field, 'tracking', None)
+    if tracking is True:
+        tracking = 100
+    elif tracking is False:
+        tracking = None
+    vals['tracking'] = tracking
+    return vals</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法负责从Python代码中提取字段的跟踪设置，并将其转换为数据库中的值：</p>
+    <ul>
+        <li>将Boolean类型的<code>tracking=True</code>转换为整数值100（默认优先级）</li>
+        <li>将Boolean类型的<code>tracking=False</code>转换为None（不跟踪）</li>
+        <li>保留整数类型的tracking值（用户指定的优先级）</li>
+    </ul>
+    
+    <h4>2. _instanciate_attrs方法</h4>
+    <div class="code-block">
+        <pre><code>def _instanciate_attrs(self, field_data):
+    attrs = super(IrModelField, self)._instanciate_attrs(field_data)
+    if attrs and field_data.get('tracking'):
+        attrs['tracking'] = field_data['tracking']
+    return attrs</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法在动态实例化字段时，确保字段的tracking属性被正确设置。</p>
+    <ul>
+        <li>将数据库中存储的跟踪信息应用到运行时创建的字段对象</li>
+        <li>确保动态加载的字段保持其跟踪配置</li>
+    </ul>
+    
+    <h4>3. unlink方法</h4>
+    <div class="code-block">
+        <pre><code>def unlink(self):
+    """ When unlinking fields populate tracking value table with relevant
+    information. That way if a field is removed (custom tracked, migration
+    or any other reason) we keep the tracking and its relevant information.
+    Do it only when unlinking fields so that we don't duplicate field
+    information for most tracking. """
+    tracked = self.filtered('tracking')
+    if tracked:
+        tracking_values = self.env['mail.tracking.value'].search(
+            [('field_id', 'in', tracked.ids)]
+        )
+        field_to_trackings = groupby(tracking_values, lambda track: track.field_id)
+        for field, trackings in field_to_trackings:
+            self.env['mail.tracking.value'].concat(*trackings).write({
+                'field_info': {
+                    'desc': field.field_description,
+                    'name': field.name,
+                    'sequence': self.env[field.model_id.model]._mail_track_get_field_sequence(field.name),
+                    'type': field.ttype,
+                }
+            })
+    return super().unlink()</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法在字段被删除前，将跟踪相关的元信息保存到跟踪值中：</p>
+    <ul>
+        <li>在字段被删除前，识别所有启用了跟踪的字段</li>
+        <li>查找与这些字段关联的所有跟踪记录</li>
+        <li>将字段元信息(描述、名称、序列、类型)存储到跟踪记录中</li>
+        <li>即使字段被删除，也能保持历史跟踪记录的完整性</li>
+    </ul>
+    
+    <h2>字段跟踪系统工作原理</h2>
+    <p>Odoo的字段跟踪系统工作流程如下：</p>
+    
+    <div class="workflow">
+        <h3>跟踪流程</h3>
+        <ol>
+            <li>开发者在定义模型字段时设置<code>tracking=True</code>或<code>tracking=数字</code>属性</li>
+            <li>IR系统通过<code>_reflect_field_params</code>捕获这些设置并存储在数据库</li>
+            <li>当带跟踪字段的记录被修改时，mail.thread模块捕获变更</li>
+            <li>系统创建mail.tracking.value记录，保存变更前后的值</li>
+            <li>这些跟踪记录与mail.message关联，形成完整的变更历史</li>
+            <li>即使跟踪字段后来被删除，历史跟踪记录也会通过field_info保持完整</li>
+        </ol>
+    </div>
+    
+    <h3>跟踪顺序的重要性</h3>
+    <p>tracking值作为整数不仅启用跟踪，还决定了跟踪字段在邮件通知中的显示顺序：</p>
+    <ul>
+        <li>较小的tracking值表示更高的优先级</li>
+        <li>默认值100适用于大多数一般字段</li>
+        <li>重要字段可设置为10、20等较小值，确保它们在变更通知顶部显示</li>
+        <li>次要字段可设置为200、300等较大值</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模型中使用字段跟踪功能？下面是一个简单的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class ProjectTask(models.Model):
+    _name = 'project.task'
+    _inherit = ['mail.thread']
+    _description = '项目任务'
+    
+    name = fields.Char('任务名称', required=True, tracking=True)  # 默认优先级(100)
+    priority = fields.Selection([
+        ('0', '正常'), 
+        ('1', '紧急')
+    ], default='0', tracking=10)  # 高优先级(10) - 将在通知顶部显示
+    description = fields.Text('描述', tracking=200)  # 低优先级(200)
+    
+    # 不跟踪的字段
+    color = fields.Integer('颜色')</code></pre>
+    </div>
+    
+    <p>在视图中显示跟踪记录：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="view_task_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;project.task.form&lt;/field&gt;
+    &lt;field name="model"&gt;project.task&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="name"/&gt;
+                    &lt;field name="priority"/&gt;
+                    &lt;field name="description"/&gt;
+                    &lt;field name="color"/&gt;
+                &lt;/group&gt;
+            &lt;/sheet&gt;
+            &lt;div class="oe_chatter"&gt;
+                &lt;field name="message_follower_ids"/&gt;
+                &lt;field name="message_ids"/&gt;
+            &lt;/div&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>使用字段跟踪时请注意以下几点：
+        <ul>
+            <li>跟踪功能仅在继承了mail.thread的模型中有效</li>
+            <li>过多的跟踪字段会增加数据库负担，请仅跟踪业务关键字段</li>
+            <li>大文本或二进制字段的跟踪会占用大量存储空间</li>
+            <li>在Odoo 18中，跟踪系统已优化，性能更好</li>
+            <li>如果一个字段经常变化但不需要每次都通知，考虑不启用跟踪</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>在Odoo 18中，字段跟踪系统有以下改进：</p>
+    <ul>
+        <li>更高效的跟踪数据存储机制</li>
+        <li>即使字段被删除也能保持完整的跟踪记录（通过field_info）</li>
+        <li>更好的跟踪排序控制</li>
+        <li>优化的通知模板和显示逻辑</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>ir_model_fields.py中的跟踪机制是Odoo文档历史和变更通知系统的基础：</p>
+    <ul>
+        <li>提供了简单的字段级变更跟踪</li>
+        <li>支持灵活的跟踪优先级设置</li>
+        <li>即使字段被删除也能保持历史记录的完整性</li>
+        <li>与mail.thread无缝集成，提供完整的变更通知机制</li>
+        <li>为审计功能和合规性需求提供了基础设施</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计需要变更历史的模型时，继承mail.thread并为关键字段添加适当优先级的tracking属性，能显著提升业务流程的可追溯性和用户体验。
+    </div>
+</body>
+</html> 

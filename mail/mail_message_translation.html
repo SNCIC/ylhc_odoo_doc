@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo消息翻译系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo消息翻译系统(mail.message.translation)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_message_translation.py</code>是Odoo 18框架中的一个专用模块，它提供了消息内容的多语言翻译功能。这个模型使系统能够存储消息的翻译版本，让不同语言的用户能够以自己的首选语言查看消息。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>消息翻译系统增强了Odoo的多语言协作能力，允许来自不同语言背景的用户在同一系统中高效沟通。系统会检测消息的源语言，并为用户提供其首选语言的翻译版本，从而消除语言障碍。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息翻译存储</strong>：存储消息的多语言翻译版本</li>
+        <li><strong>语言检测</strong>：基于消息内容识别源语言</li>
+        <li><strong>翻译唯一性</strong>：确保每条消息对每种目标语言只有一个翻译</li>
+        <li><strong>自动清理</strong>：定期删除旧的翻译记录，优化存储空间</li>
+    </ol>
+    
+    <h2>模型定义</h2>
+    <p>MessageTranslation模型定义如下：</p>
+    
+    <div class="code-block">
+        <pre><code>class MessageTranslation(models.Model):
+    _name = "mail.message.translation"
+    _description = "Message Translation"</code></pre>
+    </div>
+    
+    <h3>模型特性</h3>
+    <ul>
+        <li><code>_name = "mail.message.translation"</code>：模型技术名称</li>
+        <li><code>_description = "Message Translation"</code>：模型人类可读描述</li>
+    </ul>
+    
+    <h2>关键字段详解</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>message_id</td>
+            <td>Many2one</td>
+            <td>消息</td>
+            <td>关联到被翻译的原始消息</td>
+        </tr>
+        <tr>
+            <td>source_lang</td>
+            <td>Char</td>
+            <td>源语言</td>
+            <td>原始消息的语言代码，基于内容检测</td>
+        </tr>
+        <tr>
+            <td>target_lang</td>
+            <td>Char</td>
+            <td>目标语言</td>
+            <td>翻译目标的语言代码</td>
+        </tr>
+        <tr>
+            <td>body</td>
+            <td>Html</td>
+            <td>翻译正文</td>
+            <td>翻译后的消息内容，使用HTML格式</td>
+        </tr>
+        <tr>
+            <td>create_date</td>
+            <td>Datetime</td>
+            <td>创建日期</td>
+            <td>翻译记录的创建时间，用于自动清理</td>
+        </tr>
+    </table>
+    
+    <h2>数据库约束与索引</h2>
+    <p>该模型使用唯一索引确保每条消息对每种目标语言只有一个翻译版本：</p>
+    
+    <div class="code-block">
+        <pre><code>def init(self):
+    self.env.cr.execute(
+        f"CREATE UNIQUE INDEX IF NOT EXISTS mail_message_translation_unique ON {self._table} (message_id, target_lang)"
+    )</code></pre>
+    </div>
+    
+    <p>这个唯一索引确保了对于特定消息(message_id)和特定目标语言(target_lang)的组合只能存在一条记录，防止重复翻译。</p>
+    
+    <h2>自动清理机制</h2>
+    <p>为了优化数据库存储空间，模型实现了自动清理旧翻译记录的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.autovacuum
+def _gc_translations(self):
+    treshold = fields.Datetime().now() - relativedelta(weeks=2)
+    self.search([("create_date", "<", treshold)]).unlink()</code></pre>
+    </div>
+    
+    <p>该方法使用<code>@api.autovacuum</code>装饰器，会在Odoo的自动清理过程中被调用。它会删除创建时间超过2周的所有翻译记录，确保数据库不会被长期未使用的翻译记录占满。</p>
+    
+    <h2>翻译流程</h2>
+    <p>虽然mail.message.translation模型本身只负责存储翻译结果，但完整的翻译流程涉及以下几个步骤：</p>
+    
+    <div class="flow-diagram">
+        <h3>消息翻译流程</h3>
+        <ol>
+            <li><strong>消息创建</strong>：用户以其首选语言创建消息</li>
+            <li><strong>语言检测</strong>：系统检测消息的源语言（通常通过外部API服务）</li>
+            <li><strong>翻译请求</strong>：根据需要向翻译服务发送请求</li>
+            <li><strong>翻译存储</strong>：将翻译结果存储在mail.message.translation记录中</li>
+            <li><strong>翻译展示</strong>：根据用户的语言偏好显示原文或翻译版本</li>
+        </ol>
+    </div>
+    
+    <h2>使用场景与示例</h2>
+    <p>以下是mail.message.translation模型的一些常见使用场景和代码示例：</p>
+    
+    <h3>1. 创建消息翻译</h3>
+    <div class="code-block">
+        <pre><code>def create_message_translation(self, message_id, source_lang, target_lang, translated_body):
+    """为指定消息创建或更新翻译"""
+    # 检查是否已存在相同语言的翻译
+    existing = self.env['mail.message.translation'].search([
+        ('message_id', '=', message_id),
+        ('target_lang', '=', target_lang)
+    ], limit=1)
+    
+    if existing:
+        # 更新现有翻译
+        return existing.write({
+            'source_lang': source_lang,
+            'body': translated_body
+        })
+    else:
+        # 创建新翻译
+        return self.env['mail.message.translation'].create({
+            'message_id': message_id,
+            'source_lang': source_lang,
+            'target_lang': target_lang,
+            'body': translated_body
+        })</code></pre>
+    </div>
+    
+    <h3>2. 获取消息的特定语言翻译</h3>
+    <div class="code-block">
+        <pre><code>def get_message_translation(self, message_id, lang_code):
+    """获取消息的特定语言翻译"""
+    translation = self.env['mail.message.translation'].search([
+        ('message_id', '=', message_id),
+        ('target_lang', '=', lang_code)
+    ], limit=1)
+    
+    if translation:
+        return translation.body
+    
+    # 如果没有找到翻译，返回None或原始消息
+    return None</code></pre>
+    </div>
+    
+    <h3>3. 使用外部API服务翻译消息</h3>
+    <div class="code-block">
+        <pre><code>def translate_message(self, message_id, target_lang):
+    """使用外部API服务翻译消息
+    
+    注意：此示例仅作说明用途，实际实现需要集成特定的翻译API
+    """
+    message = self.env['mail.message'].browse(message_id)
+    if not message.exists():
+        return False
+    
+    # 检查是否已有翻译
+    existing = self.env['mail.message.translation'].search([
+        ('message_id', '=', message_id),
+        ('target_lang', '=', target_lang)
+    ], limit=1)
+    
+    if existing:
+        return existing
+    
+    # 提取纯文本内容用于检测语言
+    html_content = message.body or ""
+    plain_text = html2text.html2text(html_content)
+    
+    # 语言检测（示例）
+    # source_lang = detect_language(plain_text)
+    source_lang = "en"  # 示例假设源语言为英语
+    
+    # 跳过相同语言的翻译
+    if source_lang == target_lang:
+        return False
+    
+    # 调用翻译API（示例）
+    # translated_html = translate_text(html_content, source_lang, target_lang)
+    translated_html = f"&lt;p&gt;Translated content to {target_lang}&lt;/p&gt;"  # 示例
+    
+    # 存储翻译结果
+    return self.env['mail.message.translation'].create({
+        'message_id': message_id,
+        'source_lang': source_lang,
+        'target_lang': target_lang,
+        'body': translated_html
+    })</code></pre>
+    </div>
+    
+    <h3>4. 根据用户首选语言显示消息</h3>
+    <div class="code-block">
+        <pre><code>def get_translated_message_body(self, message_id, user_lang=None):
+    """获取适合用户语言的消息内容"""
+    message = self.env['mail.message'].browse(message_id)
+    if not message.exists():
+        return ""
+    
+    # 如果未指定用户语言，使用当前用户的语言
+    if not user_lang:
+        user_lang = self.env.user.lang
+    
+    # 尝试获取对应语言的翻译
+    translation = self.env['mail.message.translation'].search([
+        ('message_id', '=', message_id),
+        ('target_lang', '=', user_lang)
+    ], limit=1)
+    
+    # 如果找到翻译，返回翻译后的内容
+    if translation:
+        return translation.body
+    
+    # 否则返回原始内容
+    return message.body</code></pre>
+    </div>
+    
+    <h3>5. 清理旧翻译记录</h3>
+    <div class="code-block">
+        <pre><code>def manual_cleanup_old_translations(self, days=14):
+    """手动清理指定天数前的翻译记录"""
+    from datetime import datetime, timedelta
+    
+    threshold_date = datetime.now() - timedelta(days=days)
+    old_translations = self.env['mail.message.translation'].search([
+        ('create_date', '<', threshold_date)
+    ])
+    
+    if old_translations:
+        count = len(old_translations)
+        old_translations.unlink()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '清理完成',
+                'message': f'已删除 {count} 条旧翻译记录',
+                'type': 'success',
+                'sticky': False,
+            }
+        }
+    else:
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '清理完成',
+                'message': '没有找到需要清理的旧翻译记录',
+                'type': 'info',
+                'sticky': False,
+            }
+        }</code></pre>
+    </div>
+    
+    <h2>与外部翻译API集成</h2>
+    <p>在实际应用中，mail.message.translation模型通常与外部翻译API服务集成，如Google Translate、Azure Translator或DeepL等。集成流程通常包括：</p>
+    
+    <ol>
+        <li><strong>语言检测</strong>：使用API检测消息的源语言</li>
+        <li><strong>分段处理</strong>：将HTML内容分解为可翻译的片段</li>
+        <li><strong>API调用</strong>：调用翻译API服务获取翻译结果</li>
+        <li><strong>重组内容</strong>：重新组装翻译后的HTML内容</li>
+        <li><strong>存储结果</strong>：将结果存储在mail.message.translation记录中</li>
+    </ol>
+    
+    <div class="warning">
+        <strong>注意：</strong>
+        <ul>
+            <li>使用外部翻译API可能需要额外的费用</li>
+            <li>需要确保敏感信息不会通过翻译API泄露</li>
+            <li>部分HTML内容可能不适合翻译，需要特殊处理</li>
+            <li>翻译质量可能因语言对和内容类型而异</li>
+        </ul>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>mail.message.translation模型在设计上考虑了性能优化：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>唯一索引</h4>
+            <p>使用唯一索引确保快速查找特定消息的特定语言翻译。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>自动清理</h4>
+            <p>通过定期删除旧翻译记录控制数据库大小，避免不必要的存储开销。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>按需翻译</h4>
+            <p>翻译通常按需创建，而不是为所有消息预先创建所有语言的翻译。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>简洁的数据结构</h4>
+            <p>只存储必要的信息，避免冗余数据。</p>
+        </div>
+    </div>
+    
+    <h2>RelativeTimedelta使用</h2>
+    <p>模型使用Python的<code>relativedelta</code>类计算相对时间：</p>
+    
+    <div class="code-block">
+        <pre><code>from dateutil.relativedelta import relativedelta
+
+@api.autovacuum
+def _gc_translations(self):
+    treshold = fields.Datetime().now() - relativedelta(weeks=2)
+    self.search([("create_date", "<", treshold)]).unlink()</code></pre>
+    </div>
+    
+    <p><code>relativedelta</code>是一个强大的时间计算工具，优于简单的<code>timedelta</code>：</p>
+    <ul>
+        <li>支持以周、月、年为单位的时间计算</li>
+        <li>自动处理月份天数差异、闰年等复杂情况</li>
+        <li>允许设置具体的日期部分（如月初、月末）</li>
+    </ul>
+    
+    <h2>与其他模块的关系</h2>
+    <p>mail.message.translation模型与其他模块的关系如下：</p>
+    <ul>
+        <li><strong>mail.message</strong>：存储需要翻译的原始消息</li>
+        <li><strong>res.users</strong>：用户的语言偏好决定显示哪个翻译版本</li>
+        <li><strong>res.lang</strong>：系统支持的语言列表</li>
+        <li><strong>bus.bus</strong>：可用于推送新翻译的实时通知</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>mail.message.translation模型提供了强大的消息多语言支持：</p>
+    <ul>
+        <li>高效存储消息的多语言翻译</li>
+        <li>支持源语言识别和目标语言转换</li>
+        <li>确保每条消息对每种语言只有一个翻译版本</li>
+        <li>自动清理机制保持数据库高效运行</li>
+        <li>易于与外部翻译API集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在国际化的Odoo实施中，应考虑启用消息翻译功能，并根据业务需求选择合适的翻译服务提供商。对于重要的系统通知和模板消息，应使用专业翻译而非自动翻译；对于日常用户交流，可以使用自动翻译服务提高沟通效率。
+    </div>
+</body>
+</html> 

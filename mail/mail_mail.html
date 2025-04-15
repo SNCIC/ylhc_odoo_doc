@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件发送系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件发送系统(mail.mail)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_mail.py</code>是Odoo框架中的核心模块之一，它提供了邮件的存储和发送功能。这个模型负责处理所有外发电子邮件，包括邮件队列管理、发送失败处理、定时发送等功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>mail.mail模型保存了RFC2822格式的邮件，并提供了各种发送邮件的工具。它是通知系统的底层服务，负责将系统中生成的消息通过电子邮件方式发送给用户。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>邮件存储</strong>：存储待发送的电子邮件内容、接收者和状态</li>
+        <li><strong>邮件队列</strong>：管理待发送邮件的队列，支持批量处理</li>
+        <li><strong>定时发送</strong>：支持预定时间发送邮件</li>
+        <li><strong>失败处理</strong>：记录发送失败的原因，并提供重试机制</li>
+        <li><strong>批量发送优化</strong>：通过SMTP会话复用提高发送效率</li>
+        <li><strong>事务性发送</strong>：支持事务提交后发送的场景</li>
+    </ol>
+    
+    <h2>模型定义</h2>
+    <p>MailMail模型继承自mail.message，具有以下关键属性：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailMail(models.Model):
+    """ Model holding RFC2822 email messages to send. This model also provides
+        facilities to queue and send new email messages.  """
+    _name = 'mail.mail'
+    _description = 'Outgoing Mails'
+    _inherits = {'mail.message': 'mail_message_id'}
+    _order = 'id desc'
+    _rec_name = 'subject'</code></pre>
+    </div>
+    
+    <h3>继承和关系</h3>
+    <ul>
+        <li><code>_inherits = {'mail.message': 'mail_message_id'}</code>：使用委托继承机制，mail.mail包含mail.message的所有字段</li>
+        <li><code>mail_message_id</code>：关联到mail.message模型的外键字段</li>
+        <li><code>_rec_name = 'subject'</code>：使用subject字段作为记录名称</li>
+    </ul>
+    
+    <h2>关键字段详解</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail_message_id</td>
+            <td>Many2one</td>
+            <td>对应的消息记录</td>
+            <td>通过委托继承关联到mail.message</td>
+        </tr>
+        <tr>
+            <td>mail_message_id_int</td>
+            <td>Integer</td>
+            <td>消息ID的整数值</td>
+            <td>计算字段，用于性能优化</td>
+        </tr>
+        <tr>
+            <td>message_type</td>
+            <td>Selection</td>
+            <td>消息类型</td>
+            <td>继承自mail.message，默认为'email_outgoing'</td>
+        </tr>
+        <tr>
+            <td>body_html</td>
+            <td>Text</td>
+            <td>邮件HTML内容</td>
+            <td>存储邮件的富文本内容</td>
+        </tr>
+        <tr>
+            <td>email_to</td>
+            <td>Text</td>
+            <td>收件人</td>
+            <td>存储收件人的电子邮件地址</td>
+        </tr>
+        <tr>
+            <td>email_cc</td>
+            <td>Char</td>
+            <td>抄送</td>
+            <td>存储抄送人的电子邮件地址</td>
+        </tr>
+        <tr>
+            <td>recipient_ids</td>
+            <td>Many2many</td>
+            <td>收件人(伙伴)</td>
+            <td>关联到res.partner模型的收件人</td>
+        </tr>
+        <tr>
+            <td>state</td>
+            <td>Selection</td>
+            <td>状态</td>
+            <td>邮件状态：待发送/已发送/已接收/发送失败/已取消</td>
+        </tr>
+        <tr>
+            <td>failure_type</td>
+            <td>Selection</td>
+            <td>失败类型</td>
+            <td>记录邮件发送失败的具体类型</td>
+        </tr>
+        <tr>
+            <td>failure_reason</td>
+            <td>Text</td>
+            <td>失败原因</td>
+            <td>记录详细的失败原因，通常是异常信息</td>
+        </tr>
+        <tr>
+            <td>auto_delete</td>
+            <td>Boolean</td>
+            <td>自动删除</td>
+            <td>发送后是否自动删除邮件记录</td>
+        </tr>
+        <tr>
+            <td>scheduled_date</td>
+            <td>Datetime</td>
+            <td>计划发送日期</td>
+            <td>指定邮件的定时发送时间</td>
+        </tr>
+    </table>
+    
+    <h2>附件处理</h2>
+    <p>mail.mail模型对附件的处理非常精细，包括权限控制和性能优化：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.depends('attachment_ids')
+def _compute_restricted_attachments(self):
+    """We might not have access to all the attachments of the emails.
+    Compute the attachments we have access to,
+    and the number of attachments we do not have access to.
+    """
+    IrAttachment = self.env['ir.attachment']
+    for mail_sudo, mail in zip(self.sudo(), self):
+        mail.unrestricted_attachment_ids = IrAttachment._filter_attachment_access(mail_sudo.attachment_ids.ids)
+        mail.restricted_attachment_count = len(mail_sudo.attachment_ids) - len(mail.unrestricted_attachment_ids)</code></pre>
+    </div>
+    
+    <p>关键功能：</p>
+    <ul>
+        <li>区分用户可访问的附件和受限附件</li>
+        <li>提供附件数量统计</li>
+        <li>支持附件访问权限的反向设置</li>
+    </ul>
+    
+    <h2>邮件发送流程</h2>
+    <p>mail.mail模型的核心功能是发送邮件，它通过一系列方法实现高效的邮件发送流程：</p>
+    
+    <div class="flow-diagram">
+        <h3>邮件发送主流程</h3>
+        <ol>
+            <li><strong>准备阶段</strong>：通过<code>_prepare_outgoing_list</code>方法准备待发送的邮件列表</li>
+            <li><strong>批量处理</strong>：使用<code>_split_by_mail_configuration</code>将邮件按服务器配置分组</li>
+            <li><strong>SMTP连接</strong>：为每组邮件创建单一SMTP会话</li>
+            <li><strong>发送邮件</strong>：调用<code>_send</code>方法发送邮件</li>
+            <li><strong>后处理</strong>：使用<code>_postprocess_sent_message</code>处理发送结果</li>
+            <li><strong>状态更新</strong>：更新邮件状态和相关通知</li>
+        </ol>
+    </div>
+    
+    <h3>邮件准备方法</h3>
+    <p><code>_prepare_outgoing_list</code>方法是邮件发送的核心，它为每个收件人准备个性化的邮件内容：</p>
+    
+    <div class="code-block">
+        <pre><code>def _prepare_outgoing_list(self, mail_server=False, recipients_follower_status=None):
+    """ Return a list of emails to send based on current mail.mail. Each
+    is a dictionary for specific email values, depending on a partner, or
+    generic to the whole recipients given by mail.email_to.
+    """</code></pre>
+    </div>
+    
+    <p>该方法的主要功能：</p>
+    <ul>
+        <li>处理邮件正文和头信息</li>
+        <li>为每个收件人个性化邮件内容</li>
+        <li>处理大型附件并转换为可下载链接</li>
+        <li>针对合作伙伴(res.partner)创建个性化邮件</li>
+    </ul>
+    
+    <h3>邮件分组优化</h3>
+    <p><code>_split_by_mail_configuration</code>方法实现了高效的邮件批处理：</p>
+    
+    <div class="code-block">
+        <pre><code>def _split_by_mail_configuration(self):
+    """Group the <mail.mail> based on their "email_from", their "alias domain"
+    and their "mail_server_id".
+    """</code></pre>
+    </div>
+    
+    <p>该方法的核心优化：</p>
+    <ul>
+        <li>按邮件服务器、发件人和别名域分组</li>
+        <li>为每组创建单一SMTP会话，减少连接开销</li>
+        <li>根据系统参数控制批量大小</li>
+    </ul>
+    
+    <h2>事务性邮件发送</h2>
+    <p>Odoo提供了事务性邮件发送机制，确保只有在事务成功提交后才发送邮件：</p>
+    
+    <div class="code-block">
+        <pre><code>def send_after_commit(self):
+    """Queues the email to be sent after the commit of the current cursor.
+
+    Useful to send an email only if a transaction is successful.
+    """</code></pre>
+    </div>
+    
+    <p>工作原理：</p>
+    <ul>
+        <li>将邮件发送操作注册为事务提交后的回调</li>
+        <li>在事务提交后，使用新的数据库游标发送邮件</li>
+        <li>在测试模式下直接发送，不等待提交</li>
+    </ul>
+    
+    <h2>邮件队列处理</h2>
+    <p>Odoo使用定时任务处理邮件队列，由<code>process_email_queue</code>方法实现：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+def process_email_queue(self, ids=None, batch_size=1000):
+    """Send immediately queued messages, committing after each
+       message is sent - this is not transactional and should
+       not be called during another transaction!
+    """</code></pre>
+    </div>
+    
+    <p>队列处理特点：</p>
+    <ul>
+        <li>批量处理待发送邮件，默认每批1000封</li>
+        <li>优先处理到期的定时邮件</li>
+        <li>支持指定特定邮件ID发送</li>
+        <li>每封邮件发送后提交事务，防止整体失败</li>
+    </ul>
+    
+    <h2>错误处理机制</h2>
+    <p>mail.mail模型具有强大的错误处理机制，能够详细记录发送失败的原因：</p>
+    
+    <div class="code-block">
+        <pre><code>failure_type = fields.Selection(selection=[
+    # generic
+    ("unknown", "Unknown error"),
+    # mail
+    ("mail_email_invalid", "Invalid email address"),
+    ("mail_email_missing", "Missing email"),
+    ("mail_from_invalid", "Invalid from address"),
+    ("mail_from_missing", "Missing from address"),
+    ("mail_smtp", "Connection failed (outgoing mail server problem)"),
+    # mass mode
+    ("mail_bl", "Blacklisted Address"),
+    ("mail_optout", "Opted Out"),
+    ("mail_dup", "Duplicated Email"),
+], string='Failure type')</code></pre>
+    </div>
+    
+    <p>错误处理策略：</p>
+    <ul>
+        <li>详细分类失败类型</li>
+        <li>记录具体异常信息</li>
+        <li>提供重试机制</li>
+        <li>为批量邮件单独处理失败情况</li>
+    </ul>
+    
+    <h3>重试机制</h3>
+    <p>对于发送失败的邮件，Odoo提供简单的重试功能：</p>
+    
+    <div class="code-block">
+        <pre><code>def action_retry(self):
+    self.filtered(lambda mail: mail.state == 'exception').mark_outgoing()
+
+def mark_outgoing(self):
+    return self.write({'state': 'outgoing'})</code></pre>
+    </div>
+    
+    <h2>定时发送功能</h2>
+    <p>mail.mail支持定时发送邮件，通过scheduled_date字段控制：</p>
+    
+    <div class="code-block">
+        <pre><code>scheduled_date = fields.Datetime('Scheduled Send Date',
+    help="If set, the queue manager will send the email after the date. If not set, the email will be send as soon as possible. Unless a timezone is specified, it is considered as being in UTC timezone.")</code></pre>
+    </div>
+    
+    <p>定时发送处理：</p>
+    <ul>
+        <li>支持多种日期时间格式</li>
+        <li>将所有时间统一转换为UTC时间</li>
+        <li>定时任务检查并发送到期邮件</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    <p>以下是mail.mail模型的几个常见使用场景：</p>
+    
+    <h3>1. 创建并发送简单邮件</h3>
+    <div class="code-block">
+        <pre><code># 创建邮件
+mail_values = {
+    'subject': '测试邮件',
+    'body_html': '<p>这是测试邮件内容</p>',
+    'email_to': 'recipient@example.com',
+    'email_from': 'sender@company.com',
+}
+mail = self.env['mail.mail'].create(mail_values)
+
+# 立即发送
+mail.send()</code></pre>
+    </div>
+    
+    <h3>2. 创建定时发送的邮件</h3>
+    <div class="code-block">
+        <pre><code>from datetime import datetime, timedelta
+
+# 创建1小时后发送的邮件
+scheduled_time = datetime.now() + timedelta(hours=1)
+mail_values = {
+    'subject': '定时邮件',
+    'body_html': '<p>这是一封定时邮件</p>',
+    'email_to': 'recipient@example.com',
+    'scheduled_date': scheduled_time,
+}
+self.env['mail.mail'].create(mail_values)</code></pre>
+    </div>
+    
+    <h3>3. 事务性邮件发送</h3>
+    <div class="code-block">
+        <pre><code># 在业务逻辑中创建邮件
+mail = self.env['mail.mail'].create({
+    'subject': '订单确认',
+    'body_html': '<p>您的订单 #%s 已确认</p>' % order.name,
+    'email_to': order.partner_id.email,
+})
+
+# 使用事务性发送，只有当整个事务成功提交后才会发送
+mail.send_after_commit()</code></pre>
+    </div>
+    
+    <h3>4. 批量创建并发送邮件</h3>
+    <div class="code-block">
+        <pre><code># 批量创建邮件
+mail_values_list = []
+for partner in partners:
+    mail_values_list.append({
+        'subject': '批量通知',
+        'body_html': '<p>尊敬的 %s，这是一封批量通知</p>' % partner.name,
+        'email_to': partner.email,
+    })
+    
+mails = self.env['mail.mail'].create(mail_values_list)
+
+# 批量发送
+mails.send()</code></pre>
+    </div>
+    
+    <h2>性能优化考虑</h2>
+    <p>mail.mail模型在设计上考虑了多种性能优化：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>SMTP会话复用</h4>
+            <p>通过<code>_split_by_mail_configuration</code>方法将邮件按服务器分组，复用SMTP连接，减少建立连接的开销。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>批量处理</h4>
+            <p>支持批量创建和发送邮件，减少数据库操作次数。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>大附件处理</h4>
+            <p>自动检测大附件并将其转换为可下载链接，减少邮件大小。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>异步处理</h4>
+            <p>通过定时任务和事务后回调实现异步邮件处理，避免阻塞主业务流程。</p>
+        </div>
+    </div>
+    
+    <h2>总结</h2>
+    <p>mail.mail模型是Odoo邮件系统的核心组件，它提供了：</p>
+    <ul>
+        <li>灵活的邮件创建和发送机制</li>
+        <li>高效的批量处理和SMTP会话优化</li>
+        <li>完善的错误处理和重试机制</li>
+        <li>支持定时发送和事务性发送</li>
+        <li>与Odoo通知系统的无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>对于需要发送电子邮件的业务场景，应优先使用higher-level API（如mail.thread的message_post方法），而非直接操作mail.mail模型。只有在需要精细控制邮件发送过程时，才直接使用mail.mail模型。
+    </div>
+</body>
+</html> 

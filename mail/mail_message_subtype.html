@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo消息子类型系统解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo消息子类型系统(mail.message.subtype)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_message_subtype.py</code>是Odoo框架的邮件系统中的一个核心模块，它定义了消息的子类型系统。这个模型使消息可以按不同的类型进行分类，并允许用户有选择性地关注特定类型的通知。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>消息子类型是Odoo通知系统的核心组件，它使系统能够区分不同类型的消息（如评论、状态更新、系统通知等），并允许用户通过订阅偏好来决定接收哪些类型的通知。这大大降低了通知噪音，提高了用户体验。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息分类</strong>：为系统中的消息提供分类机制</li>
+        <li><strong>订阅控制</strong>：通过子类型控制用户订阅和通知发送</li>
+        <li><strong>自动订阅</strong>：支持基于父子关系的自动订阅机制</li>
+        <li><strong>跨模型关联</strong>：支持在相关模型间共享子类型信息</li>
+        <li><strong>内部/外部可见性控制</strong>：区分仅内部可见和对外部伙伴可见的通知</li>
+    </ol>
+    
+    <h2>模型定义</h2>
+    <p>MailMessageSubtype模型定义如下：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailMessageSubtype(models.Model):
+    """ Class holding subtype definition for messages. Subtypes allow to tune
+        the follower subscription, allowing only some subtypes to be pushed
+        on the Wall. """
+    _name = 'mail.message.subtype'
+    _description = 'Message subtypes'
+    _order = 'sequence, id'</code></pre>
+    </div>
+    
+    <h3>模型特性</h3>
+    <ul>
+        <li><code>_name = 'mail.message.subtype'</code>：模型技术名称</li>
+        <li><code>_description = 'Message subtypes'</code>：模型可读描述</li>
+        <li><code>_order = 'sequence, id'</code>：记录按序列号和ID排序，便于自定义显示顺序</li>
+    </ul>
+    
+    <h2>关键字段详解</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>消息类型</td>
+            <td>子类型的显示名称，如"新记录"、"状态变更"等</td>
+        </tr>
+        <tr>
+            <td>description</td>
+            <td>Text</td>
+            <td>描述</td>
+            <td>子类型的详细描述，用于在消息中显示</td>
+        </tr>
+        <tr>
+            <td>internal</td>
+            <td>Boolean</td>
+            <td>仅内部</td>
+            <td>如果为真，该类型的消息仅对内部用户可见</td>
+        </tr>
+        <tr>
+            <td>parent_id</td>
+            <td>Many2one</td>
+            <td>父类型</td>
+            <td>关联到父子类型，用于自动订阅机制</td>
+        </tr>
+        <tr>
+            <td>relation_field</td>
+            <td>Char</td>
+            <td>关系字段</td>
+            <td>用于连接相关模型的字段名称</td>
+        </tr>
+        <tr>
+            <td>res_model</td>
+            <td>Char</td>
+            <td>模型</td>
+            <td>子类型适用的模型，如果为空则适用于所有模型</td>
+        </tr>
+        <tr>
+            <td>default</td>
+            <td>Boolean</td>
+            <td>默认</td>
+            <td>如果为真，订阅时默认包含此子类型</td>
+        </tr>
+        <tr>
+            <td>sequence</td>
+            <td>Integer</td>
+            <td>序列</td>
+            <td>用于自定义子类型的显示顺序</td>
+        </tr>
+        <tr>
+            <td>hidden</td>
+            <td>Boolean</td>
+            <td>隐藏</td>
+            <td>如果为真，在关注者选项中隐藏此子类型</td>
+        </tr>
+        <tr>
+            <td>track_recipients</td>
+            <td>Boolean</td>
+            <td>跟踪接收者</td>
+            <td>是否显示所有接收者或只显示重要接收者</td>
+        </tr>
+    </table>
+    
+    <h2>缓存清理机制</h2>
+    <p>由于子类型信息被广泛缓存以提高性能，当子类型发生变化时需要清理缓存：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    self.env.registry.clear_cache()  # _get_auto_subscription_subtypes
+    return super(MailMessageSubtype, self).create(vals_list)
+
+def write(self, vals):
+    self.env.registry.clear_cache()  # _get_auto_subscription_subtypes
+    return super(MailMessageSubtype, self).write(vals)
+
+def unlink(self):
+    self.env.registry.clear_cache()  # _get_auto_subscription_subtypes
+    return super(MailMessageSubtype, self).unlink()</code></pre>
+    </div>
+    
+    <p>在创建、修改或删除子类型记录时，系统会清除<code>_get_auto_subscription_subtypes</code>方法的缓存，确保获取最新的子类型信息。</p>
+    
+    <h2>自动订阅机制</h2>
+    <p>自动订阅是Odoo通知系统的一个强大特性，由<code>_get_auto_subscription_subtypes</code>方法实现：</p>
+    
+    <div class="code-block">
+        <pre><code>@tools.ormcache('model_name')
+def _get_auto_subscription_subtypes(self, model_name):
+    """ Return data related to auto subscription based on subtype matching.
+    Here model_name indicates child model (like a task) on which we want to
+    make subtype matching based on its parents (like a project).
+
+    Example with tasks and project :
+
+     * generic: discussion, res_model = False
+     * task: new, res_model = project.task
+     * project: task_new, parent_id = new, res_model = project.project, field = project_id
+
+    Returned data
+
+      * child_ids: all subtypes that are generic or related to task (res_model = False or model_name)
+      * def_ids: default subtypes ids (either generic or task specific)
+      * all_int_ids: all internal-only subtypes ids (generic or task or project)
+      * parent: dict(parent subtype id, child subtype id), i.e. {task_new.id: new.id}
+      * relation: dict(parent_model, relation_fields), i.e. {'project.project': ['project_id']}
+    """</code></pre>
+    </div>
+    
+    <h3>自动订阅过程</h3>
+    <p>自动订阅机制的工作原理是通过父子关系连接不同模型的子类型：</p>
+    <ol>
+        <li>当用户关注一个记录时，他们会自动订阅该记录的默认子类型</li>
+        <li>系统会寻找相关的父记录（如任务的项目）及其对应的子类型</li>
+        <li>如果父记录有匹配的子类型，用户也会被自动订阅这些子类型</li>
+    </ol>
+    
+    <h3>返回值说明</h3>
+    <ul>
+        <li><code>child_ids</code>：适用于当前模型的所有子类型</li>
+        <li><code>def_ids</code>：默认订阅的子类型</li>
+        <li><code>all_int_ids</code>：所有内部专用的子类型</li>
+        <li><code>parent</code>：父子类型对应关系字典</li>
+        <li><code>relation</code>：父模型和关系字段的字典</li>
+    </ul>
+    
+    <h2>默认子类型</h2>
+    <p>系统提供了获取默认子类型的方法：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+def default_subtypes(self, model_name):
+    """ Retrieve the default subtypes (all, internal, external) for the given model. """
+    subtype_ids, internal_ids, external_ids = self._default_subtypes(model_name)
+    return self.browse(subtype_ids), self.browse(internal_ids), self.browse(external_ids)</code></pre>
+    </div>
+    
+    <p>底层的缓存方法：</p>
+    
+    <div class="code-block">
+        <pre><code>@tools.ormcache('self.env.uid', 'self.env.su', 'model_name')
+def _default_subtypes(self, model_name):
+    domain = [('default', '=', True),
+              '|', ('res_model', '=', model_name), ('res_model', '=', False)]
+    subtypes = self.search(domain)
+    internal = subtypes.filtered('internal')
+    return subtypes.ids, internal.ids, (subtypes - internal).ids</code></pre>
+    </div>
+    
+    <p>该方法返回三组子类型：</p>
+    <ul>
+        <li>所有默认子类型</li>
+        <li>内部默认子类型（仅内部用户可见）</li>
+        <li>外部默认子类型（所有关注者可见）</li>
+    </ul>
+    
+    <h2>使用场景与示例</h2>
+    <p>以下是mail.message.subtype模型的几个常见使用场景和代码示例：</p>
+    
+    <h3>1. 创建自定义消息子类型</h3>
+    <div class="code-block">
+        <pre><code># 创建一个通用的讨论子类型（适用于所有模型）
+generic_discussion = self.env['mail.message.subtype'].create({
+    'name': '讨论',
+    'description': '发布的一般性讨论消息',
+    'res_model': False,  # 适用于所有模型
+    'default': True,     # 默认订阅
+    'internal': False,   # 对所有关注者可见
+    'sequence': 10,      # 排序顺序
+})
+
+# 创建一个模型特定的子类型
+task_status_change = self.env['mail.message.subtype'].create({
+    'name': '任务状态变更',
+    'description': '任务状态已更改',
+    'res_model': 'project.task',  # 仅适用于任务模型
+    'default': True,              # 默认订阅
+    'internal': False,            # 对所有关注者可见
+    'sequence': 20,               # 排序顺序
+})</code></pre>
+    </div>
+    
+    <h3>2. 创建父子关系的子类型</h3>
+    <div class="code-block">
+        <pre><code># 先为任务模型创建一个子类型
+task_created = self.env['mail.message.subtype'].create({
+    'name': '任务已创建',
+    'description': '新任务已创建',
+    'res_model': 'project.task',
+    'default': True,
+    'internal': False,
+})
+
+# 然后为项目模型创建一个关联的子类型
+project_task_created = self.env['mail.message.subtype'].create({
+    'name': '项目中的新任务',
+    'description': '项目中创建了新任务',
+    'res_model': 'project.project',
+    'parent_id': task_created.id,           # 关联到任务子类型
+    'relation_field': 'project_id',         # 任务中关联到项目的字段
+    'default': True,
+    'internal': False,
+})</code></pre>
+    </div>
+    
+    <h3>3. 使用消息子类型发送通知</h3>
+    <div class="code-block">
+        <pre><code># 查找特定的子类型
+status_changed_subtype = self.env.ref('project.mt_task_stage')
+
+# 创建并发送带有特定子类型的消息
+task.message_post(
+    body='任务状态已变更为: %s' % task.stage_id.name,
+    subtype_id=status_changed_subtype.id,
+    partner_ids=task.message_partner_ids.ids,  # 通知所有关注者
+)</code></pre>
+    </div>
+    
+    <h3>4. 获取模型的默认子类型</h3>
+    <div class="code-block">
+        <pre><code># 获取任务模型的所有默认子类型
+all_subtypes, internal_subtypes, external_subtypes = self.env['mail.message.subtype'].default_subtypes('project.task')
+
+# 显示可用的外部子类型（对外部伙伴可见）
+for subtype in external_subtypes:
+    print('子类型: %s, 描述: %s' % (subtype.name, subtype.description))</code></pre>
+    </div>
+    
+    <h3>5. 自定义用户的订阅偏好</h3>
+    <div class="code-block">
+        <pre><code># 查找用户对某个记录的关注记录
+follower = self.env['mail.followers'].search([
+    ('res_model', '=', 'project.task'),
+    ('res_id', '=', task.id),
+    ('partner_id', '=', self.env.user.partner_id.id)
+], limit=1)
+
+if follower:
+    # 查找所有可用的子类型
+    available_subtypes = self.env['mail.message.subtype'].search([
+        '|', ('res_model', '=', 'project.task'), ('res_model', '=', False)
+    ])
+    
+    # 只订阅讨论子类型，取消其他子类型
+    discussion_subtype = self.env.ref('mail.mt_comment')
+    follower.write({
+        'subtype_ids': [(6, 0, [discussion_subtype.id])]
+    })</code></pre>
+    </div>
+    
+    <h2>数据翻译更新特性</h2>
+    <p>Odoo 18中，MailMessageSubtype模型提供了一个特殊方法来处理运行时添加的选择项的翻译：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.model
+def fields_get(self, *args, **kwargs):
+    # related selection will fetch translations from DB
+    # selections added in stable won't be in DB -> add them on the related model if not already added
+    message_type_field = self.env['mail.message']._fields['message_type']
+    if 'auto_comment' not in {value for value, name in message_type_field.get_description(self.env)['selection']}:
+        self._fields_get_message_type_update_selection(message_type_field.selection)
+    return super().fields_get(*args, **kwargs)
+
+def _fields_get_message_type_update_selection(self, selection):
+    """Update the field selection for message type on mail.message to match the runtime values.
+
+    DO NOT USE it is only there for a stable fix and should not be used for any reason other than hotfixing.
+    """
+    self.env['ir.model.fields'].invalidate_model(['selection_ids'])
+    self.env['ir.model.fields.selection'].sudo()._update_selection('mail.message', 'message_type', selection)
+    self.env.registry.clear_cache()</code></pre>
+    </div>
+    
+    <p>这个方法确保了在系统运行时添加的新选择项能够正确地获取翻译，特别适用于稳定版本中添加的新功能。</p>
+    
+    <h2>子类型与关注者系统的交互</h2>
+    <p>了解mail.message.subtype与mail.followers模型的交互对于理解Odoo的通知机制至关重要：</p>
+    
+    <div class="flow-diagram">
+        <h3>订阅与通知流程</h3>
+        <ol>
+            <li><strong>用户关注</strong>：用户开始关注一个记录</li>
+            <li><strong>子类型选择</strong>：系统根据默认子类型和用户选择确定订阅的子类型</li>
+            <li><strong>消息发布</strong>：记录上发布了带有特定子类型的消息</li>
+            <li><strong>通知筛选</strong>：系统检查每个关注者订阅的子类型</li>
+            <li><strong>通知发送</strong>：仅向订阅了该子类型的关注者发送通知</li>
+        </ol>
+    </div>
+    
+    <h3>关注者记录中的子类型</h3>
+    <p>在mail.followers表中，subtype_ids字段存储了用户订阅的所有子类型：</p>
+    <ul>
+        <li>一个关注者可以订阅多个子类型</li>
+        <li>只有当消息的子类型与关注者订阅的子类型匹配时，关注者才会收到通知</li>
+        <li>关注者可以随时修改其订阅的子类型，以控制接收的通知</li>
+    </ul>
+    
+    <h2>典型子类型示例</h2>
+    <p>Odoo系统中预定义了一些常用的子类型：</p>
+    
+    <table>
+        <tr>
+            <th>技术ID</th>
+            <th>名称</th>
+            <th>适用模型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>mail.mt_comment</td>
+            <td>讨论</td>
+            <td>所有模型</td>
+            <td>用于一般性讨论和评论</td>
+        </tr>
+        <tr>
+            <td>mail.mt_note</td>
+            <td>便笺</td>
+            <td>所有模型</td>
+            <td>内部便笺，不通知外部伙伴</td>
+        </tr>
+        <tr>
+            <td>project.mt_task_new</td>
+            <td>任务已创建</td>
+            <td>project.task</td>
+            <td>新任务创建时的通知</td>
+        </tr>
+        <tr>
+            <td>project.mt_task_stage</td>
+            <td>阶段已更改</td>
+            <td>project.task</td>
+            <td>任务阶段变更时的通知</td>
+        </tr>
+        <tr>
+            <td>project.mt_project_task_new</td>
+            <td>项目中的任务</td>
+            <td>project.project</td>
+            <td>项目中创建新任务时的通知（父子关系）</td>
+        </tr>
+    </table>
+    
+    <h2>性能考虑</h2>
+    <p>mail.message.subtype模型设计考虑了性能优化：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>缓存机制</h4>
+            <p>使用@tools.ormcache装饰器缓存常用查询结果，显著减少数据库访问。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>缓存失效控制</h4>
+            <p>在创建、修改或删除子类型时精确清理相关缓存，保持数据一致性。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>批量处理</h4>
+            <p>_get_auto_subscription_subtypes方法一次性获取所有相关数据，减少数据库调用。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>数据结构优化</h4>
+            <p>返回经过优化的数据结构（字典和列表），便于快速查找和处理。</p>
+        </div>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>mail.message.subtype模型与其他模块的关系如下：</p>
+    <ul>
+        <li><strong>mail.message</strong>：每条消息可以关联一个子类型</li>
+        <li><strong>mail.followers</strong>：存储用户订阅的子类型</li>
+        <li><strong>mail.notification</strong>：基于子类型决定是否发送通知</li>
+        <li><strong>mail.thread</strong>：提供消息发布和追踪功能</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>mail.message.subtype模型是Odoo通知系统的核心组件，它提供了：</p>
+    <ul>
+        <li>灵活的消息分类机制</li>
+        <li>细粒度的通知控制</li>
+        <li>基于父子关系的自动订阅</li>
+        <li>内部/外部可见性区分</li>
+        <li>高效的性能优化设计</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计模块的通知系统时，应创建适当的消息子类型，并利用父子关系机制实现跨模型的通知传递。同时，应明确区分内部和外部可见的通知，以保护敏感信息。
+    </div>
+</body>
+</html> 

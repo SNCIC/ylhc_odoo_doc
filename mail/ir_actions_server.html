@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo服务器动作邮件扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo服务器动作邮件扩展解析 (ServerActions)</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_actions_server.py</code>是Odoo框架中的一个重要扩展文件，它为服务器动作(Server Actions)添加了与邮件和活动相关的功能。这个扩展允许用户通过服务器动作自动发送邮件、添加关注者、创建活动等，极大地增强了Odoo的自动化能力。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>服务器动作是Odoo中的自动化工具，可以在特定条件满足时执行预定义的操作。邮件模块扩展了服务器动作，使其能够执行邮件通信和活动管理相关的操作，如发送邮件、添加关注者、安排下一个活动等。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>邮件发送</strong>：使用电子邮件模板发送邮件</li>
+        <li><strong>关注者管理</strong>：添加或移除记录的关注者</li>
+        <li><strong>活动创建</strong>：为记录创建下一个待办活动</li>
+        <li><strong>动态验证</strong>：验证服务器动作的配置是否有效</li>
+        <li><strong>上下文处理</strong>：特殊处理邮件通知的上下文</li>
+    </ol>
+    
+    <h2>代码结构</h2>
+    <p>ServerActions类扩展了基本的服务器动作模型，添加了多种与邮件相关的动作类型和配置选项：</p>
+    
+    <div class="code-block">
+        <pre><code>class ServerActions(models.Model):
+    """ Add mail.thread related options in server actions. """
+    _name = 'ir.actions.server'
+    _description = 'Server Action'
+    _inherit = ['ir.actions.server']
+
+    state = fields.Selection(
+        selection_add=[
+            ('next_activity', 'Create Activity'),
+            ('mail_post', 'Send Email'),
+            ('followers', 'Add Followers'),
+            ('remove_followers', 'Remove Followers'),
+            ('object_create',),
+        ],
+        ondelete={'mail_post': 'cascade',
+                  'followers': 'cascade',
+                  'remove_followers': 'cascade',
+                  'next_activity': 'cascade',
+        }
+    )
+    # ... 各种字段定义 ...</code></pre>
+    </div>
+    
+    <h3>主要动作类型</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>邮件发送 (mail_post)</h4>
+            <p>使用邮件模板发送邮件或消息，支持电子邮件、评论和注释三种方式。</p>
+        </div>
+        <div class="class-box">
+            <h4>关注者管理 (followers/remove_followers)</h4>
+            <p>添加或删除记录的关注者，可以指定特定的合作伙伴。</p>
+        </div>
+        <div class="class-box">
+            <h4>活动创建 (next_activity)</h4>
+            <p>为记录创建下一个待办活动，指定活动类型、负责人、截止日期等。</p>
+        </div>
+    </div>
+    
+    <h2>字段详解</h2>
+    <table>
+        <tr>
+            <th>字段组</th>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td rowspan="2">基础</td>
+            <td>state</td>
+            <td>Selection</td>
+            <td>动作类型</td>
+            <td>确定服务器动作执行的操作类型</td>
+        </tr>
+        <tr>
+            <td>partner_ids</td>
+            <td>Many2many</td>
+            <td>合作伙伴</td>
+            <td>指定要添加为关注者的合作伙伴</td>
+        </tr>
+        <tr>
+            <td rowspan="3">邮件发送</td>
+            <td>template_id</td>
+            <td>Many2one</td>
+            <td>邮件模板</td>
+            <td>指定用于发送邮件的模板</td>
+        </tr>
+        <tr>
+            <td>mail_post_autofollow</td>
+            <td>Boolean</td>
+            <td>自动关注收件人</td>
+            <td>控制收件人是否自动成为记录的关注者</td>
+        </tr>
+        <tr>
+            <td>mail_post_method</td>
+            <td>Selection</td>
+            <td>发送方式</td>
+            <td>指定邮件的发送方式(email/comment/note)</td>
+        </tr>
+        <tr>
+            <td rowspan="7">活动</td>
+            <td>activity_type_id</td>
+            <td>Many2one</td>
+            <td>活动类型</td>
+            <td>指定要创建的活动类型</td>
+        </tr>
+        <tr>
+            <td>activity_summary</td>
+            <td>Char</td>
+            <td>标题</td>
+            <td>活动的简短描述</td>
+        </tr>
+        <tr>
+            <td>activity_note</td>
+            <td>Html</td>
+            <td>备注</td>
+            <td>活动的详细描述</td>
+        </tr>
+        <tr>
+            <td>activity_date_deadline_range</td>
+            <td>Integer</td>
+            <td>期限天数</td>
+            <td>活动截止日期的相对天数</td>
+        </tr>
+        <tr>
+            <td>activity_date_deadline_range_type</td>
+            <td>Selection</td>
+            <td>期限类型</td>
+            <td>期限单位(天/周/月)</td>
+        </tr>
+        <tr>
+            <td>activity_user_type</td>
+            <td>Selection</td>
+            <td>用户类型</td>
+            <td>活动负责人的确定方式(指定/动态)</td>
+        </tr>
+        <tr>
+            <td>activity_user_id/activity_user_field_name</td>
+            <td>Many2one/Char</td>
+            <td>负责人/字段名</td>
+            <td>指定活动的负责用户或用于确定负责人的字段</td>
+        </tr>
+    </table>
+    
+    <h2>计算字段和约束</h2>
+    <p>该模块包含多个计算字段和约束，确保动作配置的正确性：</p>
+    
+    <h3>计算字段</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('state')
+def _compute_available_model_ids(self):
+    mail_thread_based = self.filtered(
+        lambda action: action.state in {'mail_post', 'followers', 'remove_followers', 'next_activity'}
+    )
+    if mail_thread_based:
+        mail_models = self.env['ir.model'].search([('is_mail_thread', '=', True), ('transient', '=', False)])
+        for action in mail_thread_based:
+            action.available_model_ids = mail_models.ids
+    super(ServerActions, self - mail_thread_based)._compute_available_model_ids()</code></pre>
+    </div>
+    
+    <p>此方法确保邮件相关的动作只能选择继承了mail.thread的模型，这是因为只有这些模型才支持邮件和活动功能。</p>
+    
+    <h3>约束</h3>
+    <div class="code-block">
+        <pre><code>@api.constrains('state', 'model_id', 'mail_post_method')
+def _check_mail_model_coherency(self):
+    for action in self:
+        if action.state in {'mail_post', 'followers', 'remove_followers', 'next_activity'} and action.model_id.transient:
+            raise ValidationError(_("This action cannot be done on transient models."))
+        if (
+            (action.state in {"followers", "remove_followers"}
+            or (action.state == "mail_post" and action.mail_post_method != "email"))
+            and not action.model_id.is_mail_thread
+        ):
+            raise ValidationError(_("This action can only be done on a mail thread models"))
+        if action.state == 'next_activity' and not action.model_id.is_mail_activity:
+            raise ValidationError(_("A next activity can only be planned on models that use activities."))</code></pre>
+    </div>
+    
+    <p>这个约束确保：</p>
+    <ul>
+        <li>邮件相关动作不能用于临时模型(transient models)</li>
+        <li>关注者和非邮件类型的消息发送只能用于继承了mail.thread的模型</li>
+        <li>活动创建只能用于支持活动的模型(继承了mail.activity.mixin)</li>
+    </ul>
+    
+    <h2>动作执行方法</h2>
+    <p>每种动作类型都有对应的执行方法，下面是几个重要方法的解析：</p>
+    
+    <h3>添加关注者</h3>
+    <div class="code-block">
+        <pre><code>def _run_action_followers_multi(self, eval_context=None):
+    Model = self.env[self.model_name]
+    if self.partner_ids and hasattr(Model, 'message_subscribe'):
+        records = Model.browse(self._context.get('active_ids', self._context.get('active_id')))
+        records.message_subscribe(partner_ids=self.partner_ids.ids)
+    return False</code></pre>
+    </div>
+    
+    <h3>移除关注者</h3>
+    <div class="code-block">
+        <pre><code>def _run_action_remove_followers_multi(self, eval_context=None):
+    Model = self.env[self.model_name]
+    if self.partner_ids and hasattr(Model, 'message_unsubscribe'):
+        records = Model.browse(self._context.get('active_ids', self._context.get('active_id')))
+        records.message_unsubscribe(partner_ids=self.partner_ids.ids)
+    return False</code></pre>
+    </div>
+    
+    <h3>发送邮件</h3>
+    <div class="code-block">
+        <pre><code>def _run_action_mail_post_multi(self, eval_context=None):
+    # ... 前置检查 ...
+    res_ids = self._context.get('active_ids', [self._context.get('active_id')])
+
+    # 清理上下文
+    cleaned_ctx = dict(self.env.context)
+    cleaned_ctx.pop('default_type', None)
+    cleaned_ctx.pop('default_parent_id', None)
+    cleaned_ctx['mail_create_nosubscribe'] = True
+    cleaned_ctx['mail_post_autofollow'] = self.mail_post_autofollow
+
+    if self.mail_post_method in ('comment', 'note'):
+        records = self.env[self.model_name].with_context(cleaned_ctx).browse(res_ids)
+        if self.mail_post_method == 'comment':
+            subtype_id = self.env['ir.model.data']._xmlid_to_res_id('mail.mt_comment')
+        else:
+            subtype_id = self.env['ir.model.data']._xmlid_to_res_id('mail.mt_note')
+        records.message_post_with_source(
+            self.template_id,
+            subtype_id=subtype_id,
+        )
+    else:
+        template = self.template_id.with_context(cleaned_ctx)
+        for res_id in res_ids:
+            template.send_mail(
+                res_id,
+                force_send=False,
+                raise_exception=False
+            )
+    return False</code></pre>
+    </div>
+    
+    <h3>创建活动</h3>
+    <div class="code-block">
+        <pre><code>def _run_action_next_activity(self, eval_context=None):
+    if not self.activity_type_id or not self._context.get('active_id') or self._is_recompute():
+        return False
+
+    records = self.env[self.model_name].browse(self._context.get('active_ids', self._context.get('active_id')))
+
+    vals = {
+        'summary': self.activity_summary or '',
+        'note': self.activity_note or '',
+        'activity_type_id': self.activity_type_id.id,
+    }
+    if self.activity_date_deadline_range > 0:
+        vals['date_deadline'] = fields.Date.context_today(self) + relativedelta(**{
+            self.activity_date_deadline_range_type or 'days': self.activity_date_deadline_range})
+    for record in records:
+        user = False
+        if self.activity_user_type == 'specific':
+            user = self.activity_user_id
+        elif self.activity_user_type == 'generic' and self.activity_user_field_name in record:
+            user = record[self.activity_user_field_name]
+        if user:
+            vals['user_id'] = user.id
+        record.activity_schedule(**vals)
+    return False</code></pre>
+    </div>
+    
+    <h3>重计算检查</h3>
+    <div class="code-block">
+        <pre><code>def _is_recompute(self):
+    """When an activity is set on update of a record,
+    update might be triggered many times by recomputes.
+    When need to know it to skip these steps.
+    Except if the computed field is supposed to trigger the action
+    """
+    records = self.env[self.model_name].browse(
+        self._context.get('active_ids', self._context.get('active_id')))
+    old_values = self._context.get('old_values')
+    if old_values:
+        domain_post = self._context.get('domain_post')
+        tracked_fields = []
+        if domain_post:
+            for leaf in domain_post:
+                if isinstance(leaf, (tuple, list)):
+                    tracked_fields.append(leaf[0])
+        fields_to_check = [field for record, field_names in old_values.items() for field in field_names if field not in tracked_fields]
+        if fields_to_check:
+            field = records._fields[fields_to_check[0]]
+            # Pick an arbitrary field; if it is marked to be recomputed,
+            # it means we are in an extraneous write triggered by the recompute.
+            # In this case, we should not create a new activity.
+            if records & self.env.records_to_compute(field):
+                return True
+    return False</code></pre>
+    </div>
+    
+    <p>_is_recompute方法非常重要，它用于防止在计算字段重计算时重复触发动作。这种情况可能导致创建重复的活动或发送重复的邮件。</p>
+    
+    <h2>上下文处理</h2>
+    <div class="code-block">
+        <pre><code>@api.model
+def _get_eval_context(self, action=None):
+    """ Override the method giving the evaluation context but also the
+    context used in all subsequent calls. Add the mail_notify_force_send
+    key set to False in the context. This way all notification emails linked
+    to the currently executed action will be set in the queue instead of
+    sent directly. This will avoid possible break in transactions. """
+    eval_context = super(ServerActions, self)._get_eval_context(action=action)
+    ctx = dict(eval_context['env'].context)
+    ctx['mail_notify_force_send'] = False
+    eval_context['env'].context = ctx
+    return eval_context</code></pre>
+    </div>
+    
+    <p>此方法确保服务器动作执行时，邮件通知被放入队列而不是立即发送，避免在事务中发送邮件可能引起的问题。</p>
+    
+    <h2>使用场景</h2>
+    <p>服务器动作邮件扩展可用于多种自动化场景：</p>
+    
+    <div class="workflow">
+        <h3>典型使用流程</h3>
+        <ol>
+            <li><strong>记录创建/更新触发</strong>：当记录被创建或特定字段更新时触发服务器动作</li>
+            <li><strong>条件检查</strong>：根据域过滤器或Python代码条件决定是否执行动作</li>
+            <li><strong>执行动作</strong>：执行配置的邮件发送、关注者管理或活动创建</li>
+            <li><strong>后续操作</strong>：根据需要执行其他相关的服务器动作</li>
+        </ol>
+    </div>
+    
+    <h3>应用场景示例</h3>
+    <table>
+        <tr>
+            <th>场景</th>
+            <th>动作类型</th>
+            <th>配置要点</th>
+        </tr>
+        <tr>
+            <td>新客户欢迎邮件</td>
+            <td>mail_post (email)</td>
+            <td>在客户创建时触发，使用欢迎邮件模板</td>
+        </tr>
+        <tr>
+            <td>销售订单确认通知</td>
+            <td>mail_post (comment)</td>
+            <td>在订单状态变为"已确认"时触发，通知相关团队成员</td>
+        </tr>
+        <tr>
+            <td>项目任务自动分配关注者</td>
+            <td>followers</td>
+            <td>在任务创建时，自动添加项目经理和部门成员为关注者</td>
+        </tr>
+        <tr>
+            <td>工单自动调度活动</td>
+            <td>next_activity</td>
+            <td>在工单创建时，根据优先级创建不同截止日期的跟进活动</td>
+        </tr>
+    </table>
+    
+    <h2>与其他模块的集成</h2>
+    <p>服务器动作邮件扩展与多个Odoo模块紧密集成：</p>
+    <ul>
+        <li><strong>mail</strong>：提供基础的邮件、关注者和活动功能</li>
+        <li><strong>base_automation</strong>：提供自动触发服务器动作的机制</li>
+        <li><strong>web</strong>：提供服务器动作的用户界面</li>
+        <li><strong>各业务模块</strong>：通过继承mail.thread和mail.activity.mixin支持邮件相关功能</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>开发者可以通过代码直接创建和执行服务器动作：</p>
+    
+    <div class="code-block">
+        <pre><code>def create_notification_action(self):
+    """创建一个发送通知的服务器动作"""
+    # 获取邮件模板
+    template = self.env.ref('module_name.email_template_notification')
+    
+    # 创建服务器动作
+    action = self.env['ir.actions.server'].create({
+        'name': '发送通知',
+        'model_id': self.env['ir.model'].search([('model', '=', 'project.task')], limit=1).id,
+        'state': 'mail_post',
+        'template_id': template.id,
+        'mail_post_method': 'comment',
+        'mail_post_autofollow': True,
+    })
+    
+    # 创建自动化规则来触发该动作
+    self.env['base.automation'].create({
+        'name': '任务完成时发送通知',
+        'model_id': action.model_id.id,
+        'trigger': 'on_write',
+        'filter_domain': "[('stage_id.is_done', '=', True)]",
+        'filter_pre_domain': "[('stage_id.is_done', '=', False)]",
+        'action_server_id': action.id,
+    })
+    
+    return action</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>Odoo 18中对服务器动作邮件扩展的主要改进：</p>
+    <ul>
+        <li>增强了_is_recompute方法的逻辑，更准确地识别重计算场景</li>
+        <li>使用mail_post_with_source替代旧的message_post_with_template</li>
+        <li>更好的字段依赖关系处理，确保计算字段正确触发</li>
+        <li>改进了活动创建的日期计算，支持更精确的截止日期设置</li>
+        <li>更严格的模型兼容性检查，提供更清晰的错误消息</li>
+    </ul>
+    
+    <h2>性能考虑</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>大量记录执行服务器动作可能对性能有影响，特别是发送邮件和创建活动</li>
+            <li>邮件通知默认放入队列(mail_notify_force_send=False)，但仍可能在事务完成后立即发送</li>
+            <li>在处理大量记录时，考虑批量处理或分批执行</li>
+            <li>避免在频繁更新的字段上触发服务器动作，以防止过多的执行</li>
+            <li>活动创建可能导致数据库锁竞争，特别是在高并发环境中</li>
+        </ul>
+    </div>
+    
+    <h2>常见问题解决</h2>
+    <table>
+        <tr>
+            <th>问题</th>
+            <th>可能原因</th>
+            <th>解决方案</th>
+        </tr>
+        <tr>
+            <td>重复发送邮件</td>
+            <td>重计算触发或多次触发条件</td>
+            <td>检查_is_recompute检测，调整触发条件</td>
+        </tr>
+        <tr>
+            <td>未发送邮件</td>
+            <td>模板问题或条件未满足</td>
+            <td>检查邮件模板配置，验证触发条件</td>
+        </tr>
+        <tr>
+            <td>无法添加关注者</td>
+            <td>权限问题或模型不支持</td>
+            <td>检查用户权限，确认模型继承了mail.thread</td>
+        </tr>
+        <tr>
+            <td>活动负责人不正确</td>
+            <td>字段配置问题</td>
+            <td>检查activity_user_type和相关字段配置</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>ir_actions_server.py提供的服务器动作邮件扩展是Odoo自动化能力的重要组成部分：</p>
+    <ul>
+        <li>通过多种动作类型支持丰富的邮件和活动自动化</li>
+        <li>严格的验证确保动作配置正确</li>
+        <li>智能的重计算检测避免重复执行</li>
+        <li>特殊的上下文处理确保事务安全</li>
+        <li>与Odoo的邮件系统无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>服务器动作是自动化业务流程的强大工具，但要谨慎使用，确保触发条件精确，避免过度通知或创建过多活动。定期审查自动化动作的执行情况，确保它们按预期工作。
+    </div>
+</body>
+</html> 
