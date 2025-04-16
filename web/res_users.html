@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 用户模型扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 用户模型扩展解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_users.py</code>是Odoo 18 Web模块中的一个扩展文件，它增强了核心的<code>res.users</code>模型，为用户体验和接口交互添加了优化功能。虽然这个文件相对简短，但它通过一些精心设计的改进显著提升了Odoo的用户友好性。</p>
+    
+    <div class="note">
+        <strong>功能定位：</strong>此文件的主要功能是优化用户搜索结果的排序，以及提供Web客户端引导时的钩子方法，使开发者能够在特定时机执行定制代码。
+    </div>
+    
+    <h2>模型定义与继承</h2>
+    <div class="code-block">
+        <pre><code>from odoo import api, models
+from odoo.osv import expression
+
+
+class ResUsers(models.Model):
+    _inherit = "res.users"</code></pre>
+    </div>
+    
+    <p>这个类通过继承<code>res.users</code>模型来扩展Odoo的用户功能。导入了必要的模块：</p>
+    <ul>
+        <li><code>api</code>：用于装饰器和API工具</li>
+        <li><code>models</code>：提供基础模型功能</li>
+        <li><code>expression</code>：用于处理Odoo的域表达式</li>
+    </ul>
+    
+    <h2>核心方法解析</h2>
+    
+    <h3>name_search 方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def name_search(self, name='', args=None, operator='ilike', limit=100):
+    # if we have a search with a limit, move current user as the first result
+    user_list = super().name_search(name, args, operator, limit)
+    uid = self._uid
+    # index 0 is correct not Falsy in this case, use None to avoid ignoring it
+    if (index := next((i for i, (user_id, _name) in enumerate(user_list) if user_id == uid), None)) is not None:
+        # move found user first
+        user_tuple = user_list.pop(index)
+        user_list.insert(0, user_tuple)
+    elif limit is not None and len(user_list) == limit:
+        # user not found and limit reached, try to find the user again
+        if user_tuple := super().name_search(name, expression.AND([args or [], [('id', '=', uid)]]), operator, limit=1):
+            user_list = [user_tuple[0], *user_list[:-1]]
+    return user_list</code></pre>
+    </div>
+    
+    <p>这个方法重写了标准的<code>name_search</code>方法，它是Odoo搜索和筛选记录的核心功能之一。此实现添加了一个重要的用户体验优化：确保当前用户在搜索结果中排在首位。</p>
+    
+    <div class="workflow">
+        <h4>方法工作流程：</h4>
+        <ol>
+            <li>首先调用原始的<code>name_search</code>方法获取标准搜索结果</li>
+            <li>获取当前用户ID (<code>uid</code>)</li>
+            <li>检查当前用户是否在结果列表中:
+                <ul>
+                    <li>如果在，将其移到结果列表的首位</li>
+                    <li>如果不在且结果数量已达到限制，进行特殊处理</li>
+                </ul>
+            </li>
+            <li>如果当前用户不在结果中且达到了限制，尝试专门搜索当前用户并调整结果列表</li>
+        </ol>
+    </div>
+    
+    <p>代码中有几个特别值得注意的技术点：</p>
+    <ul>
+        <li>使用了Python 3.8+的海象运算符(<code>:=</code>)进行变量赋值和条件检查</li>
+        <li>使用了<code>next()</code>和生成器表达式高效地查找用户索引</li>
+        <li>使用了<code>expression.AND</code>来组合域表达式，这是Odoo特有的域处理方式</li>
+        <li>使用了解包操作符(<code>*</code>)来重构结果列表</li>
+    </ul>
+    
+    <h3>_on_webclient_bootstrap 方法</h3>
+    <div class="code-block">
+        <pre><code>def _on_webclient_bootstrap(self):
+    self.ensure_one()</code></pre>
+    </div>
+    
+    <p>这个方法提供了一个钩子，在Web客户端初始化（bootstrap）过程中被调用。在这个基础实现中，它只确保当前记录集包含单个记录(<code>ensure_one()</code>)，但没有执行其他操作。</p>
+    
+    <p>这种"钩子"模式是Odoo扩展性的典型示例：它提供了一个可被继承的方法，允许开发者在不修改核心代码的情况下添加自定义行为。</p>
+    
+    <h2>技术深度分析</h2>
+    
+    <h3>name_search 方法详解</h3>
+    <p>让我们更深入地分析<code>name_search</code>方法的工作原理：</p>
+    
+    <table>
+        <tr>
+            <th>代码段</th>
+            <th>功能解释</th>
+        </tr>
+        <tr>
+            <td><code>user_list = super().name_search(name, args, operator, limit)</code></td>
+            <td>调用父类的name_search方法，获取标准搜索结果</td>
+        </tr>
+        <tr>
+            <td><code>uid = self._uid</code></td>
+            <td>获取当前用户ID</td>
+        </tr>
+        <tr>
+            <td><code>if (index := next((i for i, (user_id, _name) in enumerate(user_list) if user_id == uid), None)) is not None:</code></td>
+            <td>使用生成器表达式和next函数查找当前用户在结果中的索引，如果找到则保存到index变量</td>
+        </tr>
+        <tr>
+            <td><code>user_tuple = user_list.pop(index)</code></td>
+            <td>从原位置移除当前用户的元组</td>
+        </tr>
+        <tr>
+            <td><code>user_list.insert(0, user_tuple)</code></td>
+            <td>将当前用户的元组插入到结果列表的首位</td>
+        </tr>
+        <tr>
+            <td><code>elif limit is not None and len(user_list) == limit:</code></td>
+            <td>检查是否达到了结果限制（表示可能有更多结果但被截断了）</td>
+        </tr>
+        <tr>
+            <td><code>if user_tuple := super().name_search(name, expression.AND([args or [], [('id', '=', uid)]]), operator, limit=1):</code></td>
+            <td>专门搜索当前用户（通过添加id条件），最多返回1条结果</td>
+        </tr>
+        <tr>
+            <td><code>user_list = [user_tuple[0], *user_list[:-1]]</code></td>
+            <td>重构结果列表：将当前用户放在首位，然后是原结果除最后一项外的所有项</td>
+        </tr>
+    </table>
+    
+    <h3>优先考虑当前用户的重要性</h3>
+    <p>这种优化看似简单，但对用户体验有显著影响，特别是在以下场景中：</p>
+    <ul>
+        <li><strong>下拉选择字段</strong>：当用户需要在many2one字段中选择用户时，自己的账户会显示在首位</li>
+        <li><strong>委托任务</strong>：在分配任务或责任时，能够快速找到和选择自己</li>
+        <li><strong>用户过滤器</strong>：在过滤视图时，可以方便地筛选自己创建或负责的记录</li>
+    </ul>
+    
+    <h3>_on_webclient_bootstrap 方法的用途</h3>
+    <p>虽然基础实现很简单，但这个方法为开发者提供了一个强大的扩展点，可用于：</p>
+    <ul>
+        <li>初始化用户特定的设置</li>
+        <li>加载用户偏好</li>
+        <li>执行用户级别的权限检查</li>
+        <li>记录用户登录事件</li>
+        <li>触发用户相关的后台任务</li>
+    </ul>
+    
+    <h2>实际应用示例</h2>
+    
+    <h3>name_search优化的实际效果</h3>
+    <p>以下是优化前后用户搜索结果的对比：</p>
+    
+    <div class="code-block">
+        <pre><code># 优化前的搜索结果可能是:
+[
+    (2, "管理员"),
+    (5, "销售员张三"),
+    (8, "会计李四"),
+    (12, "仓库王五"),
+    (3, "当前用户赵六"),  # 当前用户可能排在任何位置
+]
+
+# 优化后的搜索结果:
+[
+    (3, "当前用户赵六"),  # 当前用户总是排在首位
+    (2, "管理员"),
+    (5, "销售员张三"),
+    (8, "会计李四"),
+    (12, "仓库王五"),
+]</code></pre>
+    </div>
+    
+    <h3>扩展_on_webclient_bootstrap的示例</h3>
+    <p>下面是如何在自定义模块中扩展<code>_on_webclient_bootstrap</code>方法的示例：</p>
+    
+    <div class="code-block">
+        <pre><code>class ResUsers(models.Model):
+    _inherit = 'res.users'
+    
+    def _on_webclient_bootstrap(self):
+        super()._on_webclient_bootstrap()
+        
+        # 记录用户登录事件
+        self.env['user.login.log'].create({
+            'user_id': self.id,
+            'login_time': fields.Datetime.now(),
+            'ip_address': request.httprequest.remote_addr,
+            'user_agent': request.httprequest.user_agent.string,
+        })
+        
+        # 检查密码过期
+        if self.password_last_changed:
+            days_since_change = (fields.Date.today() - self.password_last_changed).days
+            if days_since_change > 90:  # 90天密码过期策略
+                self.password_expired = True
+                
+        # 加载用户偏好设置
+        user_settings = self.env['user.settings'].search([('user_id', '=', self.id)], limit=1)
+        if user_settings:
+            # 设置到会话上下文中
+            self.env.context = dict(self.env.context, user_theme=user_settings.theme)</code></pre>
+    </div>
+    
+    <h2>与Odoo框架的集成</h2>
+    <p>这个文件展示了Odoo的几个重要设计模式：</p>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>继承与扩展</h4>
+            <p>通过<code>_inherit</code>机制和<code>super()</code>调用，优雅地扩展现有功能而不是替换它。</p>
+        </div>
+        <div class="class-box">
+            <h4>钩子方法</h4>
+            <p>提供自定义挂钩点，允许扩展模块在关键流程中注入自定义行为。</p>
+        </div>
+        <div class="class-box">
+            <h4>用户中心设计</h4>
+            <p>通过<code>self._uid</code>和相关优化，展示了Odoo的用户中心设计思想。</p>
+        </div>
+        <div class="class-box">
+            <h4>域表达式处理</h4>
+            <p>使用<code>expression.AND</code>演示了Odoo特有的域表达式组合方法。</p>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特点和改进</h2>
+    <p>相比之前版本，Odoo 18在<code>res_users.py</code>中有以下改进：</p>
+    <ul>
+        <li><strong>使用现代Python特性</strong>：利用海象运算符等Python 3.8+特性，使代码更简洁</li>
+        <li><strong>更智能的用户搜索</strong>：即使当前用户不在初始结果中，也会尝试将其纳入</li>
+        <li><strong>更清晰的代码注释</strong>：提供了详细的注释，解释实现细节和边缘情况</li>
+        <li><strong>性能优化</strong>：使用生成器表达式和高效的列表操作，减少不必要的计算</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>开发者注意事项：</strong>
+        <ul>
+            <li>扩展<code>_on_webclient_bootstrap</code>时，请确保始终调用<code>super()</code>以保持继承链</li>
+            <li>此方法在Web会话启动时触发，请避免执行耗时操作，以免影响用户体验</li>
+            <li>注意处理多公司环境，确保任何自定义逻辑在当前用户的公司上下文中正确工作</li>
+            <li>如果添加依赖于HTTP请求的逻辑，需要考虑非Web环境（如CLI或cron作业）的情况</li>
+        </ul>
+    </div>
+    
+    <h2>name_search方法的调用位置</h2>
+    <p>了解<code>name_search</code>方法在Odoo框架中的调用位置有助于理解其优化的重要性：</p>
+    <ol>
+        <li><strong>Many2one字段搜索</strong>：当用户在关系字段中输入搜索文本时</li>
+        <li><strong>Many2many标签选择</strong>：在选择多对多关系中的记录时</li>
+        <li><strong>搜索视图下拉菜单</strong>：当用户在搜索视图中选择用户筛选器时</li>
+        <li><strong>看板过滤器</strong>：在按用户筛选看板视图时</li>
+        <li><strong>表单视图链接</strong>：在快速创建记录时选择关联用户</li>
+    </ol>
+    
+    <h2>其他可能的扩展</h2>
+    <p>基于这个文件的模式，还可以考虑以下有用的扩展：</p>
+    
+    <div class="code-block">
+        <pre><code>class ResUsers(models.Model):
+    _inherit = 'res.users'
+    
+    # 添加用户登录时间追踪
+    last_login = fields.Datetime(string="最后登录时间", readonly=True)
+    login_count = fields.Integer(string="登录次数", default=0, readonly=True)
+    
+    # 添加会话超时设置
+    session_timeout = fields.Integer(string="会话超时（分钟）", default=60)
+    
+    def _on_webclient_bootstrap(self):
+        super()._on_webclient_bootstrap()
+        # 更新登录统计信息
+        self.sudo().write({
+            'last_login': fields.Datetime.now(),
+            'login_count': self.login_count + 1,
+        })
+        
+    @api.model
+    def get_session_info(self):
+        """扩展会话信息，添加超时设置"""
+        result = super().get_session_info()
+        if self.env.user:
+            result['session_timeout'] = self.env.user.session_timeout * 60  # 转换为秒
+        return result</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Odoo 18中的<code>res_users.py</code>文件虽然代码简洁，但提供了重要的用户体验优化和扩展机制：</p>
+    <ul>
+        <li>通过智能排序<code>name_search</code>结果，使当前用户更容易在各种界面中找到自己</li>
+        <li>通过<code>_on_webclient_bootstrap</code>钩子，为Web客户端初始化提供了可扩展的切入点</li>
+        <li>展示了Odoo代码库中常见的设计模式和继承机制</li>
+        <li>利用现代Python特性，提供了更高效、更可读的实现</li>
+    </ul>
+    
+    <p>这些改进虽然微小，但它们体现了Odoo对用户体验细节的关注，以及框架的灵活扩展性。开发者可以在这个基础上构建更丰富的用户体验和功能。</p>
+</body>
+</html> 

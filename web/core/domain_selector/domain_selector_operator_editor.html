@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo领域选择器操作符编辑器解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo领域选择器操作符编辑器解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>domain_selector_operator_editor.js</code>是Odoo框架中的一个专用模块，它为领域选择器(Domain Selector)组件提供操作符(Operator)的智能处理功能。该模块主要负责根据字段类型动态确定可用的操作符选项，是构建用户友好的领域表达式编辑器的关键组成部分。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>在Odoo的领域表达式中，操作符(如"=", "!=", "in"等)定义了条件的判断方式。不同类型的字段支持不同的操作符集合，此模块实现了这种智能映射关系。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>操作符映射</strong>：根据字段类型提供适当的操作符选项</li>
+        <li><strong>属性字段支持</strong>：为属性(property)类型字段提供特殊的操作符处理</li>
+        <li><strong>层级操作符</strong>：支持针对关系型字段的特殊层级操作符(如child_of, parent_of)</li>
+        <li><strong>操作符分组</strong>：按照逻辑功能对操作符进行分类</li>
+        <li><strong>默认操作符推断</strong>：智能选择字段类型的默认操作符</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>这个模块非常精简但功能强大，核心是一个导出函数<code>getDomainDisplayedOperators</code>，它根据字段定义返回适用的操作符列表：</p>
+    
+    <div class="code-block">
+        <pre><code>export function getDomainDisplayedOperators(fieldDef) {
+    if (!fieldDef) {
+        fieldDef = {};
+    }
+    const { type, is_property } = fieldDef;
+
+    if (is_property) {
+        switch (type) {
+            case "many2many":
+            case "tags":
+                return ["in", "not in", "set", "not_set"];
+            case "many2one":
+            case "selection":
+                return ["=", "!=", "set", "not_set"];
+        }
+    }
+    const hierarchyOperators = fieldDef.allow_hierachy_operators ? ["child_of", "parent_of"] : [];
+    switch (type) {
+        case "boolean":
+            return ["is", "is_not"];
+        case "selection":
+            return ["=", "!=", "in", "not in", "set", "not_set"];
+        case "char":
+        case "text":
+        case "html":
+            return [
+                "=",
+                "!=",
+                "ilike",
+                "not ilike",
+                "in",
+                "not in",
+                "set",
+                "not_set",
+                "starts_with",
+                "ends_with",
+            ];
+        case "date":
+        case "datetime":
+            return ["=", "!=", ">", ">=", "<", "<=", "between", "within", "set", "not_set"];
+        // 其他字段类型的处理...
+    }</code></pre>
+    </div>
+    
+    <h3>操作符类型详解</h3>
+    <p>根据字段类型，Odoo提供了以下几组操作符：</p>
+    
+    <table>
+        <tr>
+            <th>字段类型</th>
+            <th>支持的操作符</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>布尔型(boolean)</td>
+            <td>is, is_not</td>
+            <td>特殊的布尔值相等性检查</td>
+        </tr>
+        <tr>
+            <td>选择型(selection)</td>
+            <td>=, !=, in, not in, set, not_set</td>
+            <td>支持单值和多值比较，以及空值检查</td>
+        </tr>
+        <tr>
+            <td>字符型(char/text/html)</td>
+            <td>=, !=, ilike, not ilike, in, not in, set, not_set, starts_with, ends_with</td>
+            <td>支持精确匹配、模糊搜索和前缀/后缀匹配</td>
+        </tr>
+        <tr>
+            <td>日期/时间型(date/datetime)</td>
+            <td>=, !=, >, >=, <, <=, between, within, set, not_set</td>
+            <td>支持日期比较、范围检查和相对日期</td>
+        </tr>
+        <tr>
+            <td>数值型(integer/float/monetary)</td>
+            <td>=, !=, >, >=, <, <=, between, ilike, not ilike, set, not_set</td>
+            <td>支持数值比较和范围检查</td>
+        </tr>
+        <tr>
+            <td>关系型(many2one/many2many/one2many)</td>
+            <td>in, not in, =, !=, ilike, not ilike, child_of, parent_of, set, not_set, starts_with, ends_with, any, not any</td>
+            <td>支持关系查询，包括层级关系和文本匹配</td>
+        </tr>
+        <tr>
+            <td>JSON型(json)</td>
+            <td>=, !=, ilike, not ilike, set, not_set</td>
+            <td>JSON数据的基本比较和存在性检查</td>
+        </tr>
+        <tr>
+            <td>属性集(properties)</td>
+            <td>set, not_set</td>
+            <td>仅支持属性存在性检查</td>
+        </tr>
+    </table>
+    
+    <h3>特殊操作符说明</h3>
+    <ul>
+        <li><strong>is/is_not</strong>：布尔字段专用的相等性检查</li>
+        <li><strong>ilike/not ilike</strong>：不区分大小写的模糊匹配</li>
+        <li><strong>like/not like</strong>：区分大小写的模糊匹配</li>
+        <li><strong>in/not in</strong>：集合包含检查</li>
+        <li><strong>set/not_set</strong>：检查字段是否有值或为空</li>
+        <li><strong>between</strong>：检查值是否在指定范围内</li>
+        <li><strong>within</strong>：相对日期范围检查</li>
+        <li><strong>child_of/parent_of</strong>：层级关系检查</li>
+        <li><strong>starts_with/ends_with</strong>：前缀/后缀匹配</li>
+        <li><strong>any/not any</strong>：关系字段中的任意匹配</li>
+    </ul>
+    
+    <h2>使用场景和示例</h2>
+    
+    <h3>在领域编辑器中获取操作符</h3>
+    
+    <div class="code-block">
+        <pre><code>import { getDomainDisplayedOperators } from "@web/core/domain_selector/domain_selector_operator_editor";
+
+class FieldOperatorSelector extends Component {
+    setup() {
+        this.state = useState({ 
+            selectedOperator: null
+        });
+    }
+    
+    updateFieldDef(fieldDef) {
+        // 获取该字段类型支持的操作符
+        const operators = getDomainDisplayedOperators(fieldDef);
+        
+        // 如果当前选择的操作符不在支持列表中，选择第一个可用操作符
+        if (!operators.includes(this.state.selectedOperator)) {
+            this.state.selectedOperator = operators[0];
+        }
+        
+        return operators;
+    }
+}</code></pre>
+    </div>
+    <p>这个示例展示了如何在自定义组件中使用<code>getDomainDisplayedOperators</code>来获取字段支持的操作符列表，并确保选择有效的操作符。</p>
+    
+    <h3>处理属性字段</h3>
+    
+    <div class="code-block">
+        <pre><code>// 属性字段定义示例
+const propertyFieldDef = {
+    name: "user_properties",
+    type: "many2one",
+    is_property: true,
+    relation: "res.users"
+};
+
+// 获取属性字段支持的操作符
+const propertyOperators = getDomainDisplayedOperators(propertyFieldDef);
+console.log(propertyOperators); // ["=", "!=", "set", "not_set"]
+
+// 普通关系字段的操作符
+const normalFieldDef = {
+    name: "user_id",
+    type: "many2one",
+    relation: "res.users"
+};
+const normalOperators = getDomainDisplayedOperators(normalFieldDef);
+console.log(normalOperators); 
+// ["in", "not in", "=", "!=", "ilike", "not ilike", "set", "not_set", "starts_with", "ends_with", "any", "not any"]</code></pre>
+    </div>
+    <p>这个示例说明了属性字段与普通字段在操作符选择上的差异。属性字段通常提供更简化的操作符集合。</p>
+    
+    <h3>层级关系操作符</h3>
+    
+    <div class="code-block">
+        <pre><code>// 部门层级字段定义
+const departmentFieldDef = {
+    name: "department_id",
+    type: "many2one",
+    relation: "hr.department",
+    allow_hierachy_operators: true
+};
+
+// 获取操作符，包括层级操作符
+const deptOperators = getDomainDisplayedOperators(departmentFieldDef);
+console.log(deptOperators.includes("child_of")); // true
+console.log(deptOperators.includes("parent_of")); // true
+
+// 构建一个查找所有子部门的领域表达式
+const childDepartmentsDomain = `[("department_id", "child_of", 5)]`;</code></pre>
+    </div>
+    <p>此示例展示了如何使用层级操作符来构建查询所有子记录或父记录的领域表达式，非常适合处理组织结构、分类系统等层级数据。</p>
+    
+    <h2>与其他模块的交互</h2>
+    
+    <p><code>domain_selector_operator_editor.js</code>模块与多个Odoo组件紧密协作：</p>
+    
+    <div class="module-interaction">
+        <div class="module-item">
+            <h4>DomainSelector</h4>
+            <p>作为主要消费者，使用此模块来确定每个字段可用的操作符选项。</p>
+        </div>
+        <div class="module-item">
+            <h4>TreeEditor</h4>
+            <p>在条件树编辑过程中，使用此模块提供的操作符信息来构建可视化编辑界面。</p>
+        </div>
+        <div class="module-item">
+            <h4>OperatorSelector</h4>
+            <p>用于在UI中展示和选择操作符的组件，直接依赖本模块的输出。</p>
+        </div>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    
+    <div class="warning">
+        <strong>操作符兼容性：</strong>某些操作符虽然在JavaScript端列为可用，但服务器端可能不完全支持所有字段类型的所有操作符组合。在开发自定义域表达式时，请确保测试服务器的实际行为。
+    </div>
+    
+    <ul>
+        <li><strong>默认操作符选择</strong>：通常应选择列表中的第一个操作符作为默认值，这是设计上的约定</li>
+        <li><strong>处理未知字段类型</strong>：对于未知字段类型，应使用通用操作符集合或默认为"="</li>
+        <li><strong>层级操作符使用</strong>：只在字段明确支持层级查询时才使用child_of和parent_of操作符</li>
+        <li><strong>空值处理</strong>：优先使用set/not_set操作符来检查字段是否有值，而不是手动构建null/false比较</li>
+        <li><strong>操作符分组</strong>：在UI中展示操作符时，考虑按功能分组显示(相等、比较、文本匹配等)</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，操作符处理有以下改进：</p>
+    <ul>
+        <li>新增对属性(property)字段类型的特殊处理</li>
+        <li>增强的文本搜索操作符(starts_with, ends_with)</li>
+        <li>改进对JSON字段的支持</li>
+        <li>新增any/not any操作符，用于关系字段的更复杂查询</li>
+        <li>更好地支持层级关系查询</li>
+    </ul>
+    
+    <h2>操作符功能解释</h2>
+    
+    <table>
+        <tr>
+            <th>操作符</th>
+            <th>示例</th>
+            <th>说明</th>
+            <th>适用字段类型</th>
+        </tr>
+        <tr>
+            <td>=</td>
+            <td>[("state", "=", "done")]</td>
+            <td>精确匹配</td>
+            <td>几乎所有类型</td>
+        </tr>
+        <tr>
+            <td>!=</td>
+            <td>[("state", "!=", "draft")]</td>
+            <td>不等于</td>
+            <td>几乎所有类型</td>
+        </tr>
+        <tr>
+            <td>></td>
+            <td>[("amount", ">", 1000)]</td>
+            <td>大于</td>
+            <td>数值、日期、时间</td>
+        </tr>
+        <tr>
+            <td>>=</td>
+            <td>[("amount", ">=", 1000)]</td>
+            <td>大于等于</td>
+            <td>数值、日期、时间</td>
+        </tr>
+        <tr>
+            <td><</td>
+            <td>[("date", "<", "2023-01-01")]</td>
+            <td>小于</td>
+            <td>数值、日期、时间</td>
+        </tr>
+        <tr>
+            <td><=</td>
+            <td>[("date", "<=", "2023-01-01")]</td>
+            <td>小于等于</td>
+            <td>数值、日期、时间</td>
+        </tr>
+        <tr>
+            <td>ilike</td>
+            <td>[("name", "ilike", "odoo")]</td>
+            <td>包含子串(不区分大小写)</td>
+            <td>文本类型</td>
+        </tr>
+        <tr>
+            <td>not ilike</td>
+            <td>[("name", "not ilike", "draft")]</td>
+            <td>不包含子串(不区分大小写)</td>
+            <td>文本类型</td>
+        </tr>
+        <tr>
+            <td>in</td>
+            <td>[("id", "in", [1, 2, 3])]</td>
+            <td>包含在列表中</td>
+            <td>多种类型</td>
+        </tr>
+        <tr>
+            <td>not in</td>
+            <td>[("state", "not in", ["draft", "cancel"])]</td>
+            <td>不包含在列表中</td>
+            <td>多种类型</td>
+        </tr>
+        <tr>
+            <td>is</td>
+            <td>[("active", "is", true)]</td>
+            <td>布尔值等于</td>
+            <td>布尔型</td>
+        </tr>
+        <tr>
+            <td>is_not</td>
+            <td>[("active", "is_not", true)]</td>
+            <td>布尔值不等于</td>
+            <td>布尔型</td>
+        </tr>
+        <tr>
+            <td>set</td>
+            <td>[("user_id", "set", null)]</td>
+            <td>字段已设置(不为空)</td>
+            <td>所有类型</td>
+        </tr>
+        <tr>
+            <td>not_set</td>
+            <td>[("user_id", "not_set", null)]</td>
+            <td>字段未设置(为空)</td>
+            <td>所有类型</td>
+        </tr>
+        <tr>
+            <td>between</td>
+            <td>[("amount", "between", [100, 200])]</td>
+            <td>在两值之间</td>
+            <td>数值、日期</td>
+        </tr>
+        <tr>
+            <td>within</td>
+            <td>[("date", "within", "this_month")]</td>
+            <td>在相对时间范围内</td>
+            <td>日期、时间</td>
+        </tr>
+        <tr>
+            <td>child_of</td>
+            <td>[("category_id", "child_of", 5)]</td>
+            <td>是指定记录的子记录</td>
+            <td>层级关系字段</td>
+        </tr>
+        <tr>
+            <td>parent_of</td>
+            <td>[("category_id", "parent_of", 10)]</td>
+            <td>是指定记录的父记录</td>
+            <td>层级关系字段</td>
+        </tr>
+        <tr>
+            <td>starts_with</td>
+            <td>[("name", "starts_with", "OD")]</td>
+            <td>以指定字符串开头</td>
+            <td>文本类型</td>
+        </tr>
+        <tr>
+            <td>ends_with</td>
+            <td>[("name", "ends_with", "Ltd")]</td>
+            <td>以指定字符串结尾</td>
+            <td>文本类型</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p><code>domain_selector_operator_editor.js</code>模块是Odoo领域表达式系统的重要组成部分，它：</p>
+    <ul>
+        <li>根据字段类型提供智能化的操作符选项</li>
+        <li>支持各种复杂的比较和查询操作</li>
+        <li>为特殊字段类型提供专门的操作符处理</li>
+        <li>与视觉化领域编辑器紧密集成</li>
+        <li>提升了用户构建复杂查询条件的体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在扩展Odoo的领域选择器功能或创建自定义字段类型时，应当参考此模块的实现，确保为用户提供一致的操作符选择体验。适当的操作符映射是创建直观用户界面的关键。
+    </div>
+</body>
+</html> 

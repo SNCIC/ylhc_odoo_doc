@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo搜索工具模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo搜索工具模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>search.js</code>是Odoo框架中的一个实用工具模块，提供了模糊搜索（fuzzy search）功能，用于在字符串或字符串数组中进行灵活的文本匹配。这种搜索方式对用户友好，允许部分匹配和宽松的排序。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>模糊搜索是一种即使在拼写错误、顺序不一致或只有部分匹配的情况下，也能找到相关结果的搜索技术。在Odoo中，这种技术广泛应用于下拉菜单、搜索框和过滤器中，提供更好的用户体验。
+    </div>
+    
+    <h2>引入的依赖</h2>
+    <div class="code-block">
+        <pre><code>import { unaccent } from "./strings";</code></pre>
+    </div>
+    
+    <p>模块依赖<code>unaccent</code>函数，它用于移除字符串中的重音符号，使搜索不受重音影响，提高匹配准确性。</p>
+    
+    <h2>核心函数解析</h2>
+    
+    <h3>match函数（内部函数）</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {string} pattern
+ * @param {string|string[]} strs
+ * @returns {number}
+ */
+function match(pattern, strs) {
+    if (!Array.isArray(strs)) {
+        strs = [strs];
+    }
+    let globalScore = 0;
+    for (const str of strs) {
+        globalScore = Math.max(globalScore, _match(pattern, str));
+    }
+    return globalScore;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>在一个或多个字符串中搜索模式，返回最高匹配分数。</p>
+    <ul>
+        <li>接收一个搜索模式和目标字符串或字符串数组</li>
+        <li>如果输入不是数组，将其转换为数组</li>
+        <li>对每个字符串调用<code>_match</code>函数计算匹配分数</li>
+        <li>返回所有字符串中的最高匹配分数</li>
+    </ul>
+    <p><strong>使用场景：</strong>当需要在多个字段或属性中搜索时，可以传入多个字符串，只要其中一个匹配就返回最高分。</p>
+    
+    <h3>_match函数（内部核心匹配函数）</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * This private function computes a score that represent the fact that the
+ * string contains the pattern, or not
+ *
+ * - If the score is 0, the string does not contain the letters of the pattern in
+ *   the correct order.
+ * - if the score is > 0, it actually contains the letters.
+ *
+ * Better matches will get a higher score: consecutive letters are better,
+ * and a match closer to the beginning of the string is also scored higher.
+ *
+ * @param {string} pattern
+ * @param {string} str
+ * @returns {number}
+ */
+function _match(pattern, str) {
+    let totalScore = 0;
+    let currentScore = 0;
+    const len = str.length;
+    let patternIndex = 0;
+
+    pattern = unaccent(pattern, false);
+    str = unaccent(str, false);
+
+    for (let i = 0; i < len; i++) {
+        if (str[i] === pattern[patternIndex]) {
+            patternIndex++;
+            currentScore += 100 + currentScore - i / 200;
+        } else {
+            currentScore = 0;
+        }
+        totalScore = totalScore + currentScore;
+    }
+
+    return patternIndex === pattern.length ? totalScore : 0;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>计算搜索模式在目标字符串中的匹配分数。</p>
+    <ul>
+        <li>使用<code>unaccent</code>函数去除模式和字符串中的重音符号</li>
+        <li>遍历字符串的每个字符，尝试按顺序匹配模式</li>
+        <li>当字符匹配时，增加当前分数并前进到模式的下一个字符</li>
+        <li>当字符不匹配时，重置当前分数为0</li>
+        <li>累计总分数，并在模式全部匹配时返回；否则返回0</li>
+    </ul>
+    <p><strong>评分机制：</strong></p>
+    <ol>
+        <li>连续匹配的字符获得更高分数（<code>currentScore += 100 + currentScore</code>）</li>
+        <li>靠近字符串开头的匹配得分更高（减去<code>i / 200</code>）</li>
+        <li>只有当模式中的所有字符都按顺序匹配时，才返回非零分数</li>
+    </ol>
+    
+    <h3>fuzzyLookup函数（公开函数）</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Return a list of things that matches a pattern, ordered by their 'score' (
+ * higher score first). An higher score means that the match is better. For
+ * example, consecutive letters are considered a better match.
+ *
+ * @template T
+ * @param {string} pattern
+ * @param {T[]} list
+ * @param {(element: T) => (string|string[])} fn
+ * @returns {T[]}
+ */
+export function fuzzyLookup(pattern, list, fn) {
+    const results = [];
+    list.forEach((data) => {
+        const score = match(pattern, fn(data));
+        if (score > 0) {
+            results.push({ score, elem: data });
+        }
+    });
+
+    // we want better matches first
+    results.sort((a, b) => b.score - a.score);
+
+    return results.map((r) => r.elem);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>在列表中查找与模式匹配的项，并按匹配分数排序返回。</p>
+    <ul>
+        <li>接收搜索模式、项目列表和提取函数</li>
+        <li>对每个列表项调用提取函数获取要匹配的字符串或字符串数组</li>
+        <li>计算每项的匹配分数，收集得分大于0的项</li>
+        <li>按匹配分数从高到低排序结果</li>
+        <li>返回排序后的匹配项列表</li>
+    </ul>
+    <p><strong>使用场景：</strong>此函数是模块的主要导出函数，用于在任何类型的对象列表中进行模糊搜索。提取函数允许指定应该搜索对象的哪些属性。</p>
+    
+    <h3>fuzzyTest函数（公开函数）</h3>
+    <div class="code-block">
+        <pre><code>// Does `pattern` fuzzy match `string`?
+/**
+ * @param {string} pattern
+ * @param {string} string
+ * @returns {boolean}
+ */
+export function fuzzyTest(pattern, string) {
+    return _match(pattern, string) !== 0;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能：</strong>测试模式是否模糊匹配字符串。</p>
+    <ul>
+        <li>调用<code>_match</code>函数计算匹配分数</li>
+        <li>如果分数大于0，说明模式匹配，返回true；否则返回false</li>
+    </ul>
+    <p><strong>使用场景：</strong>当只需要知道是否匹配，而不需要计算具体的分数或排序时使用。</p>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本的模糊搜索</h3>
+    <div class="code-block">
+        <pre><code>// 在用户列表中搜索
+import { fuzzyLookup } from "@web/core/utils/search";
+
+const users = [
+    { id: 1, name: "张三", email: "zhangsan@example.com" },
+    { id: 2, name: "李四", email: "lisi@example.com" },
+    { id: 3, name: "王五", email: "wangwu@example.com" }
+];
+
+// 搜索名字中包含"三"或邮箱中包含"ang"的用户
+const results = fuzzyLookup("ang", users, user => [user.name, user.email]);
+console.log(results); // 返回按匹配质量排序的用户列表</code></pre>
+    </div>
+    
+    <h3>2. 下拉菜单过滤</h3>
+    <div class="code-block">
+        <pre><code>// 在下拉菜单中实时过滤选项
+function filterDropdownOptions(input, options) {
+    const pattern = input.value.trim();
+    if (!pattern) {
+        // 显示所有选项
+        return options;
+    }
+    
+    return fuzzyLookup(pattern, options, option => option.label);
+}
+
+// 当用户输入时更新选项
+searchInput.addEventListener("input", () => {
+    const filteredOptions = filterDropdownOptions(searchInput, allOptions);
+    updateDropdownList(filteredOptions);
+});</code></pre>
+    </div>
+    
+    <h3>3. 简单匹配测试</h3>
+    <div class="code-block">
+        <pre><code>// 检查用户输入是否匹配某个关键词
+import { fuzzyTest } from "@web/core/utils/search";
+
+function isCommandValid(input) {
+    // 检查是否输入了类似"保存"的命令
+    return fuzzyTest("保存", input);
+}
+
+// 用户输入"保村"（有拼写错误），仍然可以匹配
+console.log(isCommandValid("保村文件")); // 可能返回 true，取决于具体实现</code></pre>
+    </div>
+    
+    <h3>4. 在Odoo组件中使用</h3>
+    <div class="code-block">
+        <pre><code>// 在OWL组件中实现搜索功能
+import { Component, useState } from "@odoo/owl";
+import { fuzzyLookup } from "@web/core/utils/search";
+
+class SearchableList extends Component {
+    setup() {
+        this.state = useState({
+            searchTerm: "",
+            filteredItems: this.props.items
+        });
+    }
+    
+    onSearch(ev) {
+        const term = ev.target.value;
+        this.state.searchTerm = term;
+        
+        if (!term) {
+            this.state.filteredItems = this.props.items;
+        } else {
+            this.state.filteredItems = fuzzyLookup(
+                term, 
+                this.props.items, 
+                item => [item.name, item.description]
+            );
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h2>模糊搜索的工作原理</h2>
+    
+    <h3>匹配算法详解</h3>
+    <div class="note">
+        <p>Odoo的模糊搜索算法是基于字符序列匹配的，主要特点有：</p>
+        <ol>
+            <li><strong>顺序匹配：</strong>模式中的字符必须按顺序出现在目标字符串中，但可以不连续</li>
+            <li><strong>评分系统：</strong>
+                <ul>
+                    <li>连续匹配的字符获得更高分数</li>
+                    <li>靠近字符串开头的匹配获得更高分数</li>
+                    <li>完整匹配所有模式字符是必要条件</li>
+                </ul>
+            </li>
+            <li><strong>重音不敏感：</strong>通过<code>unaccent</code>函数去除重音符号，使得搜索不受重音影响</li>
+        </ol>
+    </div>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>用户友好</h4>
+            <p>允许用户拼写错误或不完整输入，仍能找到相关结果</p>
+        </div>
+        <div class="benefit-item">
+            <h4>相关性排序</h4>
+            <p>评分系统确保最相关的结果排在前面</p>
+        </div>
+        <div class="benefit-item">
+            <h4>多字段搜索</h4>
+            <p>可以同时在多个字段中搜索，提高匹配概率</p>
+        </div>
+        <div class="benefit-item">
+            <h4>国际化友好</h4>
+            <p>通过移除重音使搜索更适合多语言环境</p>
+        </div>
+    </div>
+    
+    <h3>示例匹配过程</h3>
+    <div class="code-block">
+        <pre><code>// 假设搜索模式是 "abc"，目标字符串是 "abracadabra"
+// 匹配过程如下：
+
+// 1. 字符 'a' 在位置 0 匹配
+//    当前分数 = 100 + 0 - 0/200 = 100
+//    总分 = 100
+
+// 2. 字符 'b' 在位置 1 匹配
+//    当前分数 = 100 + 100 - 1/200 = 199.5
+//    总分 = 100 + 199.5 = 299.5
+
+// 3. 字符 'c' 不匹配位置 2，重置当前分数
+//    当前分数 = 0
+
+// ... 继续搜索 ...
+
+// 4. 字符 'c' 在位置 5 匹配
+//    当前分数 = 100 + 0 - 5/200 = 97.5
+//    总分 = 299.5 + 97.5 = 397
+
+// 所有字符都匹配了，返回总分 397</code></pre>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>菜单搜索</h4>
+            <p>在Odoo的全局搜索中，使用模糊搜索找到相关菜单项、操作和记录</p>
+        </div>
+        <div class="benefit-item">
+            <h4>多对多字段</h4>
+            <p>在标签和多对多字段中，通过模糊搜索快速找到相关记录</p>
+        </div>
+        <div class="benefit-item">
+            <h4>下拉框过滤</h4>
+            <p>在选择字段的下拉框中，通过模糊搜索快速找到需要的选项</p>
+        </div>
+        <div class="benefit-item">
+            <h4>开发者工具</h4>
+            <p>在开发者模式的视图编辑器中，用于快速定位字段和选项</p>
+        </div>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <div class="warning">
+        <strong>注意：</strong>对于大型列表或频繁调用，模糊搜索可能会消耗较多的计算资源。在这种情况下，应考虑以下优化策略：
+        <ul>
+            <li>限制搜索范围，只在必要的字段中搜索</li>
+            <li>对用户输入进行防抖处理，避免每次按键都触发搜索</li>
+            <li>考虑在服务器端实现复杂的搜索逻辑，特别是对于大数据集</li>
+            <li>对于非常大的列表，考虑使用索引或其他高效的搜索算法</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p><code>search.js</code>模块提供了简单而强大的模糊搜索功能，适用于Odoo中各种搜索和过滤场景。主要特点包括：</p>
+    <ul>
+        <li><strong>模糊匹配：</strong>即使拼写不完全正确或输入不完整也能找到结果</li>
+        <li><strong>智能排序：</strong>基于匹配质量对结果进行排序</li>
+        <li><strong>多字段搜索：</strong>可以同时在多个字段中搜索</li>
+        <li><strong>重音不敏感：</strong>忽略字符上的重音符号进行匹配</li>
+        <li><strong>灵活应用：</strong>可用于任何需要文本匹配的场景</li>
+    </ul>
+    
+    <p>通过提供这些功能，Odoo的搜索体验变得更加用户友好和直观，减少了用户的认知负担，提高了效率。</p>
+</body>
+</html> 

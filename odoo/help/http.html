@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Web Controllers参考文档</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Web Controllers参考文档</h1>
+    
+    <h2>文件概述</h2>
+    <p>Web Controllers模块是Odoo框架中的核心组件，它提供了处理HTTP请求、路由和响应的基础设施。这个模块定义了构建Odoo Web应用所需的关键类和方法。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Web Controllers允许开发者定义处理HTTP请求的方法，创建自定义路由，并生成不同类型的响应（如HTML、JSON等）。
+    </div>
+    
+    <h2>主要组件</h2>
+    <ol>
+        <li><strong>Controllers</strong>：用于定义处理HTTP请求的类</li>
+        <li><strong>Routing</strong>：定义URL路由和请求处理方法</li>
+        <li><strong>Request</strong>：封装HTTP请求的对象，提供会话管理和上下文处理</li>
+        <li><strong>Response</strong>：处理HTTP响应的类，支持HTML、JSON等格式</li>
+    </ol>
+    
+    <h2>Controllers</h2>
+    <p>Controllers是用于处理Web请求的主要组件。在Odoo中，Controller是通过Python类实现的，这些类包含能够响应特定URL的方法。</p>
+    
+    <h3>示例</h3>
+    <div class="code-block">
+        <pre><code>from odoo import http
+from odoo.http import request
+
+class MyController(http.Controller):
+    @http.route('/my_module/hello', auth='public')
+    def hello(self):
+        return "Hello, world!"
+        
+    @http.route('/my_module/hello_user', auth='user')
+    def hello_user(self):
+        return "Hello, %s!" % request.env.user.name</code></pre>
+    </div>
+    
+    <h2>API</h2>
+    
+    <h3>Routing</h3>
+    <p>Odoo的路由系统使用装饰器来定义URL路由和处理方法。<code>http.route</code>装饰器是路由定义的核心。</p>
+    
+    <h4>route装饰器</h4>
+    <div class="code-block">
+        <pre><code>@http.route(route=None, **kw)</code></pre>
+    </div>
+    
+    <p>装饰器用于向http服务器注册一个处理程序方法。</p>
+    
+    <div class="code-block">
+        <pre><code>@route('/', type='http', auth='public')
+def handler(self):
+    return 'ok'</code></pre>
+    </div>
+    
+    <h4>route装饰器参数</h4>
+    <table>
+        <tr>
+            <th>参数</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>route</td>
+            <td>string或列表</td>
+            <td>路由匹配规则，可以是一个字符串或一个字符串列表</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>string</td>
+            <td>路由类型：'http'（常规HTTP）或'json'（JsonRPC）</td>
+        </tr>
+        <tr>
+            <td>auth</td>
+            <td>string</td>
+            <td>认证方法：'none'/'public'/'user'/'admin'</td>
+        </tr>
+        <tr>
+            <td>methods</td>
+            <td>列表</td>
+            <td>允许的HTTP方法列表，例如 ['GET', 'POST']</td>
+        </tr>
+        <tr>
+            <td>cors</td>
+            <td>string</td>
+            <td>跨域资源共享(CORS)，设置为'*'允许所有源</td>
+        </tr>
+        <tr>
+            <td>website</td>
+            <td>bool</td>
+            <td>是否为网站路由（影响导航、错误处理等）</td>
+        </tr>
+        <tr>
+            <td>csrf</td>
+            <td>bool</td>
+            <td>是否需要CSRF保护（默认为True）</td>
+        </tr>
+        <tr>
+            <td>save_session</td>
+            <td>bool</td>
+            <td>是否保存会话（默认为True）</td>
+        </tr>
+    </table>
+    
+    <h3>Request</h3>
+    <p>Request对象封装了当前HTTP请求的所有信息，提供了访问会话、环境和各种请求参数的方法。</p>
+    
+    <h4>主要属性和方法</h4>
+    
+    <div class="code-block">
+        <pre><code>request.env          # 当前用户的Odoo环境
+request.session      # 当前会话对象
+request.context      # 当前上下文
+request.db           # 当前数据库名称
+request.uid          # 当前用户ID
+request.httprequest  # werkzeug的原始请求对象</code></pre>
+    </div>
+    
+    <h4>CSRF保护</h4>
+    <p>CSRF（跨站请求伪造）保护是一种安全机制，防止未经授权的请求：</p>
+    
+    <div class="code-block">
+        <pre><code>csrf_token()         # 生成一个CSRF令牌
+validate_csrf(csrf)   # 验证CSRF令牌</code></pre>
+    </div>
+    
+    <h4>请求处理方法</h4>
+    <div class="code-block">
+        <pre><code>default_lang()              # 返回默认语言
+get_http_params()           # 提取查询字符串和表单中的键值对
+make_response(data, headers=None, cookies=None, status=200)   # 创建非HTML响应
+make_json_response(data, headers=None, cookies=None, status=200) # 创建JSON响应
+not_found(description=None) # 返回404错误响应
+render(template, qcontext=None, lazy=True, **kw) # 渲染QWeb模板
+reroute(path, query_string=None) # 重写当前请求URL</code></pre>
+    </div>
+    
+    <h3>Response</h3>
+    <p>Response类处理对HTTP请求的响应，支持HTML、JSON等多种格式。</p>
+    
+    <div class="code-block">
+        <pre><code>class Response(*args, **kw)</code></pre>
+    </div>
+    
+    <p>继承自werkzeug.wrappers.Response，并添加了QWeb模板渲染功能。</p>
+    
+    <h4>主要方法</h4>
+    <div class="code-block">
+        <pre><code>load(result, fname='<function>')   # 将端点返回值转换为Response
+render()                            # 渲染Response的模板
+flatten()                           # 强制渲染模板，设置结果为响应体
+set_cookie(key, value='', max_age=None, expires=- 1, path='/', domain=None, secure=False, httponly=False, samesite=None, cookie_type='required') # 设置cookie</code></pre>
+    </div>
+    
+    <h2>JSON-RPC处理</h2>
+    <p>Odoo支持JSON-RPC 2.0协议，用于实现客户端和服务器之间的通信。</p>
+    
+    <h3>JsonRPCDispatcher</h3>
+    <p>用于处理JSON-RPC请求的调度程序：</p>
+    
+    <div class="code-block">
+        <pre><code>class JsonRPCDispatcher(request)
+    is_compatible_with(request)     # 确定请求是否与此调度程序兼容
+    dispatch(endpoint, args)        # JSON-RPC 2.0处理
+    handle_error(exc: Exception)    # 处理异常</code></pre>
+    </div>
+    
+    <h3>HttpDispatcher</h3>
+    <p>用于处理HTTP请求的调度程序：</p>
+    
+    <div class="code-block">
+        <pre><code>class HttpDispatcher(request)
+    is_compatible_with(request)     # 确定请求是否与此调度程序兼容
+    dispatch(endpoint, args)        # 执行HTTP相关操作
+    handle_error(exc: Exception)    # 处理异常</code></pre>
+    </div>
+    
+    <h2>开发者使用指南</h2>
+    <p>下面是一个完整的Controller示例，展示了如何在Odoo 18中创建自定义Web端点：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import http
+from odoo.http import request, Response
+import json
+
+class MyCustomController(http.Controller):
+    # 公开访问的HTML页面
+    @http.route('/my_module/public', type='http', auth='public', website=True)
+    def public_page(self, **kw):
+        return request.render('my_module.public_template', {
+            'message': '这是一个公开页面'
+        })
+    
+    # 需要用户登录的HTML页面
+    @http.route('/my_module/private', type='http', auth='user', website=True)
+    def private_page(self, **kw):
+        return request.render('my_module.private_template', {
+            'user': request.env.user,
+            'message': '这是一个私有页面'
+        })
+    
+    # JSON API端点
+    @http.route('/my_module/api/data', type='json', auth='user')
+    def get_data(self, **kw):
+        records = request.env['my.model'].search([])
+        return {
+            'status': 'success',
+            'data': records.read(['name', 'description']),
+        }
+    
+    # 自定义响应 
+    @http.route('/my_module/download', type='http', auth='user')
+    def download_file(self, **kw):
+        data = b"文件内容"  # 二进制数据
+        headers = [
+            ('Content-Type', 'application/octet-stream'),
+            ('Content-Disposition', 'attachment; filename="file.txt"'),
+        ]
+        return request.make_response(data, headers=headers)
+    
+    # 文件上传处理
+    @http.route('/my_module/upload', type='http', auth='user', methods=['POST'])
+    def upload_file(self, **kw):
+        file = request.httprequest.files.get('file')
+        if not file:
+            return '没有文件上传'
+            
+        # 处理上传的文件
+        file_content = file.read()
+        
+        # 创建附件记录
+        attachment = request.env['ir.attachment'].create({
+            'name': file.filename,
+            'datas': base64.b64encode(file_content),
+            'res_model': 'my.model',
+            'res_id': kw.get('record_id', 0),
+        })
+        
+        return '文件上传成功: %s' % file.filename</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在开发Controller时，请注意以下几点：
+        <ul>
+            <li>确保正确设置<code>auth</code>参数，以防止未授权访问</li>
+            <li>对于修改数据的操作，始终使用POST方法，并启用CSRF保护</li>
+            <li>处理用户输入时，务必进行验证和清理，防止安全漏洞</li>
+            <li>使用适当的状态码返回错误信息</li>
+            <li>避免在Controller中编写过多业务逻辑，将其放到模型中</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的新特性</h2>
+    <p>Odoo 18 在Web Controllers方面引入了一些改进：</p>
+    <ul>
+        <li>更好的错误处理和调试支持</li>
+        <li>改进的请求分派性能</li>
+        <li>增强的安全性和请求验证</li>
+        <li>更好的跨域资源共享(CORS)支持</li>
+        <li>改进的响应类型处理</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>Odoo的Web Controllers系统是构建Web应用的基础，它提供：</p>
+    <ul>
+        <li>灵活的路由系统，支持多种路由类型和认证方法</li>
+        <li>强大的请求处理，包括参数提取、会话管理等</li>
+        <li>多样的响应类型，支持HTML、JSON、文件下载等</li>
+        <li>内置的安全机制，包括CSRF保护和身份验证</li>
+        <li>与Odoo ORM和模板系统紧密集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>将业务逻辑放在模型中，保持Controller简洁，只负责处理HTTP请求和生成响应。这样可以提高代码的可维护性和可测试性。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 - 宏(Macro)模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>宏(Macro)模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>macro.js</code>是Odoo 18框架中的一个专用工具模块，它提供了一种强大的机制来定义和执行UI自动化操作序列。这个模块主要用于测试、演示和引导用户体验，它可以模拟用户交互操作，如点击、输入文本等，并处理DOM变化和等待条件。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>宏(Macro)是一系列预定义的自动化步骤，可以在用户界面上按顺序执行，每个步骤可以等待特定条件满足后再执行动作。这使得开发者可以创建复杂的交互序列，如演示流程、引导教程或自动化测试。
+    </div>
+    
+    <h2>主要组件</h2>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>Macro类</h4>
+            <p>主要类，用于定义和执行一系列UI自动化步骤</p>
+            <ul>
+                <li>管理步骤执行</li>
+                <li>处理超时和错误</li>
+                <li>提供回调机制</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>MacroMutationObserver类</h4>
+            <p>包装DOM变化监听器，用于检测DOM更新</p>
+            <ul>
+                <li>监听DOM变化</li>
+                <li>支持iframe和Shadow DOM</li>
+                <li>触发宏步骤检查</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>ACTION_HELPERS对象</h4>
+            <p>预定义的常用UI交互操作集合</p>
+            <ul>
+                <li>click: 模拟点击行为</li>
+                <li>text: 模拟文本输入</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>核心功能解析</h2>
+    
+    <h3>1. 宏的定义和结构</h3>
+    <p>宏是通过一个描述对象定义的，包含以下主要属性：</p>
+    <div class="code-block">
+        <pre><code>const macroSchema = {
+    name: { type: String, optional: true },
+    checkDelay: { type: Number, optional: true }, //延迟检查元素是否在DOM中
+    stepDelay: { type: Number, optional: true }, //步骤之间的等待时间
+    timeout: { type: Number, optional: true },
+    steps: {
+        type: Array,
+        element: {
+            initialDelay: { type: Function, optional: true },
+            action: { type: Function },
+            trigger: { type: [Function, String], optional: true },
+            timeout: { type: Number, optional: true },
+        },
+    },
+    onComplete: { type: Function, optional: true },
+    onStep: { type: Function, optional: true },
+    onError: { type: Function, optional: true },
+    onTimeout: { type: Function, optional: true },
+};</code></pre>
+    </div>
+    <p>宏描述对象的关键部分是<code>steps</code>数组，每个步骤可以包含：</p>
+    <ul>
+        <li><strong>trigger</strong>: 定义何时执行该步骤的条件，可以是CSS选择器或返回元素的函数</li>
+        <li><strong>action</strong>: 当触发条件满足时要执行的操作，可以是预定义的动作或自定义函数</li>
+        <li><strong>initialDelay</strong>: 步骤开始前的延迟时间函数</li>
+        <li><strong>timeout</strong>: 步骤的超时时间，覆盖全局超时设置</li>
+    </ul>
+    
+    <h3>2. 步骤执行机制</h3>
+    <p>Macro类实现了一个复杂的步骤执行控制流，主要包括：</p>
+    <ul>
+        <li>步骤触发条件检查</li>
+        <li>动作执行</li>
+        <li>DOM变化监听</li>
+        <li>超时处理</li>
+        <li>延迟和防抖动</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>async advance() {
+    if (this.isComplete) {
+        return;
+    }
+    if (this.currentStep.trigger) {
+        this.setTimer();
+    }
+    let proceedToAction = true;
+    if (this.currentStep.trigger) {
+        proceedToAction = this.findTrigger();
+    }
+    if (proceedToAction) {
+        this.safeCall(this.onStep, this.currentElement, this.currentStep);
+        this.clearTimer();
+        const actionResult = await this.performAction();
+        if (!actionResult) {
+            // 如果动作结果为假值，表示动作成功执行
+            // 因此我们可以进入下一步
+            this.increment();
+            this.debounceAdvance("next");
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. DOM变化监听</h3>
+    <p>宏使用<code>MacroMutationObserver</code>类来监听DOM变化，这是对原生<code>MutationObserver</code>的增强封装，支持：</p>
+    <ul>
+        <li>监听DOM的添加、删除和属性变化</li>
+        <li>处理iframe内的DOM变化</li>
+        <li>处理Shadow DOM</li>
+        <li>在DOM变化时触发宏的步骤检查</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>export class MacroMutationObserver {
+    observerOptions = {
+        attributes: true,
+        childList: true,
+        subtree: true,
+        characterData: true,
+    };
+    constructor(callback) {
+        this.callback = callback;
+        this.observer = new MutationObserver((mutationList, observer) => {
+            callback();
+            mutationList.forEach((mutationRecord) =>
+                Array.from(mutationRecord.addedNodes).forEach((node) => {
+                    let iframes = [];
+                    if (String(node.tagName).toLowerCase() === "iframe") {
+                        iframes = [node];
+                    } else if (node instanceof HTMLElement) {
+                        iframes = Array.from(node.querySelectorAll("iframe"));
+                    }
+                    iframes.forEach((iframeEl) =>
+                        this.observeIframe(iframeEl, observer, () => callback())
+                    );
+                    this.findAllShadowRoots(node).forEach((shadowRoot) =>
+                        observer.observe(shadowRoot, this.observerOptions)
+                    );
+                })
+            );
+        });
+    }
+    // ...
+}</code></pre>
+    </div>
+    
+    <h3>4. 预定义动作</h3>
+    <p>模块提供了常用UI交互的预定义动作，简化宏的创建：</p>
+    <div class="code-block">
+        <pre><code>export const ACTION_HELPERS = {
+    click(el, _step) {
+        el.dispatchEvent(new MouseEvent("mouseover"));
+        el.dispatchEvent(new MouseEvent("mouseenter"));
+        el.dispatchEvent(new MouseEvent("mousedown"));
+        el.dispatchEvent(new MouseEvent("mouseup"));
+        el.click();
+        el.dispatchEvent(new MouseEvent("mouseout"));
+        el.dispatchEvent(new MouseEvent("mouseleave"));
+    },
+    text(el, step) {
+        // 模拟输入(可能需要添加keydown/keyup事件)
+        this.click(el, step);
+        el.value = step.value;
+        el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        el.dispatchEvent(new InputEvent("change", { bubbles: true }));
+    },
+};</code></pre>
+    </div>
+    
+    <h3>5. 并发控制</h3>
+    <p>通过Mutex(互斥锁)实现宏执行的并发控制，确保同一时间只有一个宏步骤在执行：</p>
+    <div class="code-block">
+        <pre><code>const mutex = new Mutex();
+
+// 在debounceAdvance方法中使用
+this.debouncedAdvance = browser.setTimeout(
+    () => mutex.exec(() => this.advance()),
+    this.getDebounceDelay()
+);</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <div class="workflow">
+        <h3>宏执行流程</h3>
+        <ol>
+            <li><strong>初始化</strong>: 创建Macro实例，设置步骤和选项</li>
+            <li><strong>启动监听</strong>: 开始观察DOM变化</li>
+            <li><strong>步骤循环</strong>:
+                <ul>
+                    <li>检查当前步骤的触发条件</li>
+                    <li>满足条件时执行动作</li>
+                    <li>等待动作完成</li>
+                    <li>进入下一个步骤</li>
+                </ul>
+            </li>
+            <li><strong>完成处理</strong>: 所有步骤完成或出错时调用相应回调</li>
+        </ol>
+    </div>
+    
+    <div class="workflow">
+        <h3>触发检查和防抖动机制</h3>
+        <ol>
+            <li>DOM变化或定时器触发<code>debounceAdvance</code></li>
+            <li>根据来源("next"或"mutation")决定是否处理</li>
+            <li>应用适当的延迟(初始延迟或检查延迟)</li>
+            <li>通过互斥锁控制执行<code>advance</code>方法</li>
+            <li>执行步骤或等待下一次DOM变化</li>
+        </ol>
+    </div>
+    
+    <h2>实际使用场景</h2>
+    
+    <h3>1. 创建引导教程</h3>
+    <div class="code-block">
+        <pre><code>import { Macro, ACTION_HELPERS } from "@web/core/macro";
+
+// 创建一个新用户引导教程
+function startTutorial() {
+    const tutorial = new Macro({
+        name: "新用户教程",
+        checkDelay: 500,
+        timeout: 10000,
+        steps: [
+            {
+                // 等待"创建"按钮出现
+                trigger: ".o_form_button_create",
+                action: ACTION_HELPERS.click,
+            },
+            {
+                // 等待表单加载并填写名称字段
+                trigger: "input[name='name']",
+                action: function(el) {
+                    ACTION_HELPERS.text.call(ACTION_HELPERS, el, { value: "新产品" });
+                },
+            },
+            {
+                // 选择产品类型
+                trigger: "select[name='type']",
+                action: function(el) {
+                    el.value = "service";
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                },
+            },
+            {
+                // 点击保存按钮
+                trigger: ".o_form_button_save",
+                action: ACTION_HELPERS.click,
+            }
+        ],
+        onStep: (element, step) => {
+            // 高亮当前元素
+            element.classList.add("tutorial-highlight");
+            
+            // 显示提示
+            showTooltip(element, stepDescriptions[tutorial.currentIndex]);
+        },
+        onComplete: () => {
+            // 显示教程完成消息
+            showSuccessMessage("恭喜！您已完成新产品创建教程！");
+        },
+        onError: (error) => {
+            console.error("教程出错:", error);
+            showErrorMessage("教程遇到问题，请刷新页面重试");
+        }
+    });
+    
+    // 启动教程
+    tutorial.start(document.body);
+}</code></pre>
+    </div>
+    
+    <h3>2. 自动化测试</h3>
+    <div class="code-block">
+        <pre><code>import { Macro, ACTION_HELPERS } from "@web/core/macro";
+
+// 创建一个登录测试宏
+function testLoginFlow() {
+    let testResults = { success: false, error: null };
+    
+    const loginTest = new Macro({
+        name: "登录流程测试",
+        timeout: 5000,
+        steps: [
+            {
+                // 输入用户名
+                trigger: "input[name='login']",
+                action: function(el) {
+                    ACTION_HELPERS.text.call(ACTION_HELPERS, el, { value: "admin" });
+                }
+            },
+            {
+                // 输入密码
+                trigger: "input[name='password']",
+                action: function(el) {
+                    ACTION_HELPERS.text.call(ACTION_HELPERS, el, { value: "admin" });
+                }
+            },
+            {
+                // 点击登录按钮
+                trigger: "button[type='submit']",
+                action: ACTION_HELPERS.click
+            },
+            {
+                // 验证登录成功
+                trigger: function() {
+                    // 检查URL或页面元素，确认登录成功
+                    return document.querySelector(".o_user_menu");
+                },
+                action: function(el) {
+                    // 验证成功，什么也不做
+                    testResults.success = true;
+                }
+            }
+        ],
+        onComplete: () => {
+            console.log("测试完成，结果:", testResults.success ? "通过" : "失败");
+            if (testResults.success) {
+                reportTestSuccess("login_flow");
+            }
+        },
+        onError: (error) => {
+            testResults.error = error;
+            console.error("测试失败:", error);
+            reportTestFailure("login_flow", error);
+        }
+    });
+    
+    loginTest.start();
+    return new Promise((resolve) => {
+        // 设置一个超时，以确保测试最终会结束
+        setTimeout(() => {
+            resolve(testResults);
+        }, 10000);
+    });
+}</code></pre>
+    </div>
+    
+    <h3>3. 创建产品演示</h3>
+    <div class="code-block">
+        <pre><code>import { Macro, ACTION_HELPERS } from "@web/core/macro";
+
+// 创建一个产品功能演示
+function demonstrateFeatures() {
+    const demo = new Macro({
+        name: "功能演示",
+        checkDelay: 1000, // 较长的检查延迟，让用户能看清每一步
+        steps: [
+            {
+                trigger: ".menu_item_sales",
+                initialDelay: () => 2000, // 等待2秒再开始
+                action: ACTION_HELPERS.click
+            },
+            {
+                trigger: ".o_kanban_button_new",
+                action: ACTION_HELPERS.click
+            },
+            {
+                trigger: "input[name='partner_id']",
+                action: function(el) {
+                    // 点击打开下拉菜单
+                    ACTION_HELPERS.click.call(ACTION_HELPERS, el);
+                    
+                    // 添加额外延迟以确保下拉菜单打开
+                    return new Promise(resolve => {
+                        setTimeout(() => {
+                            // 选择第一个客户
+                            const firstOption = document.querySelector(".ui-menu-item:first-child");
+                            if (firstOption) {
+                                ACTION_HELPERS.click.call(ACTION_HELPERS, firstOption);
+                            }
+                            resolve();
+                        }, 500);
+                    });
+                }
+            },
+            // 更多演示步骤...
+        ],
+        onStep: (element, step) => {
+            // 添加视觉指示器
+            const indicator = document.createElement("div");
+            indicator.className = "demo-pointer";
+            document.body.appendChild(indicator);
+            
+            // 定位到元素
+            const rect = element.getBoundingClientRect();
+            indicator.style.left = `${rect.left + window.scrollX}px`;
+            indicator.style.top = `${rect.top + window.scrollY}px`;
+            
+            // 2秒后移除指示器
+            setTimeout(() => {
+                indicator.remove();
+            }, 2000);
+        },
+        onComplete: () => {
+            showMessage("演示完成！您可以继续探索系统其他功能。");
+        }
+    });
+    
+    demo.start();
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，Macro模块具有以下特点和改进：</p>
+    <ul>
+        <li><strong>完善的类型检查</strong>：使用精确的JSDoc类型定义和运行时验证</li>
+        <li><strong>增强的DOM观察</strong>：支持iframe和Shadow DOM的观察</li>
+        <li><strong>智能防抖动机制</strong>：减少不必要的检查，提高性能</li>
+        <li><strong>细粒度的超时控制</strong>：全局和步骤级别的超时设置</li>
+        <li><strong>丰富的回调和错误处理</strong>：提供完整的生命周期事件</li>
+    </ul>
+    
+    <h2>开发者注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>宏依赖于DOM结构，如果应用UI变化可能导致宏失效</li>
+            <li>超时设置很重要，避免宏永远等待不存在的元素</li>
+            <li>对于复杂操作，可能需要自定义action函数，而不是使用预定义动作</li>
+            <li>宏主要用于内部测试、演示和教程，不推荐在生产环境的核心功能中依赖宏</li>
+            <li>使用宏测试时，确保考虑网络延迟和服务器响应时间的变化</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Macro模块是Odoo 18中一个强大的UI自动化工具，它提供了：</p>
+    <ul>
+        <li>声明式的UI交互自动化定义</li>
+        <li>基于DOM变化的智能触发机制</li>
+        <li>丰富的预定义操作和自定义能力</li>
+        <li>完善的错误处理和超时管理</li>
+        <li>用于创建引导、演示和测试的强大基础</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在创建宏时，始终设置合理的超时时间，使用尽可能精确的选择器，并为每个步骤提供足够的上下文说明，以便于后续维护和调试。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo错误工具函数解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo错误工具函数系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>error_utils.js</code>是Odoo框架中的错误处理辅助模块，它提供了一系列用于处理和格式化错误信息的工具函数。这些函数使错误服务和错误处理器能够更有效地处理各种错误情况，并为用户提供更有用的错误信息。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>错误工具函数集合专注于错误信息的处理和装饰，包括错误堆栈的格式化、注释、组合以及错误链的处理。这些工具函数不直接显示错误，而是为错误处理系统提供必要的底层支持。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>错误链处理</strong>：处理带有cause属性的嵌套错误链</li>
+        <li><strong>堆栈跟踪格式化</strong>：统一和清晰地格式化错误堆栈信息</li>
+        <li><strong>源码映射支持</strong>：通过sourcemap注释堆栈跟踪，提供源文件位置</li>
+        <li><strong>错误名称提取</strong>：获取错误的技术名称</li>
+        <li><strong>错误信息装饰</strong>：为未捕获的错误添加上下文信息</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>error_utils.js提供了几个关键函数，让我们来看看它们的实现：</p>
+    
+    <h3>组合错误名称</h3>
+    <div class="code-block">
+        <pre><code>function combineErrorNames(uncaughtError, originalError) {
+    const originalErrorName = getErrorTechnicalName(originalError);
+    const uncaughtErrorName = getErrorTechnicalName(uncaughtError);
+    if (originalErrorName === Error.name) {
+        return uncaughtErrorName;
+    } else {
+        return `${uncaughtErrorName} > ${originalErrorName}`;
+    }
+}</code></pre>
+    </div>
+    
+    <h3>获取完整堆栈跟踪</h3>
+    <div class="code-block">
+        <pre><code>export function fullTraceback(error) {
+    let traceback = formatTraceback(error);
+    let current = error.cause;
+    while (current) {
+        traceback += `\n\nCaused by: ${
+            current instanceof Error ? formatTraceback(current) : current
+        }`;
+        current = current.cause;
+    }
+    return traceback;
+}</code></pre>
+    </div>
+    
+    <h3>注释堆栈跟踪</h3>
+    <div class="code-block">
+        <pre><code>export async function fullAnnotatedTraceback(error) {
+    if (error.annotatedTraceback) {
+        return error.annotatedTraceback;
+    }
+    
+    // 异步处理，需要特殊处理事件调用链
+    if (error.errorEvent) {
+        error.errorEvent.preventDefault();
+    }
+    
+    let traceback;
+    try {
+        traceback = await annotateTraceback(error);
+        let current = error.cause;
+        while (current) {
+            traceback += `\n\nCaused by: ${
+                current instanceof Error ? await annotateTraceback(current) : current
+            }`;
+            current = current.cause;
+        }
+    } catch (e) {
+        console.warn("Failed to annotate traceback for error:", error, "failure reason:", e);
+        traceback = fullTraceback(error);
+    }
+    
+    error.annotatedTraceback = traceback;
+    if (error.errorEvent) {
+        throw error;
+    }
+    return traceback;
+}</code></pre>
+    </div>
+    
+    <h3>完善未捕获错误</h3>
+    <div class="code-block">
+        <pre><code>export async function completeUncaughtError(uncaughtError, originalError, annotated = false) {
+    uncaughtError.name = combineErrorNames(uncaughtError, originalError);
+    if (annotated) {
+        uncaughtError.traceback = await fullAnnotatedTraceback(originalError);
+    } else {
+        uncaughtError.traceback = fullTraceback(originalError);
+    }
+    if (originalError.message) {
+        uncaughtError.message = `${uncaughtError.message} > ${originalError.message}`;
+    }
+    uncaughtError.cause = originalError;
+}</code></pre>
+    </div>
+    
+    <h3>获取错误技术名称</h3>
+    <div class="code-block">
+        <pre><code>export function getErrorTechnicalName(error) {
+    return error.name !== Error.name ? error.name : error.constructor.name;
+}</code></pre>
+    </div>
+    
+    <h3>格式化堆栈跟踪</h3>
+    <div class="code-block">
+        <pre><code>export function formatTraceback(error) {
+    let traceback = error.stack;
+    const errorName = getErrorTechnicalName(error);
+    
+    // 确保错误名称和消息在堆栈中正确显示
+    const descriptionLine = `${errorName}: ${error.message}`;
+    if (error.stack.split("\n")[0].trim() !== descriptionLine) {
+        // 避免重复的描述行
+        traceback = `${descriptionLine}\n${error.stack}`.replace(/\n/g, "\n    ");
+    }
+    return traceback;
+}</code></pre>
+    </div>
+    
+    <h3>注释堆栈跟踪（使用sourcemap）</h3>
+    <div class="code-block">
+        <pre><code>export async function annotateTraceback(error) {
+    const traceback = formatTraceback(error);
+    try {
+        await loadJS("/web/static/lib/stacktracejs/stacktrace.js");
+    } catch {
+        return traceback;
+    }
+    
+    // 修正Firefox匿名代码生成的堆栈
+    if (error.stack) {
+        const regex = / line (\d*) > (Function):(\d*)/gm;
+        const subst = `:$1`;
+        error.stack = error.stack.replace(regex, subst);
+    }
+    
+    // 使用StackTrace库获取带有源文件信息的堆栈
+    let frames;
+    try {
+        frames = await StackTrace.fromError(error);
+    } catch (e) {
+        console.warn("The following error could not be annotated:", error, e);
+        return traceback;
+    }
+    
+    // 在堆栈行中添加源文件信息
+    const lines = traceback.split("\n");
+    if (lines[lines.length - 1].trim() === "") {
+        // Firefox堆栈跟踪在末尾有一个空行
+        lines.splice(-1);
+    }
+
+    let lineIndex = 0;
+    let frameIndex = 0;
+    while (frameIndex < frames.length) {
+        const line = lines[lineIndex];
+        // 跳过没有位置信息的行
+        if (!line.match(/:\d+:\d+\)?$/)) {
+            lineIndex++;
+            continue;
+        }
+        const frame = frames[frameIndex];
+        const info = ` (${frame.fileName}:${frame.lineNumber})`;
+        lines[lineIndex] = line + info;
+        lineIndex++;
+        frameIndex++;
+    }
+    return lines.join("\n");
+}</code></pre>
+    </div>
+    
+    <h3>关键函数解释</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>功能描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>combineErrorNames(uncaughtError, originalError)</td>
+            <td>组合两个错误的名称</td>
+            <td>uncaughtError: 未捕获错误对象<br>originalError: 原始错误对象</td>
+            <td>组合后的错误名称字符串</td>
+        </tr>
+        <tr>
+            <td>fullTraceback(error)</td>
+            <td>获取完整的错误堆栈跟踪，包括所有cause链</td>
+            <td>error: 错误对象</td>
+            <td>完整的堆栈跟踪字符串</td>
+        </tr>
+        <tr>
+            <td>fullAnnotatedTraceback(error)</td>
+            <td>获取注释过的完整堆栈跟踪，包括sourcemap映射</td>
+            <td>error: 错误对象</td>
+            <td>Promise，解析为注释后的堆栈跟踪字符串</td>
+        </tr>
+        <tr>
+            <td>completeUncaughtError(uncaughtError, originalError, annotated)</td>
+            <td>使用原始错误信息完善未捕获错误对象</td>
+            <td>uncaughtError: 未捕获错误对象<br>originalError: 原始错误对象<br>annotated: 是否添加注释</td>
+            <td>Promise，完成后返回void</td>
+        </tr>
+        <tr>
+            <td>getErrorTechnicalName(error)</td>
+            <td>获取错误的技术名称</td>
+            <td>error: 错误对象</td>
+            <td>错误的技术名称字符串</td>
+        </tr>
+        <tr>
+            <td>formatTraceback(error)</td>
+            <td>格式化错误堆栈，确保包含正确的错误名称和消息</td>
+            <td>error: 错误对象</td>
+            <td>格式化后的堆栈跟踪字符串</td>
+        </tr>
+        <tr>
+            <td>annotateTraceback(error)</td>
+            <td>使用sourcemap为堆栈添加源文件位置注释</td>
+            <td>error: 错误对象</td>
+            <td>Promise，解析为注释后的堆栈跟踪字符串</td>
+        </tr>
+    </table>
+    
+    <h2>工作原理</h2>
+    <p>错误工具函数的工作原理可以概括为以下几点：</p>
+    
+    <div class="flow-diagram">
+        <h3>错误堆栈处理流程</h3>
+        <ol>
+            <li>错误发生并被错误服务捕获</li>
+            <li>错误服务调用completeUncaughtError完善错误对象</li>
+            <li>根据环境决定是否添加sourcemap注释</li>
+            <li>如果需要注释，调用fullAnnotatedTraceback异步获取注释堆栈</li>
+            <li>否则调用fullTraceback获取常规堆栈</li>
+            <li>处理错误的cause链，递归获取每个cause的堆栈</li>
+            <li>组合所有堆栈信息形成完整的错误跟踪</li>
+        </ol>
+    </div>
+    
+    <h3>Sourcemap注释流程</h3>
+    <div class="flow-diagram">
+        <ol>
+            <li>尝试加载stacktrace.js库</li>
+            <li>修正Firefox特有的堆栈格式问题</li>
+            <li>使用StackTrace.fromError获取带源码位置的帧信息</li>
+            <li>解析原始堆栈文本为行数组</li>
+            <li>对每一行与对应的frame进行匹配</li>
+            <li>在合适的行添加源文件和行号信息</li>
+            <li>重新组合所有行形成注释后的堆栈</li>
+        </ol>
+    </div>
+    
+    <h2>错误链处理</h2>
+    <p>Odoo 18中的一个重要特性是支持错误链（Error Cause Chain），允许错误之间形成因果关系：</p>
+    
+    <div class="case-examples">
+        <h3>错误链示例</h3>
+        <div class="code-block">
+            <pre><code>// 原始错误
+const parseError = new Error("Invalid JSON format");
+
+// 包装错误，设置原始错误为cause
+const dataError = new Error("Failed to parse API response");
+dataError.cause = parseError;
+
+// 再次包装错误
+const requestError = new Error("API request failed");
+requestError.cause = dataError;
+
+// 错误链: requestError -> dataError -> parseError
+// fullTraceback输出示例:
+Error: API request failed
+    at ... (script.js:10:13)
+    ...
+
+Caused by: Error: Failed to parse API response
+    at ... (script.js:7:13)
+    ...
+
+Caused by: Error: Invalid JSON format
+    at ... (script.js:4:21)
+    ...</code></pre>
+        </div>
+    </div>
+    
+    <h2>源码映射支持</h2>
+    <p>错误工具模块支持使用sourcemap将压缩/编译后的JavaScript代码映射回源代码，提供更有用的错误位置信息：</p>
+    
+    <div class="comparison">
+        <h3>无sourcemap注释的堆栈</h3>
+        <pre><code>TypeError: Cannot read property 'value' of undefined
+    at fn (https://example.com/web/assets/123.js:2345:67)
+    at processInput (https://example.com/web/assets/123.js:3456:78)
+    at submitForm (https://example.com/web/assets/123.js:4567:89)</code></pre>
+        
+        <h3>有sourcemap注释的堆栈</h3>
+        <pre><code>TypeError: Cannot read property 'value' of undefined
+    at fn (https://example.com/web/assets/123.js:2345:67) (src/components/Form.js:45)
+    at processInput (https://example.com/web/assets/123.js:3456:78) (src/components/Form.js:120)
+    at submitForm (https://example.com/web/assets/123.js:4567:89) (src/components/Form.js:200)</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，错误工具模块具有以下增强特性：</p>
+    <ul>
+        <li>完整的错误链支持，允许跟踪错误的传播路径</li>
+        <li>改进的sourcemap处理，支持更复杂的源码映射</li>
+        <li>更好的浏览器兼容性，特别是对Firefox特有堆栈格式的处理</li>
+        <li>错误信息的缓存机制，避免重复处理</li>
+        <li>与调试模式的更深度集成，提供更详细的错误信息</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义代码中使用这些错误工具函数？下面是几个示例：</p>
+    
+    <div class="code-block">
+        <pre><code>import { formatTraceback, getErrorTechnicalName } from "@web/core/errors/error_utils";
+
+// 1. 记录格式化的错误堆栈
+try {
+    // 一些可能出错的操作
+    JSON.parse(invalidJson);
+} catch (error) {
+    console.error("操作失败:", formatTraceback(error));
+}
+
+// 2. 创建带有cause的错误链
+function processUserInput(input) {
+    try {
+        // 尝试处理用户输入
+        return validateAndTransform(input);
+    } catch (error) {
+        // 创建新错误，保留原始错误作为cause
+        const userError = new Error(
+            `无法处理输入 "${input.substring(0, 20)}..."` 
+        );
+        userError.cause = error;
+        throw userError;
+    }
+}</code></pre>
+    </div>
+    
+    <p>自定义错误报告工具：</p>
+    
+    <div class="code-block">
+        <pre><code>import { fullTraceback } from "@web/core/errors/error_utils";
+
+// 创建自定义错误报告工具
+export function reportError(error, context = {}) {
+    // 获取完整的错误堆栈
+    const stack = fullTraceback(error);
+    
+    // 准备错误报告数据
+    const report = {
+        name: error.name,
+        message: error.message,
+        stack: stack,
+        timestamp: new Date().toISOString(),
+        userContext: context,
+        url: window.location.href,
+    };
+    
+    // 发送到日志服务器
+    fetch('/log/client_error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(report),
+    }).catch(e => console.error("Failed to send error report:", e));
+    
+    // 在控制台显示
+    console.group("Error Report");
+    console.error(error.message);
+    console.info("Stack:", stack);
+    console.info("Context:", context);
+    console.groupEnd();
+}</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用错误工具函数时，请注意以下几点：
+        <ul>
+            <li>注释堆栈操作(annotateTraceback)是异步的，需要使用await或Promise处理</li>
+            <li>sourcemap注释依赖于stacktrace.js库的动态加载</li>
+            <li>处理错误时，尽量保持错误链完整，使用cause属性而不是完全替换错误</li>
+            <li>注意跨域限制可能会影响sourcemap的加载和处理</li>
+            <li>在生产环境中，可能要考虑错误信息的敏感性，避免泄露关键信息</li>
+            <li>在大量错误场景中，缓存注释结果以提高性能</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>错误工具函数与以下模块紧密协作：</p>
+    <ul>
+        <li><strong>error_service.js</strong>：使用工具函数完善捕获的错误</li>
+        <li><strong>error_handlers.js</strong>：使用格式化后的堆栈进行错误处理</li>
+        <li><strong>error_dialogs.js</strong>：显示格式化后的错误信息</li>
+        <li><strong>assets.js</strong>：用于加载stacktrace.js库</li>
+        <li><strong>browser.js</strong>：提供浏览器功能封装</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>error_utils.js提供了Odoo前端错误处理的基础工具，它具有以下特点：</p>
+    <ul>
+        <li>提供了错误信息格式化和装饰功能</li>
+        <li>支持错误链的完整处理</li>
+        <li>提供sourcemap注释能力，帮助定位错误</li>
+        <li>适应不同浏览器的错误堆栈格式</li>
+        <li>为错误处理系统提供底层支持</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在处理错误时，建议使用错误链（cause属性）来保持错误上下文，而不是丢弃原始错误。总是使用工具函数处理堆栈，而不是直接操作error.stack属性，这样可以确保跨浏览器的一致体验。在开发模式下，启用sourcemap注释可以极大地提高调试效率。
+    </div>
+</body>
+</html> 

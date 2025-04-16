@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件获取模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件获取模块解析 (Fetchmail)</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>fetchmail.py</code>是Odoo框架中负责从外部邮件服务器获取邮件的核心组件。这个模块允许Odoo连接到POP3、IMAP或本地邮件服务器，自动获取邮件并将其转换为Odoo系统中的记录（如工单、商机、项目等）。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Fetchmail服务器作为Odoo与外部邮件系统之间的桥梁，能够定期检查邮箱，获取新邮件，并根据配置规则将其处理成Odoo中的业务对象。这使得外部通信可以无缝集成到Odoo的工作流程中。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>多协议支持</strong>：支持IMAP、POP3和本地邮件服务器</li>
+        <li><strong>安全连接</strong>：支持SSL/TLS加密连接</li>
+        <li><strong>自动处理</strong>：定期自动获取邮件并转换为系统记录</li>
+        <li><strong>附件管理</strong>：可配置是否保留原始邮件和附件</li>
+        <li><strong>灵活配置</strong>：每个服务器可设置不同的目标模型和处理规则</li>
+        <li><strong>错误处理</strong>：健壮的异常处理和日志记录</li>
+    </ol>
+    
+    <h2>代码结构</h2>
+    <p>Fetchmail模块由多个部分组成，包括连接包装器和主要的服务器模型：</p>
+    
+    <h3>连接包装器</h3>
+    <div class="code-block">
+        <pre><code>class IMAP4Connection:
+    """Wrapper around IMAP4 and IMAP4_SSL"""
+    def __init__(self, server, port, is_ssl):
+        self.__obj__ = IMAP4_SSL(server, port) if is_ssl else IMAP4(server, port)
+
+class POP3Connection:
+    """Wrapper around POP3 and POP3_SSL"""
+    def __init__(self, server, port, is_ssl, timeout=MAIL_TIMEOUT):
+        self.__obj__ = POP3_SSL(server, port, timeout=timeout) if is_ssl else POP3(server, port, timeout=timeout)</code></pre>
+    </div>
+    
+    <h3>服务器模型</h3>
+    <div class="code-block">
+        <pre><code>class FetchmailServer(models.Model):
+    """Incoming POP/IMAP mail server account"""
+
+    _name = 'fetchmail.server'
+    _description = 'Incoming Mail Server'
+    _order = 'priority'
+
+    name = fields.Char('Name', required=True)
+    active = fields.Boolean('Active', default=True)
+    state = fields.Selection([
+        ('draft', 'Not Confirmed'),
+        ('done', 'Confirmed'),
+    ], string='Status', index=True, readonly=True, copy=False, default='draft')
+    server = fields.Char(string='Server Name', readonly=False, help="Hostname or IP of the mail server")
+    port = fields.Integer()
+    server_type = fields.Selection([
+        ('imap', 'IMAP Server'),
+        ('pop', 'POP Server'),
+        ('local', 'Local Server'),
+    ], string='Server Type', index=True, required=True, default='imap')
+    # ... 更多字段 ...</code></pre>
+    </div>
+    
+    <h3>主要方法</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>连接和认证</h4>
+            <ul>
+                <li>connect</li>
+                <li>_imap_login</li>
+                <li>button_confirm_login</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>邮件获取</h4>
+            <ul>
+                <li>_fetch_mails</li>
+                <li>fetch_mail</li>
+                <li>_get_connection_type</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>配置管理</h4>
+            <ul>
+                <li>onchange_server_type</li>
+                <li>_update_cron</li>
+                <li>set_draft</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>详细字段说明</h2>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>Char</td>
+            <td>服务器名称</td>
+            <td>识别不同的邮件服务器配置</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活</td>
+            <td>控制服务器配置是否生效</td>
+        </tr>
+        <tr>
+            <td>state</td>
+            <td>Selection</td>
+            <td>状态（草稿/已确认）</td>
+            <td>表示服务器配置是否已验证并可用</td>
+        </tr>
+        <tr>
+            <td>server</td>
+            <td>Char</td>
+            <td>服务器名称或IP</td>
+            <td>连接到外部邮件服务器的地址</td>
+        </tr>
+        <tr>
+            <td>port</td>
+            <td>Integer</td>
+            <td>端口号</td>
+            <td>连接到邮件服务器的端口</td>
+        </tr>
+        <tr>
+            <td>server_type</td>
+            <td>Selection</td>
+            <td>服务器类型</td>
+            <td>指定使用IMAP、POP或本地服务器</td>
+        </tr>
+        <tr>
+            <td>is_ssl</td>
+            <td>Boolean</td>
+            <td>是否使用SSL/TLS</td>
+            <td>控制是否使用加密连接</td>
+        </tr>
+        <tr>
+            <td>user</td>
+            <td>Char</td>
+            <td>用户名</td>
+            <td>登录邮件服务器的用户名</td>
+        </tr>
+        <tr>
+            <td>password</td>
+            <td>Char</td>
+            <td>密码</td>
+            <td>登录邮件服务器的密码</td>
+        </tr>
+        <tr>
+            <td>object_id</td>
+            <td>Many2one</td>
+            <td>目标模型</td>
+            <td>指定邮件将被转换为哪种类型的记录</td>
+        </tr>
+        <tr>
+            <td>priority</td>
+            <td>Integer</td>
+            <td>优先级</td>
+            <td>决定多个服务器的处理顺序</td>
+        </tr>
+        <tr>
+            <td>attach</td>
+            <td>Boolean</td>
+            <td>保留附件</td>
+            <td>控制是否保存邮件的附件</td>
+        </tr>
+        <tr>
+            <td>original</td>
+            <td>Boolean</td>
+            <td>保留原始邮件</td>
+            <td>控制是否保存完整的原始邮件</td>
+        </tr>
+    </table>
+    
+    <h2>主要方法详解</h2>
+    
+    <h3>连接和验证</h3>
+    <div class="code-block">
+        <pre><code>def connect(self, allow_archived=False):
+    """
+    :param bool allow_archived: by default (False), an exception is raised when calling this method on an
+       archived record. It can be set to True for testing so that the exception is no longer raised.
+    """
+    self.ensure_one()
+    if not allow_archived and not self.active:
+        raise UserError(_('The server "%s" cannot be used because it is archived.', self.display_name))
+    connection_type = self._get_connection_type()
+    if connection_type == 'imap':
+        connection = IMAP4Connection(self.server, int(self.port), self.is_ssl)
+        self._imap_login(connection)
+    elif connection_type == 'pop':
+        connection = POP3Connection(self.server, int(self.port), self.is_ssl)
+        #TODO: use this to remove only unread messages
+        #connection.user("recent:"+server.user)
+        connection.user(self.user)
+        connection.pass_(self.password)
+    return connection</code></pre>
+    </div>
+    
+    <p>connect方法负责创建到邮件服务器的连接，根据服务器类型使用不同的连接方式：</p>
+    <ul>
+        <li>对于IMAP服务器，创建IMAP4Connection对象并调用_imap_login进行登录</li>
+        <li>对于POP服务器，创建POP3Connection对象并直接使用user和pass_方法登录</li>
+        <li>包含allow_archived参数控制是否允许使用已归档的服务器配置</li>
+    </ul>
+    
+    <h3>邮件获取</h3>
+    <div class="code-block">
+        <pre><code>def fetch_mail(self, raise_exception=True):
+    """ WARNING: meant for cron usage only - will commit() after each email! """
+    additionnal_context = {
+        'fetchmail_cron_running': True
+    }
+    MailThread = self.env['mail.thread']
+    for server in self:
+        _logger.info('start checking for new emails on %s server %s', server.server_type, server.name)
+        additionnal_context['default_fetchmail_server_id'] = server.id
+        count, failed = 0, 0
+        imap_server = None
+        pop_server = None
+        connection_type = server._get_connection_type()
+        if connection_type == 'imap':
+            # ... IMAP处理逻辑 ...
+        elif connection_type == 'pop':
+            # ... POP处理逻辑 ...
+        server.write({'date': fields.Datetime.now()})
+    return True</code></pre>
+    </div>
+    
+    <p>fetch_mail是核心方法，负责从服务器获取邮件并处理：</p>
+    <ul>
+        <li>为每个服务器创建连接并获取邮件</li>
+        <li>对IMAP和POP服务器使用不同的处理逻辑</li>
+        <li>使用mail.thread模型的message_process方法处理邮件</li>
+        <li>统计成功和失败的邮件处理数量</li>
+        <li>更新最后获取日期</li>
+        <li>在处理每封邮件后提交事务，以避免一封邮件失败影响所有邮件</li>
+    </ul>
+    
+    <h3>IMAP邮件处理</h3>
+    <div class="workflow">
+        <ol>
+            <li>连接到IMAP服务器并选择收件箱</li>
+            <li>搜索未读邮件 (<code>imap_server.search(None, '(UNSEEN)')</code>)</li>
+            <li>对每封邮件:
+                <ol>
+                    <li>获取邮件内容 (<code>imap_server.fetch(num, '(RFC822)')</code>)</li>
+                    <li>将未读标志移除 (<code>imap_server.store(num, '-FLAGS', '\\Seen')</code>)</li>
+                    <li>处理邮件内容 (<code>MailThread.message_process(...)</code>)</li>
+                    <li>将邮件标记为已读 (<code>imap_server.store(num, '+FLAGS', '\\Seen')</code>)</li>
+                    <li>提交事务 (<code>self._cr.commit()</code>)</li>
+                </ol>
+            </li>
+            <li>关闭并注销IMAP连接</li>
+        </ol>
+    </div>
+    
+    <h3>POP邮件处理</h3>
+    <div class="workflow">
+        <ol>
+            <li>连接到POP服务器</li>
+            <li>获取邮件统计信息 (<code>pop_server.stat()</code>)</li>
+            <li>对每封邮件（最多处理MAX_POP_MESSAGES封）:
+                <ol>
+                    <li>获取邮件内容 (<code>pop_server.retr(num)</code>)</li>
+                    <li>处理邮件内容 (<code>MailThread.message_process(...)</code>)</li>
+                    <li>将邮件标记为删除 (<code>pop_server.dele(num)</code>)</li>
+                    <li>提交事务 (<code>self._cr.commit()</code>)</li>
+                </ol>
+            </li>
+            <li>退出POP连接</li>
+        </ol>
+    </div>
+    
+    <h2>错误处理</h2>
+    <p>Fetchmail模块包含全面的错误处理机制，处理各种可能的异常情况：</p>
+    <ul>
+        <li><strong>网络错误</strong>：处理socket.gaierror, socket.timeout等网络连接问题</li>
+        <li><strong>认证错误</strong>：处理IMAP4.error, poplib.error_proto等认证失败问题</li>
+        <li><strong>SSL错误</strong>：处理SSL连接问题</li>
+        <li><strong>邮件处理错误</strong>：单个邮件处理失败不会影响其他邮件的处理</li>
+        <li><strong>资源清理</strong>：即使在异常情况下也会尝试关闭连接</li>
+    </ul>
+    
+    <h2>定时任务集成</h2>
+    <div class="code-block">
+        <pre><code>@api.model
+def _fetch_mails(self):
+    """ Method called by cron to fetch mails from servers """
+    return self.search([('state', '=', 'done'), ('server_type', '!=', 'local')]).fetch_mail(raise_exception=False)
+
+@api.model
+def _update_cron(self):
+    if self.env.context.get('fetchmail_cron_running'):
+        return
+    try:
+        # Enabled/Disable cron based on the number of 'done' server of type pop or imap
+        cron = self.env.ref('mail.ir_cron_mail_gateway_action')
+        cron.toggle(model=self._name, domain=[('state', '=', 'done'), ('server_type', '!=', 'local')])
+    except ValueError:
+        pass</code></pre>
+    </div>
+    
+    <p>Fetchmail通过定时任务自动获取邮件：</p>
+    <ul>
+        <li>_fetch_mails方法被定时任务调用，获取所有已确认的非本地服务器的邮件</li>
+        <li>_update_cron方法在服务器状态变化时自动启用或禁用定时任务</li>
+        <li>系统会根据是否存在已确认的服务器来决定是否启用定时任务</li>
+    </ul>
+    
+    <h2>性能考虑</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>POP3处理限制每次最多处理50封邮件(MAX_POP_MESSAGES)，避免一次处理过多</li>
+            <li>每封邮件处理后都会提交事务，确保已处理的邮件不会因后续邮件失败而回滚</li>
+            <li>对于POP3服务器，处理完一批邮件后会重新连接，避免长时间连接</li>
+            <li>设置了MAIL_TIMEOUT(60秒)避免连接挂起</li>
+            <li>原始邮件和附件的保存会显著增加数据库大小，应谨慎配置</li>
+        </ul>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>以下是创建和配置Fetchmail服务器的API示例：</p>
+    
+    <div class="code-block">
+        <pre><code>def setup_support_mailbox(self):
+    """设置客户支持邮箱"""
+    # 创建新的服务器配置
+    support_model = self.env['ir.model'].search([('model', '=', 'helpdesk.ticket')], limit=1)
+    
+    if not support_model:
+        raise UserError("找不到工单模型，请确保安装了工单模块")
+    
+    # 创建新的邮件服务器
+    fetchmail_server = self.env['fetchmail.server'].create({
+        'name': '客户支持邮箱',
+        'server': 'mail.example.com',
+        'port': 993,
+        'server_type': 'imap',
+        'is_ssl': True,
+        'user': 'support@example.com',
+        'password': 'secure_password',
+        'object_id': support_model.id,
+        'priority': 10,
+        'attach': True,
+        'original': False,
+    })
+    
+    # 验证并激活
+    fetchmail_server.button_confirm_login()
+    
+    return fetchmail_server</code></pre>
+    </div>
+    
+    <h2>与其他模块的集成</h2>
+    <p>Fetchmail模块与其他模块的集成方式：</p>
+    <ul>
+        <li><strong>mail.thread</strong>：提供message_process方法处理获取的邮件</li>
+        <li><strong>各业务模型</strong>：通过object_id字段指定邮件应转换为哪类记录</li>
+        <li><strong>ir.cron</strong>：通过定时任务自动执行邮件获取</li>
+        <li><strong>邮件网关</strong>：与邮件网关(mail gateway)配合，支持通过命令行执行邮件处理</li>
+    </ul>
+    
+    <h2>Odoo 18中的改进</h2>
+    <p>Odoo 18中对Fetchmail模块的主要改进：</p>
+    <ul>
+        <li>更好的错误处理和日志记录</li>
+        <li>更健壮的连接包装器(IMAP4Connection和POP3Connection)</li>
+        <li>改进的Python 3兼容性</li>
+        <li>超时处理的优化</li>
+        <li>更智能的定时任务管理</li>
+    </ul>
+    
+    <h2>安全考虑</h2>
+    <div class="warning">
+        <strong>安全注意事项：</strong>
+        <ul>
+            <li>邮件服务器凭据（用户名和密码）存储在数据库中，确保数据库安全</li>
+            <li>推荐使用SSL/TLS连接以加密通信</li>
+            <li>考虑为邮件获取创建专用用户，限制其权限</li>
+            <li>定期审查邮件处理日志，检查是否有异常情况</li>
+            <li>注意处理附件时的安全风险，尤其是处理可执行文件</li>
+        </ul>
+    </div>
+    
+    <h2>配置示例</h2>
+    <p>以下是不同类型邮件服务器的典型配置：</p>
+    
+    <h3>Gmail IMAP配置</h3>
+    <ul>
+        <li>服务器：imap.gmail.com</li>
+        <li>端口：993</li>
+        <li>服务器类型：IMAP</li>
+        <li>SSL/TLS：是</li>
+        <li>用户名：your.email@gmail.com</li>
+        <li>注意：可能需要设置应用特定密码</li>
+    </ul>
+    
+    <h3>Office 365配置</h3>
+    <ul>
+        <li>服务器：outlook.office365.com</li>
+        <li>端口：993 (IMAP) / 995 (POP3)</li>
+        <li>服务器类型：IMAP或POP</li>
+        <li>SSL/TLS：是</li>
+    </ul>
+    
+    <h3>本地邮件服务器配置</h3>
+    <p>本地服务器需要配置postfix/sendmail等MTA与Odoo的odoo-mailgate.py脚本集成，示例配置会生成在服务器记录的configuration字段中。</p>
+    
+    <h2>小结</h2>
+    <p>Fetchmail模块是Odoo邮件集成系统的关键组件，它：</p>
+    <ul>
+        <li>提供了与外部邮件服务器的无缝集成</li>
+        <li>支持多种邮件协议和加密方式</li>
+        <li>实现了灵活的邮件处理和转换机制</li>
+        <li>包含全面的错误处理和性能优化</li>
+        <li>与Odoo的业务流程紧密集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>配置Fetchmail服务器时，建议使用IMAP而非POP3（除非特殊需求），开启SSL/TLS加密，并根据实际需求决定是否保存原始邮件和附件。定期检查日志确保邮件获取正常运行。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo用户模型解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo用户系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_users.py</code>是Odoo框架中的一个核心模块，它扩展了基础用户模型，增加了与邮件和讨论相关的功能。这个文件定义了用户在通信和消息系统中的行为和偏好设置。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>在Odoo中，res.users模型代表系统用户，mail模块通过继承方式增强了用户的通信能力，使其能够发送和接收消息、参与讨论、跟踪活动等。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>通知偏好管理</strong>：允许用户选择如何接收通知（电子邮件或Odoo收件箱）</li>
+        <li><strong>用户权限和门户状态跟踪</strong>：管理用户类型变更并记录相关活动</li>
+        <li><strong>安全更新通知</strong>：当用户账户重要信息变更时发送安全通知</li>
+        <li><strong>讨论存储初始化</strong>：为用户设置讨论系统所需的数据结构</li>
+        <li><strong>活动摘要生成</strong>：汇总用户待处理的活动并按模型分组</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>Users类继承自'res.users'基础模型，增加了与通信相关的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>class Users(models.Model):
+    """ Update of res.users class
+        - add a preference about sending emails about notifications
+        - make a new user follow itself
+        - add a welcome message
+        - add suggestion preference
+    """
+    _name = 'res.users'
+    _inherit = ['res.users']
+
+    notification_type = fields.Selection([
+        ('email', 'Handle by Emails'),
+        ('inbox', 'Handle in Odoo')],
+        'Notification', required=True, default='email',
+        compute='_compute_notification_type', inverse='_inverse_notification_type', store=True,
+        help="Policy on how to handle Chatter notifications:\n"
+             "- Handle by Emails: notifications are sent to your email address\n"
+             "- Handle in Odoo: notifications appear in your Odoo Inbox")</code></pre>
+    </div>
+    
+    <h3>核心字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特性</th>
+        </tr>
+        <tr>
+            <td>notification_type</td>
+            <td>Selection</td>
+            <td>通知处理方式</td>
+            <td>计算字段，有反向方法，存储在数据库中</td>
+        </tr>
+    </table>
+    
+    <h3>SQL约束</h3>
+    <p>模型定义了一个重要的SQL约束：</p>
+    <div class="code-block">
+        <pre><code>_sql_constraints = [(
+    "notification_type",
+    "CHECK (notification_type = 'email' OR NOT share)",
+    "Only internal user can receive notifications in Odoo",
+)]</code></pre>
+    </div>
+    <p>这个约束确保只有内部用户（非共享用户）才能使用Odoo收件箱接收通知，外部用户（如门户用户）只能通过电子邮件接收通知。</p>
+    
+    <h2>核心方法详解</h2>
+    
+    <h3>1. 通知类型计算与反向计算</h3>
+    <div class="code-block">
+        <pre><code>@api.depends('share', 'groups_id')
+def _compute_notification_type(self):
+    inbox_group_id = self.env['ir.model.data']._xmlid_to_res_id('mail.group_mail_notification_type_inbox')
+
+    self.filtered_domain([
+        ('groups_id', 'in', inbox_group_id), ('notification_type', '!=', 'inbox')
+    ]).notification_type = 'inbox'
+    self.filtered_domain([
+        ('groups_id', 'not in', inbox_group_id), ('notification_type', '=', 'inbox')
+    ]).notification_type = 'email'
+
+    # Special case: internal users with inbox notifications converted to portal must be converted to email users
+    self.filtered_domain([('share', '=', True), ('notification_type', '=', 'inbox')]).notification_type = 'email'
+
+def _inverse_notification_type(self):
+    inbox_group = self.env.ref('mail.group_mail_notification_type_inbox')
+    inbox_users = self.filtered(lambda user: user.notification_type == 'inbox')
+    inbox_users.write({"groups_id": [Command.link(inbox_group.id)]})
+    (self - inbox_users).write({"groups_id": [Command.unlink(inbox_group.id)]})
+</code></pre>
+    </div>
+    <p>这两个方法负责管理通知类型的设置：</p>
+    <ul>
+        <li><strong>_compute_notification_type</strong>：根据用户是否属于特定组和是否是共享用户，自动设置通知类型</li>
+        <li><strong>_inverse_notification_type</strong>：当用户更改通知类型时，自动将用户添加到或从通知组中移除</li>
+    </ul>
+    <p>这种双向同步机制确保了用户的通知设置始终与其权限一致。</p>
+    
+    <h3>2. 自定义可读写字段</h3>
+    <div class="code-block">
+        <pre><code>@property
+def SELF_READABLE_FIELDS(self):
+    return super().SELF_READABLE_FIELDS + ['notification_type']
+
+@property
+def SELF_WRITEABLE_FIELDS(self):
+    return super().SELF_WRITEABLE_FIELDS + ['notification_type']</code></pre>
+    </div>
+    <p>这两个属性定义了用户可以读取和修改的自身字段：</p>
+    <ul>
+        <li>将notification_type添加到用户自己可读取的字段列表中</li>
+        <li>将notification_type添加到用户自己可修改的字段列表中</li>
+    </ul>
+    <p>这样用户就可以在前端界面查看和更改自己的通知偏好设置。</p>
+    
+    <h3>3. 用户创建与写入增强</h3>
+    <p>模块重写了create和write方法，添加了额外的功能：</p>
+    <ul>
+        <li>在创建用户时记录门户状态变更</li>
+        <li>在修改用户时跟踪并记录门户状态、登录名、密码和电子邮件的变更</li>
+        <li>当安全相关信息变更时发送通知邮件</li>
+        <li>当通知类型变更时，通过总线系统通知客户端</li>
+    </ul>
+    
+    <h3>4. 安全更新通知</h3>
+    <div class="code-block">
+        <pre><code>def _notify_security_setting_update(self, subject, content, mail_values=None, **kwargs):
+    """ This method is meant to be called whenever a sensitive update is done on the user's account.
+    It will send an email to the concerned user warning him about this change and making some security suggestions. """</code></pre>
+    </div>
+    <p>此方法用于在用户账户敏感信息变更时发送安全通知邮件：</p>
+    <ul>
+        <li>支持自定义邮件主题和内容</li>
+        <li>自动添加安全建议，如重置密码的建议</li>
+        <li>使用特定模板格式化邮件内容</li>
+        <li>将通知发送到用户的电子邮件地址</li>
+    </ul>
+    
+    <h3>5. 门户用户停用处理</h3>
+    <div class="code-block">
+        <pre><code>def _deactivate_portal_user(self, **post):
+    """Blacklist the email of the user after deleting it.
+    Log a note on the related partner so we know why it's archived.
+    """</code></pre>
+    </div>
+    <p>这个方法在停用门户用户时执行以下操作：</p>
+    <ul>
+        <li>在关联的伙伴记录上记录停用原因</li>
+        <li>根据请求参数决定是否将用户电子邮件加入黑名单</li>
+        <li>调用父类方法执行实际停用操作</li>
+        <li>记录谁执行了停用操作以及被停用的用户信息</li>
+    </ul>
+    
+    <h3>6. 讨论数据初始化</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _init_store_data(self, store: Store, /):
+    """Initialize the store of the user."""</code></pre>
+    </div>
+    <p>此方法负责初始化用户的讨论数据存储：</p>
+    <ul>
+        <li>添加讨论系统所需的基础数据（操作ID、功能标志等）</li>
+        <li>根据用户类型（普通用户或访客）添加不同的数据</li>
+        <li>为已登录用户添加个人设置和签名信息</li>
+    </ul>
+    
+    <h3>7. 消息初始化</h3>
+    <div class="code-block">
+        <pre><code>def _init_messaging(self, store):
+    """初始化用户的消息系统数据"""</code></pre>
+    </div>
+    <p>此方法为用户初始化消息系统数据：</p>
+    <ul>
+        <li>添加收件箱和星标消息的计数器</li>
+        <li>设置总线系统ID，用于后续推送更新</li>
+        <li>确保用户能够看到自己的未读消息和星标消息数量</li>
+    </ul>
+    
+    <h3>8. 活动组获取</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def _get_activity_groups(self):
+    """获取用户的活动摘要，按模型分组"""</code></pre>
+    </div>
+    <p>此方法生成用户待处理活动的摘要：</p>
+    <ul>
+        <li>查询用户负责的活动，并按记录和模型分组</li>
+        <li>处理访问权限，过滤用户无权访问的记录</li>
+        <li>统计每个模型中不同状态（今天到期、过期、计划中）的活动数量</li>
+        <li>为每个模型添加图标和视图类型信息</li>
+        <li>特殊处理无权访问的活动，将它们归类为"其他活动"</li>
+    </ul>
+    
+    <h2>业务流程解析</h2>
+    
+    <div class="flow-diagram">
+        <h3>通知偏好设置流程</h3>
+        <ol>
+            <li>用户在"我的账户"中选择通知偏好（电子邮件或Odoo收件箱）</li>
+            <li>系统调用_inverse_notification_type方法</li>
+            <li>方法根据选择更新用户的组成员资格</li>
+            <li>权限变更触发_compute_notification_type重新计算</li>
+            <li>通知设置变更通过总线系统实时同步到所有客户端</li>
+        </ol>
+    </div>
+    
+    <div class="flow-diagram">
+        <h3>安全更新通知流程</h3>
+        <ol>
+            <li>当用户账户敏感信息变更（如密码、邮箱、登录名）</li>
+            <li>系统调用_notify_security_setting_update方法</li>
+            <li>方法生成包含变更详情和安全建议的HTML内容</li>
+            <li>系统以当前用户或系统身份发送邮件到用户邮箱</li>
+            <li>用户收到通知并了解账户变更情况</li>
+        </ol>
+    </div>
+    
+    <h2>技术亮点</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>双向字段计算</h4>
+            <p>通过计算方法和反向计算方法实现通知设置与权限组的双向同步，确保数据一致性。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>安全意识设计</h4>
+            <p>敏感操作时自动发送安全通知，提高用户安全意识，及时发现潜在的未授权操作。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>性能优化查询</h4>
+            <p>活动摘要查询中使用filtered_domain和预取技术，减少数据库查询次数，提高性能。</p>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，用户模型有以下特点和改进：</p>
+    <ul>
+        <li>更完善的实时通信集成，支持更高级的讨论功能</li>
+        <li>改进的安全通知机制，提供更详细的变更信息</li>
+        <li>优化的活动摘要算法，更高效地处理大量活动</li>
+        <li>更好的跨公司用户访问权限处理</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何扩展用户模型来添加自定义通信功能？下面是一个简单的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import models, fields, api
+
+class UsersExtension(models.Model):
+    _inherit = 'res.users'
+    
+    custom_message_format = fields.Selection([
+        ('plain', '纯文本'),
+        ('markdown', 'Markdown'),
+        ('html', 'HTML')
+    ], string="消息格式偏好", default='plain')
+    
+    # 扩展初始化方法
+    def _init_messaging(self, store):
+        res = super()._init_messaging(store)
+        # 添加自定义格式设置
+        store.add({
+            "message_format_preference": self.custom_message_format,
+        })
+        return res
+        
+    # 添加自定义总线通知
+    def set_message_format(self, format_type):
+        self.ensure_one()
+        if self.custom_message_format != format_type:
+            self.custom_message_format = format_type
+            self._bus_send("res.users.format", {"message_format": format_type})</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在扩展用户模型时，请注意以下几点：
+        <ul>
+            <li>避免覆盖核心方法，尽量使用继承和扩展</li>
+            <li>对敏感操作增加适当的访问控制和日志记录</li>
+            <li>修改用户权限相关逻辑时须格外小心，避免权限漏洞</li>
+            <li>处理大数据集操作（如_get_activity_groups）时注意性能优化</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Users模型是Odoo通信系统的核心组件之一，它提供了：</p>
+    <ul>
+        <li>灵活的通知偏好管理机制</li>
+        <li>强大的安全更新通知系统</li>
+        <li>高效的活动摘要生成功能</li>
+        <li>与实时通信系统的无缝集成</li>
+        <li>精细的用户权限和门户状态管理</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发与用户通信相关的功能时，应充分利用Users模型提供的现有机制，如通知系统、总线通信和活动摘要等，以提供一致的用户体验。同时，对用户敏感信息的操作应遵循Odoo的安全通知模式。
+    </div>
+</body>
+</html> 

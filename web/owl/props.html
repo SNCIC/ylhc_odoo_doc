@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owl Props属性系统详解</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Owl Props属性系统详解</h1>
+    
+    <h2>文档概述</h2>
+    <p>Props（属性）是Owl组件系统的核心概念之一，它是父组件向子组件传递数据的标准方式。Owl的Props系统不仅提供了数据传递机制，还包含类型验证、默认值设置和动态属性传递等高级功能，使组件间的通信更加安全和可靠。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Props是一个对象，包含父组件传递给子组件的所有数据。这些数据在子组件中只读，任何修改需求都应该通过事件或回调函数向父组件请求。Owl的Props系统支持类型验证，帮助开发者构建更健壮的组件。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>数据传递</strong>：从父组件向子组件传递数据</li>
+        <li><strong>类型验证</strong>：验证属性类型，提供开发时错误检查</li>
+        <li><strong>默认值</strong>：为可选属性提供默认值</li>
+        <li><strong>动态属性</strong>：使用<code>t-props</code>动态传递多个属性</li>
+        <li><strong>属性比较</strong>：优化渲染性能的属性比较机制</li>
+        <li><strong>函数绑定</strong>：简化回调函数传递的<code>.bind</code>修饰符</li>
+        <li><strong>可翻译属性</strong>：便于国际化的<code>.translate</code>修饰符</li>
+    </ol>
+    
+    <h2>基本概念</h2>
+    <p>在Owl中，<code>props</code>是一个对象，它包含父组件给子组件的所有数据：</p>
+    
+    <div class="code-block">
+        <pre><code>class Child extends Component {
+  static template = xml`<div><t t-esc="props.a"/><t t-esc="props.b"/></div>`;
+}
+
+class Parent extends Component {
+  static template = xml`<div><Child a="state.a" b="'string'"/></div>`;
+  static components = { Child };
+  state = useState({ a: "fromparent" });
+}</code></pre>
+    </div>
+    
+    <p>在这个例子中，<code>Child</code>组件从其父组件接收两个属性：<code>a</code>和<code>b</code>。Owl将它们收集到一个<code>props</code>对象中，每个值都在父组件的上下文中计算。因此，<code>props.a</code>等于<code>'fromparent'</code>，<code>props.b</code>等于<code>'string'</code>。</p>
+    
+    <h2>Props定义</h2>
+    <p><code>props</code>对象由模板中定义的每个属性组成，但以下情况除外：</p>
+    <ul>
+        <li>所有以<code>t-</code>开头的属性不是props（它们是QWeb指令）</li>
+    </ul>
+    
+    <p>在以下示例中：</p>
+    
+    <div class="code-block">
+        <pre><code><div>
+    <ComponentA a="state.a" b="'string'"/>
+    <ComponentB t-if="state.flag" model="model"/>
+</div></code></pre>
+    </div>
+    
+    <p><code>props</code>对象包含以下键：</p>
+    <ul>
+        <li>对于<code>ComponentA</code>：<code>a</code>和<code>b</code></li>
+        <li>对于<code>ComponentB</code>：<code>model</code></li>
+    </ul>
+    
+    <h2>Props比较</h2>
+    <p>当Owl在模板中遇到子组件时，它会对所有props进行浅比较。如果它们都引用相等，那么子组件甚至不会被更新。否则，如果至少有一个prop发生变化，Owl将更新子组件。</p>
+    
+    <p>然而，在某些情况下，我们知道两个值是不同的，但它们具有相同的效果，不应该被Owl视为不同。例如，模板中的匿名函数总是不同的，但大多数情况下不应该被视为不同：</p>
+    
+    <div class="code-block">
+        <pre><code><t t-foreach="todos" t-as="todo" t-key="todo.id">
+  <Todo todo="todo" onDelete="() => deleteTodo(todo.id)" />
+</t></code></pre>
+    </div>
+    
+    <p>在这种情况下，可以使用<code>.alike</code>后缀：</p>
+    
+    <div class="code-block">
+        <pre><code><t t-foreach="todos" t-as="todo" t-key="todo.id">
+  <Todo todo="todo" onDelete.alike="() => deleteTodo(todo.id)" />
+</t></code></pre>
+    </div>
+    
+    <p>这告诉Owl这个特定的prop应该总是被视为等价的（或者换句话说，应该从可比较props的列表中移除）。</p>
+    
+    <div class="warning">
+        <strong>注意：</strong>并非所有匿名函数都应该被视为<code>alike</code>，这取决于匿名函数捕获的值。下面的例子展示了一个可能不该使用<code>.alike</code>的情况：
+        
+        <pre><code><t t-foreach="todos" t-as="todo" t-key="todo.id">
+  <!-- 可能不正确！todo.isCompleted可能会改变 -->
+  <Todo todo="todo" toggle.alike="() => toggleTodo(todo.isCompleted)" />
+</t></code></pre>
+    </div>
+    
+    <h2>绑定函数Props</h2>
+    <p>将回调作为prop传递是很常见的需求。由于Owl组件是基于类的，回调经常需要绑定到其所有者组件：</p>
+    
+    <div class="code-block">
+        <pre><code>class SomeComponent extends Component {
+  static template = xml`
+    <div>
+      <Child callback="doSomething"/>
+    </div>`;
+
+  setup() {
+    this.doSomething = this.doSomething.bind(this);
+  }
+
+  doSomething() {
+    // ...
+  }
+}</code></pre>
+    </div>
+    
+    <p>这种模式非常常见，所以Owl提供了一个特殊的后缀来实现这一点：<code>.bind</code>。使用方法如下：</p>
+    
+    <div class="code-block">
+        <pre><code>class SomeComponent extends Component {
+  static template = xml`
+    <div>
+      <Child callback.bind="doSomething"/>
+    </div>`;
+
+  doSomething() {
+    // ...
+  }
+}</code></pre>
+    </div>
+    
+    <p><code>.bind</code>后缀也隐含<code>.alike</code>，所以这些props不会导致额外的渲染。</p>
+    
+    <h2>可翻译Props</h2>
+    <p>当需要向子组件传递面向用户的字符串时，您可能希望它被翻译。由于props是任意表达式，Owl很难找出表达式中哪些部分是字符串并翻译它们，而且这也使得工具很难提取这些字符串以生成翻译术语。为此，Owl提供了<code>.translate</code>后缀：</p>
+    
+    <div class="code-block">
+        <pre><code><t t-name="ParentComponent">
+    <Child someProp.translate="一些消息"/>
+</t></code></pre>
+    </div>
+    
+    <p>注意，此属性的内容不被视为JavaScript表达式：它被视为字符串，就像它是HTML元素上的属性一样，并在传递给组件之前被翻译。如果需要将一些数据插入到字符串中，仍然需要在JavaScript中进行。</p>
+    
+    <h2>动态Props</h2>
+    <p><code>t-props</code>指令可用于指定完全动态的props：</p>
+    
+    <div class="code-block">
+        <pre><code><div t-name="ParentComponent">
+    <Child t-props="some.obj"/>
+</div></code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>class ParentComponent {
+  static components = { Child };
+  some = { obj: { a: 1, b: 2 } };
+}</code></pre>
+    </div>
+    
+    <h2>默认Props</h2>
+    <p>如果定义了静态<code>defaultProps</code>属性，它将用于补全从父组件接收的props（如果缺少）：</p>
+    
+    <div class="code-block">
+        <pre><code>class Counter extends owl.Component {
+  static defaultProps = {
+    initialValue: 0,
+  };
+  ...
+}</code></pre>
+    </div>
+    
+    <p>在上面的例子中，<code>initialValue</code>属性默认设置为0。</p>
+    
+    <h2>Props验证</h2>
+    <p>随着应用程序变得复杂，以非正式方式定义props可能会变得不安全。这导致两个问题：</p>
+    <ul>
+        <li>通过查看组件代码，很难判断应该如何使用组件</li>
+        <li>不安全，在重构组件或其父组件时，很容易向组件发送错误的props</li>
+    </ul>
+    
+    <p>props类型系统解决了这两个问题，通过描述props的类型和形状。以下是Owl中props验证的工作原理：</p>
+    
+    <ul>
+        <li><code>props</code>是一个静态键（所以，与组件实例中的<code>this.props</code>不同）</li>
+        <li>它是可选的：组件可以不定义<code>props</code>键</li>
+        <li>props在组件创建/更新时进行验证</li>
+        <li>props仅在<code>dev</code>模式下验证</li>
+        <li>如果键与描述不匹配，将抛出错误</li>
+        <li>它验证（静态）<code>props</code>中定义的键。父级给出的额外键将导致错误（除非存在特殊的<code>*</code>prop）</li>
+        <li>它是一个对象或字符串列表</li>
+        <li>字符串列表是简化的props定义，只列出props的名称。此外，如果名称以<code>?</code>结尾，则被视为可选</li>
+        <li>所有props默认是必需的，除非它们使用<code>optional: true</code>定义（在这种情况下，只有在有值时才进行验证）</li>
+        <li>有效类型是：<code>Number, String, Boolean, Object, Array, Date, Function</code>，以及所有构造函数（所以，如果你有一个<code>Person</code>类，它可以用作类型）</li>
+        <li>数组是同质的（所有元素具有相同的类型/形状）</li>
+    </ul>
+    
+    <p>对于每个键，<code>prop</code>定义可以是布尔值、构造函数、构造函数列表或对象：</p>
+    
+    <ul>
+        <li>布尔值：表示props存在，且是必需的</li>
+        <li>构造函数：描述类型，例如：<code>id: Number</code>描述<code>id</code>为数字</li>
+        <li>描述值类型的对象。这通过使用<code>value</code>键完成。例如，<code>{value: false}</code>指定相应的值应该等于false</li>
+        <li>构造函数列表。在这种情况下，这意味着我们允许多种类型。例如，<code>id: [Number, String]</code>意味着<code>id</code>可以是字符串或数字</li>
+        <li>对象。这使得定义更具表现力。以下子键是允许的（但不是强制的）：
+            <ul>
+                <li><code>type</code>：prop被验证的主要类型</li>
+                <li><code>element</code>：如果类型是<code>Array</code>，则<code>element</code>键描述数组中每个元素的类型。如果未设置，我们只验证数组，不验证其元素</li>
+                <li><code>shape</code>：如果类型是<code>Object</code>，则<code>shape</code>键描述对象的接口。如果未设置，我们只验证对象，不验证其元素</li>
+                <li><code>values</code>：如果类型是<code>Object</code>，则<code>values</code>键描述对象中值的接口，这允许验证用作映射的对象，其中键事先不知道但值的形状是已知的</li>
+                <li><code>validate</code>：这是一个函数，应返回布尔值以确定值是否有效。对于自定义验证逻辑很有用</li>
+                <li><code>optional</code>：如果为true，prop不是必需的</li>
+            </ul>
+        </li>
+    </ul>
+    
+    <p>特殊的<code>*</code>prop表示允许额外的prop。这对于将一些或所有prop传播到子组件的通用组件有时很有用。</p>
+    
+    <div class="warning">
+        <strong>注意：</strong>不能为必需的prop定义默认值。这样做将导致prop验证错误。
+    </div>
+    
+    <h2>Props验证示例</h2>
+    
+    <div class="code-block">
+        <pre><code>class ComponentA extends owl.Component {
+    static props = ['id', 'url'];
+    // ...
+}
+
+class ComponentB extends owl.Component {
+  static props = {
+    count: {type: Number},
+    messages: {
+      type: Array,
+      element: {type: Object, shape: {id: Boolean, text: String }}
+    },
+   date: Date,
+   combinedVal: [Number, Boolean],
+   optionalProp: { type: Number, optional: true }
+  };
+  // ...
+}</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>// 只记录这3个键的存在
+static props = ['message', 'id', 'date'];</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>// 只记录这3个键的存在。允许任何其他键。
+static props = ['message', 'id', 'date', '*'];</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>// size是可选的
+static props = ['message', 'size?'];</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>static props = {
+  messageIds: {type: Array, element: Number},  // 数字列表
+  otherArr: {type: Array},   // 仅数组。不对子元素进行验证
+  otherArr2: Array,   // 与otherArr相同
+  someObj: {type: Object},  // 仅对象，无内部验证
+  someObj2: {
+    type: Object,
+    shape: {
+      id: Number,
+      name: {type: String, optional: true},
+      url: String
+    }
+  },  // 具有id（数字）、name（字符串，可选）和url（字符串）键的对象
+  someObj3: {
+    type: Object,
+    values: { type: Array, element: String },
+  }, // 具有任意键的对象，其值是字符串数组
+  someFlag: Boolean,     // 布尔值，必需（即使为`false`）
+  someVal: [Boolean, Date],   // 布尔值或日期
+  otherValue: true,     // 表示它是一个prop
+  kindofsmallnumber: {
+    type: Number,
+    validate: n => (0 <= n && n <= 10)
+  },
+  size: {
+    validate: e => ["small", "medium", "large"].includes(e)
+  },
+  someId: [Number, {value: false}], // 数字或false
+};</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <p><code>props</code>对象是从父组件收到的值的集合。因此，它们由父组件拥有，子组件不应该修改它们：</p>
+    
+    <div class="code-block">
+        <pre><code>class MyComponent extends Component {
+  constructor(parent, props) {
+    super(parent, props);
+    props.a.b = 43; // 永远不要这样做！！！
+  }
+}</code></pre>
+    </div>
+    
+    <p>Props应该被视为只读的，从子组件的角度来看。如果需要修改它们，应该将更新请求发送给父组件（例如，通过事件）。</p>
+    
+    <p>任何值都可以放入props中。字符串、对象、类，甚至回调都可以传给子组件（但在回调的情况下，通过事件通信似乎更合适）。</p>
+    
+    <h2>在Odoo 18中的应用</h2>
+    <p>在Odoo 18中，props系统被广泛用于构建可复用的UI组件。以下是一些实际应用示例：</p>
+    
+    <h3>示例1：通用按钮组件</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript
+class Button extends Component {
+  static template = xml`
+    &lt;button 
+      t-att-class="getClasses()"
+      t-on-click="handleClick"
+      t-att-disabled="props.disabled"&gt;
+      &lt;t t-if="props.icon" t-component="props.icon"/&gt;
+      &lt;span t-if="props.label"&gt;&lt;t t-esc="props.label"/&gt;&lt;/span&gt;
+      &lt;t t-slot="default"/&gt;
+    &lt;/button&gt;
+  `;
+  
+  static props = {
+    type: { 
+      validate: t => ["primary", "secondary", "success", "danger", "link"].includes(t),
+      default: "primary"
+    },
+    size: { 
+      validate: s => ["small", "medium", "large"].includes(s),
+      default: "medium"
+    },
+    icon: { type: Function, optional: true },
+    label: { type: String, optional: true },
+    disabled: { type: Boolean, default: false },
+    onClick: { type: Function, optional: true }
+  };
+  
+  getClasses() {
+    const classes = [`btn btn-${this.props.type}`];
+    if (this.props.size !== "medium") {
+      classes.push(this.props.size === "small" ? "btn-sm" : "btn-lg");
+    }
+    return classes.join(" ");
+  }
+  
+  handleClick(event) {
+    if (this.props.onClick) {
+      this.props.onClick(event);
+    }
+  }
+}</code></pre>
+    </div>
+    
+    <p>使用示例：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;Button 
+  type="success" 
+  size="large" 
+  label="保存" 
+  icon="SaveIcon"
+  onClick.bind="saveRecord"/&gt;</code></pre>
+    </div>
+    
+    <h3>示例2：数据列表组件</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript
+class DataList extends Component {
+  static template = xml`
+    &lt;div class="o_data_list"&gt;
+      &lt;div t-if="props.title" class="o_data_list_header"&gt;
+        &lt;h3&gt;&lt;t t-esc="props.title"/&gt;&lt;/h3&gt;
+      &lt;/div&gt;
+      
+      &lt;div t-if="!props.items.length" class="o_data_list_empty"&gt;
+        &lt;p&gt;&lt;t t-esc="props.emptyMessage || '没有数据可显示'"/&gt;&lt;/p&gt;
+      &lt;/div&gt;
+      
+      &lt;ul t-else class="o_data_list_content"&gt;
+        &lt;t t-foreach="props.items" t-as="item" t-key="item[props.keyField]"&gt;
+          &lt;li class="o_data_list_item" t-on-click="() => this.onItemClick(item)"&gt;
+            &lt;t t-slot="item" t-slot-scope="{ item }"&gt;
+              &lt;span&gt;&lt;t t-esc="item[props.displayField]"/&gt;&lt;/span&gt;
+            &lt;/t&gt;
+          &lt;/li&gt;
+        &lt;/t&gt;
+      &lt;/ul&gt;
+    &lt;/div&gt;
+  `;
+  
+  static props = {
+    items: { type: Array, element: Object },
+    keyField: { type: String, default: "id" },
+    displayField: { type: String, default: "name" },
+    title: { type: String, optional: true },
+    emptyMessage: { type: String, optional: true },
+    onItemSelect: { type: Function, optional: true }
+  };
+  
+  onItemClick(item) {
+    if (this.props.onItemSelect) {
+      this.props.onItemSelect(item);
+    }
+  }
+}</code></pre>
+    </div>
+    
+    <p>使用示例：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;DataList 
+  items="state.partners" 
+  keyField="partner_id"
+  displayField="display_name"
+  title="合作伙伴列表"
+  emptyMessage="暂无合作伙伴"
+  onItemSelect.bind="selectPartner"&gt;
+  &lt;t t-slot="item" t-slot-scope="{ item }"&gt;
+    &lt;div class="partner-item"&gt;
+      &lt;img t-att-src="item.image_url" alt="Avatar"/&gt;
+      &lt;div&gt;
+        &lt;strong&gt;&lt;t t-esc="item.display_name"/&gt;&lt;/strong&gt;
+        &lt;p&gt;&lt;t t-esc="item.email"/&gt;&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/t&gt;
+&lt;/DataList&gt;</code></pre>
+    </div>
+    
+    <h2>最佳实践总结</h2>
+    <ul>
+        <li>在子组件中始终将props视为只读，不要修改它们</li>
+        <li>使用props验证系统提高组件接口的清晰度和安全性</li>
+        <li>对于组件接口中的每个prop提供清晰的文档</li>
+        <li>只传递子组件真正需要的props，避免过度传递</li>
+        <li>使用<code>.bind</code>后缀简化回调函数传递</li>
+        <li>使用<code>.alike</code>后缀避免不必要的重新渲染</li>
+        <li>考虑使用<code>.translate</code>后缀处理需要国际化的字符串</li>
+        <li>为可选props提供合理的默认值</li>
+    </ul>
+    
+    <div class="note">
+        <strong>Odoo 18中的提示：</strong>在构建Odoo 18自定义模块时，充分利用Owl的props系统可以大大提高组件的可维护性和可重用性。特别是props验证功能可以减少由于API误用导致的运行时错误。
+    </div>
+</body>
+</html> 

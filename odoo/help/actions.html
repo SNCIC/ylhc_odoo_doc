@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo动作系统解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo动作系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>动作（Actions）是Odoo框架中的一个核心概念，用于定义系统行为和用户交互。动作可以启动窗口、执行URL跳转、运行服务器代码、生成报表等。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>动作是Odoo中连接用户界面与业务逻辑的桥梁，通过不同类型的动作，可以实现丰富的交互体验。
+    </div>
+    
+    <h2>主要动作类型</h2>
+    <ol>
+        <li><strong>窗口动作（Window Actions）</strong>：打开表单、列表、看板等视图</li>
+        <li><strong>URL动作（URL Actions）</strong>：重定向到特定URL</li>
+        <li><strong>服务器动作（Server Actions）</strong>：在服务器端执行Python代码</li>
+        <li><strong>报表动作（Report Actions）</strong>：生成和打印报表</li>
+        <li><strong>客户端动作（Client Actions）</strong>：执行客户端（JavaScript）代码</li>
+        <li><strong>计划动作（Scheduled Actions）</strong>：自动定时执行的动作</li>
+    </ol>
+    
+    <h2>动作绑定（Bindings）</h2>
+    <p>动作可以绑定到特定的模型，以便在特定上下文中显示。动作绑定通常通过以下字段配置：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_action" model="ir.actions.act_window"&gt;
+    ...
+    &lt;field name="binding_model_id" ref="model_my_model"/&gt;
+    &lt;field name="binding_type"&gt;action&lt;/field&gt;
+    &lt;field name="binding_view_types"&gt;form,list&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>绑定属性解释</h3>
+    <ul>
+        <li><code>binding_model_id</code>：动作绑定的模型</li>
+        <li><code>binding_type</code>：绑定类型（如 <code>action</code>，<code>report</code>）</li>
+        <li><code>binding_view_types</code>：显示动作的视图类型（如表单、列表等）</li>
+    </ul>
+    
+    <h2>窗口动作（ir.actions.act_window）</h2>
+    <p>窗口动作是最常用的动作类型，用于打开记录视图。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="action_partners" model="ir.actions.act_window"&gt;
+    &lt;field name="name"&gt;客户和供应商&lt;/field&gt;
+    &lt;field name="res_model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="view_mode"&gt;tree,form,kanban&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>窗口动作字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>动作名称，显示在UI上</td>
+            <td>客户和供应商</td>
+        </tr>
+        <tr>
+            <td>res_model</td>
+            <td>操作的目标模型</td>
+            <td>res.partner</td>
+        </tr>
+        <tr>
+            <td>view_mode</td>
+            <td>可用视图类型及顺序</td>
+            <td>tree,form,kanban</td>
+        </tr>
+        <tr>
+            <td>domain</td>
+            <td>筛选域</td>
+            <td>[('customer_rank', '>', 0)]</td>
+        </tr>
+        <tr>
+            <td>context</td>
+            <td>上下文字典</td>
+            <td>{'default_customer_rank': 1}</td>
+        </tr>
+        <tr>
+            <td>res_id</td>
+            <td>特定记录ID（如果要直接打开特定记录）</td>
+            <td>14</td>
+        </tr>
+        <tr>
+            <td>target</td>
+            <td>打开方式（current, new, inline, fullscreen, main）</td>
+            <td>new</td>
+        </tr>
+        <tr>
+            <td>view_id</td>
+            <td>特定视图的ID</td>
+            <td>view_partner_form</td>
+        </tr>
+        <tr>
+            <td>search_view_id</td>
+            <td>特定搜索视图的ID</td>
+            <td>view_partner_filter</td>
+        </tr>
+    </table>
+    
+    <h2>URL动作（ir.actions.act_url）</h2>
+    <p>URL动作用于重定向到特定URL。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="action_website" model="ir.actions.act_url"&gt;
+    &lt;field name="name"&gt;官方网站&lt;/field&gt;
+    &lt;field name="url"&gt;https://www.odoo.com&lt;/field&gt;
+    &lt;field name="target"&gt;new&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>URL动作字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>动作名称</td>
+        </tr>
+        <tr>
+            <td>url</td>
+            <td>目标URL</td>
+        </tr>
+        <tr>
+            <td>target</td>
+            <td>目标窗口（self, new）</td>
+        </tr>
+    </table>
+    
+    <h2>服务器动作（ir.actions.server）</h2>
+    <p>服务器动作在服务器端执行Python代码，是自动化业务流程的重要工具。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record model="ir.actions.server" id="print_instance"&gt;
+    &lt;field name="name"&gt;伙伴服务器动作&lt;/field&gt;
+    &lt;field name="model_id" ref="model_res_partner"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;
+        raise Warning(record.name)
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>服务器动作状态类型</h3>
+    <ul>
+        <li><code>code</code>：执行Python代码</li>
+        <li><code>object_create</code>：创建新记录</li>
+        <li><code>object_write</code>：更新当前记录</li>
+        <li><code>multi</code>：执行多个子动作</li>
+    </ul>
+    
+    <h3>状态字段</h3>
+    
+    <p>根据状态的不同，服务器动作的行为通过不同的字段定义：</p>
+    
+    <h4><code>code</code>（代码）</h4>
+    <p>指定当动作被调用时要执行的Python代码片段</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record model="ir.actions.server" id="print_instance"&gt;
+    &lt;field name="name"&gt;伙伴服务器动作&lt;/field&gt;
+    &lt;field name="model_id" ref="model_res_partner"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;
+        raise Warning(record.name)
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>注解</strong>
+        <p>代码段可以定义一个名为<code>action</code>的变量，该变量将返回给客户端作为下一个要执行的动作：</p>
+        
+        <div class="code-block">
+            <pre><code>&lt;record model="ir.actions.server" id="print_instance"&gt;
+    &lt;field name="name"&gt;伙伴服务器动作&lt;/field&gt;
+    &lt;field name="model_id" ref="model_res_partner"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;
+        if record.some_condition():
+            action = {
+                "type": "ir.actions.act_window",
+                "view_mode": "form",
+                "res_model": record._name,
+                "res_id": record.id,
+            }
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+        </div>
+        
+        <p>这将要求客户端在记录满足某些条件时为该记录打开一个表单</p>
+    </div>
+    
+    <h4><code>crud_model_id</code>（创建）（必填）</h4>
+    <p>创建新记录的模型</p>
+    
+    <h4><code>link_field_id</code>（创建）</h4>
+    <p>指向<code>ir.model.fields</code>的many2one，指定当前记录的m2o字段，新创建的记录应该被设置在该字段上（模型应该匹配）</p>
+    
+    <h4><code>fields_lines</code>（创建/写入）</h4>
+    <p>创建或复制记录时要覆盖的字段。具有以下字段的One2many：</p>
+    
+    <ul>
+        <li><code>col1</code>：要在相关模型中设置的<code>ir.model.fields</code>（创建时为<code>crud_model_id</code>，更新时为<code>model_id</code>）</li>
+        <li><code>value</code>：字段的值，通过<code>type</code>解释</li>
+        <li><code>type</code>（value|reference|equation）：
+            <ul>
+                <li>如果为<code>value</code>，则<code>value</code>字段被解释为字面值（可能被转换）</li>
+                <li>如果为<code>equation</code>，则<code>value</code>字段被解释为Python表达式并计算</li>
+            </ul>
+        </li>
+    </ul>
+    
+    <h4><code>child_ids</code>（多个）</h4>
+    <p>指定在multi状态下要执行的多个子动作（<code>ir.actions.server</code>）。如果子动作本身返回动作，最后一个将作为multi自己的下一个动作返回给客户端</p>
+    
+    <h3>评估上下文</h3>
+    <p>在服务器动作的代码执行环境中，可以使用以下变量：</p>
+    
+    <ul>
+        <li><code>model</code>：通过<code>model_id</code>链接到动作的模型对象</li>
+        <li><code>record</code>/<code>records</code>：触发动作的记录/记录集，可以为空</li>
+        <li><code>env</code>：Odoo环境</li>
+        <li><code>datetime</code>, <code>dateutil</code>, <code>time</code>, <code>timezone</code>：对应的Python模块</li>
+        <li><code>log: log(message, level='info')</code>：在ir.logging表中记录调试信息的日志函数</li>
+        <li><code>Warning</code>：<code>Warning</code>异常的构造函数</li>
+    </ul>
+    
+    <h2>报表动作（ir.actions.report）</h2>
+    <p>报表动作触发报表的打印。</p>
+    
+    <p>如果您通过<code>&lt;record&gt;</code>而不是<code>&lt;report&gt;</code>标签定义您的报表，并且希望该动作显示在模型视图的打印菜单中，您还需要指定来自绑定的<code>binding_model_id</code>。无需将<code>binding_type</code>设置为<code>report</code>，因为<code>ir.actions.report</code>会隐式默认为该值。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="action_report_partner" model="ir.actions.report"&gt;
+    &lt;field name="name"&gt;伙伴信息表&lt;/field&gt;
+    &lt;field name="model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="report_type"&gt;qweb-pdf&lt;/field&gt;
+    &lt;field name="report_name"&gt;my_module.report_partner_template&lt;/field&gt;
+    &lt;field name="binding_model_id" ref="model_res_partner"/&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>报表动作字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name（必填）</td>
+            <td>如果未指定<code>print_report_name</code>，则用作文件名。否则，仅作为查看报表列表时的助记符/描述</td>
+        </tr>
+        <tr>
+            <td>model（必填）</td>
+            <td>报表将关联的模型</td>
+        </tr>
+        <tr>
+            <td>report_type（默认=qweb-pdf）</td>
+            <td>PDF报表为<code>qweb-pdf</code>，HTML报表为<code>qweb-html</code></td>
+        </tr>
+        <tr>
+            <td>report_name（必填）</td>
+            <td>用于渲染报表的qweb模板的名称（外部ID）</td>
+        </tr>
+        <tr>
+            <td>print_report_name</td>
+            <td>定义报表名称的Python表达式</td>
+        </tr>
+        <tr>
+            <td>groups_id</td>
+            <td>允许查看/使用当前报表的组的Many2many字段</td>
+        </tr>
+        <tr>
+            <td>multi</td>
+            <td>如果设置为<code>True</code>，该动作将不会显示在表单视图上</td>
+        </tr>
+        <tr>
+            <td>paperformat_id</td>
+            <td>您希望为此报表使用的纸张格式的Many2one字段（如果未指定，将使用公司格式）</td>
+        </tr>
+        <tr>
+            <td>attachment_use</td>
+            <td>如果设置为<code>True</code>，报表仅在首次请求时生成一次，之后从存储的报表中重新打印，而不是每次都重新生成</td>
+        </tr>
+        <tr>
+            <td>attachment</td>
+            <td>定义报表名称的Python表达式；可以通过变量<code>object</code>访问记录</td>
+        </tr>
+    </table>
+    
+    <h2>客户端动作（ir.actions.client）</h2>
+    <p>客户端动作触发完全在客户端实现的动作。</p>
+    
+    <div class="code-block">
+        <pre><code>{
+    "type": "ir.actions.client",
+    "tag": "pos.ui"
+}</code></pre>
+    </div>
+    
+    <p>告诉客户端启动销售点界面，服务器不了解POS界面的工作原理。</p>
+    
+    <h3>客户端动作字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>tag</td>
+            <td>动作的客户端标识符，一个客户端应该知道如何响应的任意字符串</td>
+        </tr>
+        <tr>
+            <td>params（可选）</td>
+            <td>除客户端动作标签外，发送给客户端的额外数据的Python字典</td>
+        </tr>
+        <tr>
+            <td>target（可选）</td>
+            <td>客户端动作是应该在主内容区域（<code>current</code>）中打开，还是在全屏模式（<code>fullscreen</code>）中打开，或在对话框/弹出窗口（<code>new</code>）中打开。使用<code>main</code>而不是<code>current</code>来清除面包屑。默认为<code>current</code></td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>参见</strong>
+        <ul>
+            <li>教程：客户端动作</li>
+        </ul>
+    </div>
+    
+    <h2>计划动作（ir.cron）</h2>
+    <p>在预定义频率上自动触发的动作。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="ir_cron_demo" model="ir.cron"&gt;
+    &lt;field name="name"&gt;每日数据同步&lt;/field&gt;
+    &lt;field name="model_id" ref="model_res_partner"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;model._cron_sync_data()&lt;/field&gt;
+    &lt;field name="interval_number"&gt;1&lt;/field&gt;
+    &lt;field name="interval_type"&gt;days&lt;/field&gt;
+    &lt;field name="numbercall"&gt;-1&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>计划动作字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>计划动作的名称（主要用于日志显示）</td>
+        </tr>
+        <tr>
+            <td>interval_number</td>
+            <td>动作两次执行之间的_interval_type_单位数量</td>
+        </tr>
+        <tr>
+            <td>interval_type</td>
+            <td>频率间隔的计量单位（<code>minutes</code>, <code>hours</code>, <code>days</code>, <code>weeks</code>, <code>months</code>）</td>
+        </tr>
+        <tr>
+            <td>model_id</td>
+            <td>将在其上调用此动作的模型</td>
+        </tr>
+        <tr>
+            <td>code</td>
+            <td>动作的代码内容。可以是对模型方法的简单调用：model.<method_name>()</td>
+        </tr>
+        <tr>
+            <td>nextcall</td>
+            <td>此动作的下一个计划执行日期（日期/时间格式）</td>
+        </tr>
+        <tr>
+            <td>priority</td>
+            <td>同时执行多个动作时的动作优先级</td>
+        </tr>
+    </table>
+    
+    <h3>高级用法：批处理</h3>
+    <p>执行计划动作时，建议尝试批量处理进度，以避免长时间占用工作线程，并可能遇到超时异常。</p>
+    
+    <p>Odoo为计划动作批处理提供了一个简单的API：</p>
+    
+    <div class="code-block">
+        <pre><code>self.env['ir.cron']._notify_progress(done=XX:int, remaining=XX:int)</code></pre>
+    </div>
+    
+    <p>此方法允许调度程序知道是否取得了进展，以及是否还有剩余工作需要完成。</p>
+    
+    <p>默认情况下，如果使用API，调度程序会尝试在一次会话中处理10个批次。如果这10个批次后仍有剩余任务，将尽快执行新的cron调用。</p>
+    
+    <h3>高级用法：触发器</h3>
+    <p>对于更复杂的用例，Odoo提供了一种更高级的方式，直接从业务代码触发计划动作。</p>
+    
+    <div class="code-block">
+        <pre><code>action_record._trigger(at=XX:date)</code></pre>
+    </div>
+    
+    <h3>安全</h3>
+    <p>为了避免计划动作之间的资源公平使用，一些安全措施确保了计划动作的正确运行。</p>
+    
+    <ul>
+        <li>如果计划动作连续三次遇到错误或超时，它将跳过当前执行并被视为失败。</li>
+        <li>如果计划动作在至少七天的时间内连续五次执行失败，它将被停用并通知数据库管理员。</li>
+    </ul>
+</body>
+</html> 

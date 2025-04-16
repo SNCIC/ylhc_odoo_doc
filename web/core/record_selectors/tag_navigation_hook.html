@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo标签导航钩子解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo标签导航钩子解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>tag_navigation_hook.js</code>是Odoo框架中的一个专用钩子函数，旨在为标签列表提供键盘导航功能。它允许用户通过键盘在标签之间导航，并支持删除标签的操作。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>标签导航钩子是Odoo中提升用户体验的重要组件，特别是对于多记录选择器。它使用户可以轻松地通过键盘在标签之间移动，而无需使用鼠标，极大地提高了操作效率和可访问性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>键盘标签导航</strong>：允许用户使用左右箭头键在标签之间导航</li>
+        <li><strong>焦点管理</strong>：在标签和输入框之间智能切换焦点</li>
+        <li><strong>标签删除</strong>：支持使用退格键（Backspace）删除标签</li>
+        <li><strong>输入法兼容</strong>：良好地处理输入法编辑状态</li>
+        <li><strong>事件处理</strong>：防止默认浏览器行为和事件冒泡</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>useTagNavigation钩子函数的设计精简而强大，通过DOM操作和事件监听提供了完整的键盘导航体验：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * This hook allows to navigate between tags in a record selector. It also
+ * allows to delete tags with the backspace key.
+ * It is meant to be used in component which contains both the components
+ * `Autocomplete` and `TagList`.
+ *
+ * @param {string} refName Name of the t-ref which contains the `Autocomplete` and `TagList` components.
+ * @param {Function} deleteTag Function to be called when a tag is deleted. It should take the index of the tag to delete as parameter.
+ * @returns {Function} Function to be called when a tag is focused and a key is pressed. It should be passed to the `onKeydown` prop of the `Tag` component.
+ */
+export function useTagNavigation(refName, deleteTag) {
+    const ref = useRef(refName);
+
+    useEffect(
+        (autocomplete) => {
+            if (!autocomplete) {
+                return;
+            }
+            autocomplete.addEventListener("keydown", onAutoCompleteKeydown);
+            return () => {
+                autocomplete.removeEventListener("keydown", onAutoCompleteKeydown);
+            };
+        },
+        () => [ref.el?.querySelector(".o-autocomplete")]
+    );
+
+    /**
+     * Focus the tag at the given index. If no index is given, focus the rightmost tag.
+     * @param {number|undefined} index Index of the tag to focus. If undefined, focus the rightmost tag.
+     */
+    function focusTag(index) {
+        const tags = ref.el.getElementsByClassName("o_tag");
+        if (tags.length) {
+            if (index === undefined) {
+                tags[tags.length - 1].focus();
+            } else {
+                tags[index].focus();
+            }
+        }
+    }
+
+    /**
+     * Function to be called when a key is pressed in the `Autocomplete` component.
+     *
+     * @param {Event} ev
+     */
+    function onAutoCompleteKeydown(ev) {
+        if (ev.isComposing) {
+            // This case happens with an IME for example: we let it handle all key events.
+            return;
+        }
+        const hotkey = getActiveHotkey(ev);
+        const input = ev.target.closest(".o-autocomplete--input");
+        const autoCompleteMenuOpened = !!ref.el.querySelector(".o-autocomplete--dropdown-menu");
+        switch (hotkey) {
+            case "arrowleft": {
+                if (input.selectionStart || autoCompleteMenuOpened) {
+                    return;
+                }
+                // focus rightmost tag if any.
+                focusTag();
+                break;
+            }
+            case "arrowright": {
+                if (input.selectionStart !== input.value.length || autoCompleteMenuOpened) {
+                    return;
+                }
+                // focus leftmost tag if any.
+                focusTag(0);
+                break;
+            }
+            case "backspace": {
+                if (input.value) {
+                    return;
+                }
+                const tags = ref.el.getElementsByClassName("o_tag");
+                if (tags.length) {
+                    deleteTag(tags.length - 1);
+                }
+                break;
+            }
+            default:
+                return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+
+    /**
+     * Function to be called when a key is pressed in the `Tag` component.
+     * It should be passed to the `onKeydown` prop of the `Tag` component.
+     *
+     * @param {Event} ev
+     */
+    function onTagKeydown(ev) {
+        const hotkey = getActiveHotkey(ev);
+        const tags = [...ref.el.getElementsByClassName("o_tag")];
+        const closestTag = ev.target.closest(".o_tag");
+        const tagIndex = tags.indexOf(closestTag);
+        const input = ref.el.querySelector(".o-autocomplete--input");
+        switch (hotkey) {
+            case "arrowleft": {
+                if (tagIndex === 0) {
+                    input.focus();
+                } else {
+                    focusTag(tagIndex - 1);
+                }
+                break;
+            }
+            case "arrowright": {
+                if (tagIndex === tags.length - 1) {
+                    input.focus();
+                } else {
+                    focusTag(tagIndex + 1);
+                }
+                break;
+            }
+            case "backspace": {
+                input.focus();
+                deleteTag(tagIndex);
+                break;
+            }
+            default:
+                return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+
+    return onTagKeydown;
+}</code></pre>
+    </div>
+    
+    <h3>参数解释</h3>
+    <ul>
+        <li><code>refName</code>：包含Autocomplete和TagList组件的引用名称</li>
+        <li><code>deleteTag</code>：删除标签时调用的函数，接收标签索引作为参数</li>
+    </ul>
+    
+    <h3>返回值</h3>
+    <p>钩子函数返回<code>onTagKeydown</code>函数，该函数应该传递给Tag组件的<code>onKeydown</code>属性。</p>
+    
+    <h3>方法详解</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>参数</th>
+            <th>返回值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>useTagNavigation</td>
+            <td>refName, deleteTag</td>
+            <td>Function</td>
+            <td>钩子函数，设置事件监听并返回标签键盘事件处理函数</td>
+        </tr>
+        <tr>
+            <td>focusTag</td>
+            <td>index (可选)</td>
+            <td>void</td>
+            <td>聚焦指定索引的标签，如果不指定则聚焦最右侧标签</td>
+        </tr>
+        <tr>
+            <td>onAutoCompleteKeydown</td>
+            <td>ev</td>
+            <td>void</td>
+            <td>处理Autocomplete组件的键盘事件</td>
+        </tr>
+        <tr>
+            <td>onTagKeydown</td>
+            <td>ev</td>
+            <td>void</td>
+            <td>处理Tag组件的键盘事件</td>
+        </tr>
+    </table>
+    
+    <h2>工作原理</h2>
+    <p>标签导航钩子的工作原理可以分为以下几个方面：</p>
+    
+    <h3>1. 事件监听设置</h3>
+    <p>钩子使用<code>useEffect</code>在挂载时为Autocomplete组件添加键盘事件监听器，并在卸载时移除它：</p>
+    <div class="code-block">
+        <pre><code>useEffect(
+    (autocomplete) => {
+        if (!autocomplete) {
+            return;
+        }
+        autocomplete.addEventListener("keydown", onAutoCompleteKeydown);
+        return () => {
+            autocomplete.removeEventListener("keydown", onAutoCompleteKeydown);
+        };
+    },
+    () => [ref.el?.querySelector(".o-autocomplete")]
+);</code></pre>
+    </div>
+    
+    <h3>2. 输入框的键盘处理</h3>
+    <p>当用户在输入框中按下键盘时，<code>onAutoCompleteKeydown</code>函数处理以下情况：</p>
+    <ul>
+        <li><strong>左箭头键</strong>：当光标在输入框的开始位置且下拉菜单未打开时，聚焦最右侧的标签</li>
+        <li><strong>右箭头键</strong>：当光标在输入框的结束位置且下拉菜单未打开时，聚焦最左侧的标签</li>
+        <li><strong>退格键</strong>：当输入框为空时，删除最右侧的标签</li>
+    </ul>
+    
+    <h3>3. 标签的键盘处理</h3>
+    <p>当用户在标签上按下键盘时，<code>onTagKeydown</code>函数处理以下情况：</p>
+    <ul>
+        <li><strong>左箭头键</strong>：聚焦前一个标签，如果是第一个标签则聚焦输入框</li>
+        <li><strong>右箭头键</strong>：聚焦后一个标签，如果是最后一个标签则聚焦输入框</li>
+        <li><strong>退格键</strong>：删除当前标签并聚焦输入框</li>
+    </ul>
+    
+    <h3>4. 输入法兼容</h3>
+    <p>钩子特别处理了输入法编辑状态，通过检查<code>ev.isComposing</code>属性来避免干扰输入法的工作：</p>
+    <div class="code-block">
+        <pre><code>if (ev.isComposing) {
+    // This case happens with an IME for example: we let it handle all key events.
+    return;
+}</code></pre>
+    </div>
+    
+    <h2>使用场景示例</h2>
+    
+    <h3>示例1：在多记录选择器中使用</h3>
+    <div class="code-block">
+        <pre><code>class MultiRecordSelector extends Component {
+    setup() {
+        this.state = useState({
+            selectedIds: [1, 2, 3],
+        });
+        this.onTagKeydown = useTagNavigation("multiSelector", this.deleteTag.bind(this));
+    }
+    
+    deleteTag(index) {
+        this.state.selectedIds.splice(index, 1);
+    }
+    
+    render() {
+        return xml`
+            &lt;div t-ref="multiSelector"&gt;
+                &lt;AutoComplete
+                    ... 其他属性 ...
+                /&gt;
+                &lt;TagsList
+                    tags="this.getTags()"
+                    onTagKeydown="this.onTagKeydown"
+                /&gt;
+            &lt;/div&gt;
+        `;
+    }
+    
+    getTags() {
+        // 将selectedIds转换为Tag组件需要的格式
+        return this.state.selectedIds.map((id, index) => ({
+            id,
+            text: `记录 ${id}`,
+            onDelete: () => this.deleteTag(index),
+            onKeydown: this.onTagKeydown,
+        }));
+    }
+}</code></pre>
+    </div>
+    <p>这个例子展示了如何在多记录选择器组件中使用标签导航钩子，实现标签的键盘导航和删除功能。</p>
+    
+    <h3>示例2：自定义键盘行为</h3>
+    <div class="code-block">
+        <pre><code>class CustomTagSelector extends Component {
+    setup() {
+        this.state = useState({
+            tags: ["标签1", "标签2", "标签3"],
+        });
+        
+        this.onTagKeydown = useTagNavigation("customSelector", (index) => {
+            // 自定义的删除行为，可以添加确认等逻辑
+            if (confirm(`确定要删除标签"${this.state.tags[index]}"吗？`)) {
+                this.deleteTag(index);
+            }
+        });
+    }
+    
+    deleteTag(index) {
+        this.state.tags.splice(index, 1);
+    }
+    
+    render() {
+        return xml`
+            &lt;div t-ref="customSelector"&gt;
+                &lt;AutoComplete
+                    ... 其他属性 ...
+                /&gt;
+                &lt;TagsList
+                    tags="this.getTags()"
+                /&gt;
+            &lt;/div&gt;
+        `;
+    }
+    
+    getTags() {
+        return this.state.tags.map((tag, index) => ({
+            id: index,
+            text: tag,
+            onDelete: () => this.deleteTag(index),
+            onKeydown: this.onTagKeydown,
+        }));
+    }
+}</code></pre>
+    </div>
+    <p>这个例子展示了如何在使用标签导航钩子时自定义删除行为，添加确认对话框以防止意外删除。</p>
+    
+    <h3>示例3：复杂组件集成</h3>
+    <div class="code-block">
+        <pre><code>class AdvancedTagSelector extends Component {
+    setup() {
+        this.state = useState({
+            tags: [],
+            inputValue: "",
+        });
+        
+        this.onTagKeydown = useTagNavigation("advancedSelector", this.deleteTag.bind(this));
+    }
+    
+    deleteTag(index) {
+        this.state.tags.splice(index, 1);
+        this.notifyChange();
+    }
+    
+    addTag() {
+        if (this.state.inputValue.trim()) {
+            this.state.tags.push(this.state.inputValue.trim());
+            this.state.inputValue = "";
+            this.notifyChange();
+        }
+    }
+    
+    notifyChange() {
+        // 通知父组件标签已更改
+        this.props.onChange(this.state.tags);
+    }
+    
+    render() {
+        return xml`
+            &lt;div t-ref="advancedSelector" class="advanced-selector"&gt;
+                &lt;div class="d-flex align-items-center"&gt;
+                    &lt;input 
+                        type="text" 
+                        class="o-autocomplete--input form-control" 
+                        t-model="state.inputValue"
+                        placeholder="添加新标签..."
+                        t-on-keydown="onInputKeydown"
+                    /&gt;
+                    &lt;button class="btn btn-primary ms-2" t-on-click="addTag"&gt;添加&lt;/button&gt;
+                &lt;/div&gt;
+                
+                &lt;TagsList
+                    tags="this.getTags()"
+                    class="mt-2"
+                /&gt;
+            &lt;/div&gt;
+        `;
+    }
+    
+    onInputKeydown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.addTag();
+        }
+    }
+    
+    getTags() {
+        return this.state.tags.map((tag, index) => ({
+            id: index,
+            text: tag,
+            onDelete: () => this.deleteTag(index),
+            onKeydown: this.onTagKeydown,
+        }));
+    }
+}</code></pre>
+    </div>
+    <p>这个例子展示了如何在更复杂的组件中集成标签导航钩子，实现自定义输入、添加和删除标签的功能。</p>
+    
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>提示：</strong>在使用标签导航钩子时，请注意以下几点：
+        <ul>
+            <li>确保标签元素具有正确的CSS类名（<code>o_tag</code>），否则导航功能将无法工作</li>
+            <li>确保Autocomplete组件的输入元素具有正确的CSS类名（<code>o-autocomplete--input</code>）</li>
+            <li>为了保持一致的用户体验，遵循钩子提供的默认导航行为</li>
+            <li>当自定义删除逻辑时，确保在删除标签后焦点正确设置</li>
+            <li>考虑可访问性问题，确保键盘导航清晰可预测</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，标签导航钩子具有以下特性和改进：</p>
+    <ul>
+        <li>更好的输入法（IME）兼容性，特别是对于中文、日文和韩文输入法</li>
+        <li>更健壮的焦点管理，防止在导航过程中焦点丢失</li>
+        <li>与Autocomplete组件的更紧密集成，提供一致的用户体验</li>
+        <li>更好的事件处理，防止事件冒泡和默认浏览器行为干扰导航</li>
+        <li>对于长标签列表的优化处理，确保导航效率</li>
+    </ul>
+    
+    <h2>可访问性考虑</h2>
+    <p>标签导航钩子特别关注可访问性，为不同用户提供友好的交互体验：</p>
+    <ul>
+        <li>支持完全键盘导航，无需使用鼠标</li>
+        <li>遵循直觉的导航模式，左右箭头键在标签之间移动</li>
+        <li>在标签和输入框之间提供自然的焦点流转</li>
+        <li>提供明确的删除机制，使用退格键删除标签</li>
+        <li>防止键盘事件干扰输入法编辑，提高多语言支持</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>useTagNavigation钩子是Odoo中提供标签键盘导航功能的核心组件，它提供了：</p>
+    <ul>
+        <li>直观的标签键盘导航体验</li>
+        <li>简洁的实现方式，易于集成到不同组件中</li>
+        <li>良好的可访问性支持</li>
+        <li>与Autocomplete和TagsList组件的紧密集成</li>
+        <li>灵活的自定义能力，可根据需要调整行为</li>
+    </ul>
+    
+    <div class="note">
+        <strong>与其他组件的关系：</strong>useTagNavigation钩子主要与MultiRecordSelector组件配合使用，为多记录选择提供键盘导航功能。它依赖于Autocomplete和TagsList组件的DOM结构，通过引用访问这些组件的元素。
+    </div>
+</body>
+</html> 

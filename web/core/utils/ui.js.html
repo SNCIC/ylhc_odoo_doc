@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo UI工具函数解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo UI工具函数解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ui.js</code>是Odoo框架中的一个核心工具模块，提供了一系列用于DOM元素操作、位置计算和可访问性处理的实用函数。这些函数在Odoo的前端框架中被广泛使用，为开发者提供了处理UI交互的便捷工具。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>UI工具函数集合提供了处理DOM元素、计算元素位置、判断元素可见性以及管理标签顺序(tabbing)等功能，这些是构建高质量web应用界面的基础工具。
+    </div>
+    
+    <h2>主要功能分类</h2>
+    <ol>
+        <li><strong>元素位置计算</strong>：查找最近元素、计算元素间距离等</li>
+        <li><strong>元素可见性判断</strong>：检测DOM元素是否可见</li>
+        <li><strong>可访问性工具</strong>：获取可聚焦元素、管理Tab顺序等</li>
+        <li><strong>UI效果工具</strong>：为按钮添加加载效果等</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>1. 位置计算功能</h3>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef Position
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @param {Iterable<HTMLElement>} elements
+ * @param {Position} targetPos
+ * @returns {HTMLElement | null}
+ */
+export function closest(elements, targetPos) {
+    let closestEl = null;
+    let closestDistance = Infinity;
+    for (const el of elements) {
+        const rect = el.getBoundingClientRect();
+        const distance = getQuadrance(rect, targetPos);
+        if (!closestEl || distance < closestDistance) {
+            closestEl = el;
+            closestDistance = distance;
+        }
+    }
+    return closestEl;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>closest</code>函数用于在一组HTML元素中找出离指定位置最近的元素。这在实现拖放功能、上下文菜单或位置感知型UI组件时非常有用。</p>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>接收一组元素和目标位置坐标</li>
+        <li>遍历所有元素，计算每个元素与目标位置的距离</li>
+        <li>返回距离最小的元素</li>
+    </ol>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {DOMRect} rect
+ * @param {Position} pos
+ * @returns {number}
+ */
+export function getQuadrance(rect, pos) {
+    let q = 0;
+    if (pos.x < rect.x) {
+        q += (rect.x - pos.x) ** 2;
+    } else if (rect.x + rect.width < pos.x) {
+        q += (pos.x - (rect.x + rect.width)) ** 2;
+    }
+    if (pos.y < rect.y) {
+        q += (rect.y - pos.y) ** 2;
+    } else if (rect.y + rect.height < pos.y) {
+        q += (pos.y - (rect.y + rect.height)) ** 2;
+    }
+    return q;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>getQuadrance</code>函数计算点到矩形的平方距离（二次距离）。这是一种计算空间中两点距离的优化方法，避免了开平方运算。</p>
+    
+    <p><strong>使用场景：</strong></p>
+    <ul>
+        <li>拖放操作中确定目标元素</li>
+        <li>鼠标交互中找出最接近的可交互元素</li>
+        <li>实现空间分割算法时的距离计算</li>
+    </ul>
+    
+    <h3>2. 元素可见性判断</h3>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * rough approximation of a visible element. not perfect (does not take into
+ * account opacity = 0 for example), but good enough for our purpose
+ *
+ * @param {Element} el
+ * @returns {boolean}
+ */
+export function isVisible(el) {
+    if (el === document || el === window) {
+        return true;
+    }
+    if (!el) {
+        return false;
+    }
+    let _isVisible = false;
+    if ("offsetWidth" in el && "offsetHeight" in el) {
+        _isVisible = el.offsetWidth > 0 && el.offsetHeight > 0;
+    } else if ("getBoundingClientRect" in el) {
+        // for example, svgelements
+        const rect = el.getBoundingClientRect();
+        _isVisible = rect.width > 0 && rect.height > 0;
+    }
+    if (!_isVisible && getComputedStyle(el).display === "contents") {
+        for (const child of el.children) {
+            if (isVisible(child)) {
+                return true;
+            }
+        }
+    }
+    return _isVisible;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>isVisible</code>函数用于判断一个DOM元素是否可见。这是通过检查元素的尺寸是否大于零来实现的基本可见性检测。</p>
+    
+    <p><strong>注意事项：</strong></p>
+    <ul>
+        <li>此函数提供的是一种"近似"判断，不考虑<code>opacity: 0</code>、<code>visibility: hidden</code>等特殊情况</li>
+        <li>特别处理了<code>display: contents</code>的情况，这种情况下检查子元素的可见性</li>
+        <li>兼容标准HTML元素和SVG元素等特殊元素类型</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {Element} activeElement
+ * @param {String} selector
+ * @returns all selected and visible elements present in the activeElement
+ */
+export function getVisibleElements(activeElement, selector) {
+    const visibleElements = [];
+    /** @type {NodeListOf<HTMLElement>} */
+    const elements = activeElement.querySelectorAll(selector);
+    for (const el of elements) {
+        if (isVisible(el)) {
+            visibleElements.push(el);
+        }
+    }
+    return visibleElements;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>getVisibleElements</code>函数结合选择器查询和可见性判断，返回指定容器中所有可见且匹配选择器的元素。</p>
+    
+    <h3>3. 元素触碰检测</h3>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {Iterable<HTMLElement>} elements
+ * @param {Partial<DOMRect>} targetRect
+ * @returns {HTMLElement[]}
+ */
+export function touching(elements, targetRect) {
+    const r1 = { x: 0, y: 0, width: 0, height: 0, ...targetRect };
+    return [...elements].filter((el) => {
+        const r2 = el.getBoundingClientRect();
+        return (
+            r2.x + r2.width >= r1.x &&
+            r2.x <= r1.x + r1.width &&
+            r2.y + r2.height >= r1.y &&
+            r2.y <= r1.y + r1.height
+        );
+    });
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>touching</code>函数检测哪些元素与指定矩形区域相交或接触。这在实现拖放、选区功能或碰撞检测时非常有用。</p>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>将传入的目标矩形补充默认值</li>
+        <li>遍历所有元素，获取它们的边界矩形</li>
+        <li>使用矩形相交算法检测每个元素是否与目标矩形相交</li>
+        <li>返回所有相交的元素</li>
+    </ol>
+    
+    <h3>4. 可聚焦元素管理</h3>
+    
+    <div class="code-block">
+        <pre><code>// Following selector is based on this spec: https://html.spec.whatwg.org/multipage/interaction.html#dom-tabindex
+const TABABLE_SELECTOR = [
+    "[tabindex]",
+    "a",
+    "area",
+    "button",
+    "frame",
+    "iframe",
+    "input",
+    "object",
+    "select",
+    "textarea",
+    "details > summary:nth-child(1)",
+]
+    .map((sel) => `${sel}:not([tabindex="-1"]):not(:disabled)`)
+    .join(",");
+
+/**
+ * Returns all focusable elements in the given container.
+ *
+ * @param {HTMLElement} [container=document.body]
+ */
+export function getTabableElements(container = document.body) {
+    const elements = [...container.querySelectorAll(TABABLE_SELECTOR)].filter(isVisible);
+    /** @type {Record<number, HTMLElement[]>} */
+    const byTabIndex = {};
+    for (const el of [...elements]) {
+        if (!byTabIndex[el.tabIndex]) {
+            byTabIndex[el.tabIndex] = [];
+        }
+        byTabIndex[el.tabIndex].push(el);
+    }
+
+    const withTabIndexZero = byTabIndex[0] || [];
+    delete byTabIndex[0];
+    return [...Object.values(byTabIndex).flat(), ...withTabIndexZero];
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>getTabableElements</code>函数获取指定容器中所有可通过Tab键聚焦的元素，并按照正确的Tab顺序排序。这对于实现键盘导航和可访问性功能至关重要。</p>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>使用预定义的选择器查询所有潜在的可聚焦元素</li>
+        <li>过滤掉不可见的元素</li>
+        <li>根据tabIndex值对元素进行分组</li>
+        <li>首先返回具有正tabIndex值的元素（按照tabIndex值排序）</li>
+        <li>然后返回tabIndex为0或默认的元素</li>
+    </ol>
+    
+    <div class="code-block">
+        <pre><code>export function getNextTabableElement(container = document.body) {
+    const tabableElements = getTabableElements(container);
+    const index = tabableElements.indexOf(document.activeElement);
+    return index === -1 ? tabableElements[0] : tabableElements[index + 1] || null;
+}
+
+export function getPreviousTabableElement(container = document.body) {
+    const tabableElements = getTabableElements(container);
+    const index = tabableElements.indexOf(document.activeElement);
+    return index === -1
+        ? tabableElements[tabableElements.length - 1]
+        : tabableElements[index - 1] || null;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong>这两个辅助函数分别用于获取当前活动元素的下一个和上一个可聚焦元素，以实现自定义的Tab键导航行为。</p>
+    
+    <h3>5. UI加载效果</h3>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * Gives the button a loading effect by disabling it and adding a `fa` spinner
+ * icon. The existing button `fa` icons will be hidden through css.
+ *
+ * @param {HTMLElement} btnEl - the button to disable/load
+ * @return {function} a callback function that will restore the button to its
+ *         initial state
+ */
+export function addLoadingEffect(btnEl) {
+    // Note that pe-none is used alongside "disabled" so that the behavior is
+    // the same on links not using the "btn" class -> pointer-events disabled.
+    btnEl.classList.add("o_btn_loading", "disabled", "pe-none");
+    btnEl.disabled = true;
+    const loaderEl = document.createElement("span");
+    loaderEl.classList.add("fa", "fa-refresh", "fa-spin", "me-2");
+    btnEl.prepend(loaderEl);
+    return () => {
+        btnEl.classList.remove("o_btn_loading", "disabled", "pe-none");
+        btnEl.disabled = false;
+        loaderEl.remove();
+    };
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>addLoadingEffect</code>函数为按钮添加加载状态效果，显示旋转的加载图标并禁用按钮，防止用户重复点击。这个函数返回一个回调函数，可以在操作完成后恢复按钮状态。</p>
+    
+    <p><strong>特点：</strong></p>
+    <ul>
+        <li>使用Font Awesome图标作为加载指示器</li>
+        <li>禁用按钮防止重复点击</li>
+        <li>应用Bootstrap 5样式类（如"pe-none"、"me-2"）</li>
+        <li>返回清理函数以恢复原始状态</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 查找最近元素</h3>
+    <div class="code-block">
+        <pre><code>// 假设我们有多个可放置的区域，需要在拖放时找出最近的一个
+import { closest } from "@web/core/utils/ui";
+
+function onDragMove(event) {
+    const dropZones = document.querySelectorAll('.drop-zone');
+    const mousePos = { x: event.clientX, y: event.clientY };
+    
+    // 找出离鼠标最近的放置区
+    const nearestZone = closest(dropZones, mousePos);
+    
+    // 高亮最近的放置区
+    if (nearestZone) {
+        clearHighlights();
+        nearestZone.classList.add('highlight');
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 判断元素可见性</h3>
+    <div class="code-block">
+        <pre><code>// 在动态加载内容时，确保只处理可见元素
+import { isVisible, getVisibleElements } from "@web/core/utils/ui";
+
+function initializeVisibleItems() {
+    const container = document.querySelector('.items-container');
+    
+    // 方式1: 直接判断单个元素
+    const mainHeader = document.getElementById('main-header');
+    if (isVisible(mainHeader)) {
+        // 处理可见的头部...
+    }
+    
+    // 方式2: 获取所有可见的列表项
+    const visibleItems = getVisibleElements(container, '.item');
+    visibleItems.forEach(item => {
+        // 初始化可见项...
+    });
+}</code></pre>
+    </div>
+    
+    <h3>3. 管理Tab导航</h3>
+    <div class="code-block">
+        <pre><code>// 实现模态对话框的循环Tab导航
+import { getTabableElements, getNextTabableElement, getPreviousTabableElement } from "@web/core/utils/ui";
+
+function setupModalTabTrapping(modal) {
+    modal.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') {
+            // 获取模态框内所有可聚焦元素
+            const tabableElements = getTabableElements(modal);
+            
+            if (tabableElements.length === 0) {
+                return;
+            }
+            
+            if (event.shiftKey) {
+                // 向后Tab导航
+                const prevElement = getPreviousTabableElement(modal);
+                if (!prevElement) {
+                    // 如果没有上一个元素，循环到最后一个
+                    tabableElements[tabableElements.length - 1].focus();
+                    event.preventDefault();
+                }
+            } else {
+                // 向前Tab导航
+                const nextElement = getNextTabableElement(modal);
+                if (!nextElement) {
+                    // 如果没有下一个元素，循环到第一个
+                    tabableElements[0].focus();
+                    event.preventDefault();
+                }
+            }
+        }
+    });
+}</code></pre>
+    </div>
+    
+    <h3>4. 添加按钮加载效果</h3>
+    <div class="code-block">
+        <pre><code>// 在异步操作期间为按钮添加加载状态
+import { addLoadingEffect } from "@web/core/utils/ui";
+
+async function onSaveButtonClick(event) {
+    const button = event.currentTarget;
+    
+    // 添加加载效果并获取恢复函数
+    const removeLoading = addLoadingEffect(button);
+    
+    try {
+        // 执行异步操作
+        await saveData();
+        // 显示成功消息
+        showNotification('保存成功');
+    } catch (error) {
+        // 处理错误
+        showErrorNotification('保存失败: ' + error.message);
+    } finally {
+        // 无论成功还是失败，都恢复按钮状态
+        removeLoading();
+    }
+}</code></pre>
+    </div>
+    
+    <h2>性能和最佳实践</h2>
+    
+    <div class="note">
+        <strong>性能考虑：</strong>
+        <ul>
+            <li>大多数函数在DOM操作中使用，应当注意频繁调用带来的性能影响</li>
+            <li><code>getTabableElements</code>进行DOM查询和排序，在大型文档中可能较慢</li>
+            <li>避免在高频事件（如scroll、mousemove）中过度调用这些函数</li>
+        </ul>
+    </div>
+    
+    <div class="best-practices">
+        <h3>最佳实践：</h3>
+        <ul>
+            <li><strong>缓存结果</strong>：如果DOM结构不频繁变化，考虑缓存函数结果</li>
+            <li><strong>限制查询范围</strong>：总是尽可能指定较小的容器范围，而不是整个文档</li>
+            <li><strong>使用节流/防抖</strong>：对于高频调用场景，应用节流或防抖技术</li>
+            <li><strong>考虑可访问性</strong>：这些工具函数设计初衷包括提高界面可访问性，使用时应保持这一原则</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>UI工具函数模块提供了一系列处理DOM元素、位置计算和可访问性的核心功能，为Odoo前端开发提供了坚实的基础。通过合理使用这些函数，可以实现更加流畅、可访问和用户友好的界面交互体验。</p>
+    
+    <div class="note">
+        <strong>底层原理：</strong>这些函数大多是对原生DOM API的封装和扩展，提供了更高级别的抽象，使常见UI操作更加简洁和一致。
+    </div>
+</body>
+</html> 

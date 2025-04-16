@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 图标</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 图标系统</h1>
+    
+    <h2>图标概述</h2>
+    <p>Odoo使用多种图标系统来美化其用户界面。在Odoo 18中，图标系统得到了扩展和优化，提供了更丰富的图标选择和更统一的使用方式。</p>
+    
+    <div class="note">
+        <strong>更新：</strong>Odoo 18使用了更现代的图标库，优化了图标的一致性和可访问性。
+    </div>
+
+    <h2>图标类型</h2>
+    
+    <h3>Font Awesome图标</h3>
+    <p>Odoo使用Font Awesome提供大部分UI图标。这些图标是矢量图标，可以轻松调整大小和更改颜色。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;span class="fa fa-user" title="用户图标"/&gt;
+&lt;i class="fa fa-check"/&gt;
+&lt;button icon="fa-save"/&gt;</code></pre>
+    </div>
+    
+    <p>Odoo 18使用Font Awesome 6的部分图标集。可以在视图中使用的常见图标包括：</p>
+    
+    <table>
+        <tr>
+            <th>图标名称</th>
+            <th>代码</th>
+            <th>常见用途</th>
+        </tr>
+        <tr>
+            <td>用户</td>
+            <td><code>fa-user</code></td>
+            <td>用户相关功能</td>
+        </tr>
+        <tr>
+            <td>保存</td>
+            <td><code>fa-save</code>或<code>fa-floppy-disk</code></td>
+            <td>保存按钮</td>
+        </tr>
+        <tr>
+            <td>添加</td>
+            <td><code>fa-plus</code></td>
+            <td>创建新记录</td>
+        </tr>
+        <tr>
+            <td>编辑</td>
+            <td><code>fa-edit</code>或<code>fa-pencil</code></td>
+            <td>编辑按钮</td>
+        </tr>
+        <tr>
+            <td>删除</td>
+            <td><code>fa-trash</code></td>
+            <td>删除按钮</td>
+        </tr>
+        <tr>
+            <td>过滤器</td>
+            <td><code>fa-filter</code></td>
+            <td>过滤操作</td>
+        </tr>
+        <tr>
+            <td>设置</td>
+            <td><code>fa-cog</code>或<code>fa-gear</code></td>
+            <td>配置选项</td>
+        </tr>
+        <tr>
+            <td>菜单</td>
+            <td><code>fa-bars</code></td>
+            <td>汉堡菜单</td>
+        </tr>
+    </table>
+    
+    <h3>自定义图标</h3>
+    <p>除了Font Awesome外，Odoo还提供了一套自定义图标，使用<code>oi</code>（Odoo Icons）前缀。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;i class="oi oi-apps"/&gt;
+&lt;span class="oi oi-settings" title="设置"/&gt;</code></pre>
+    </div>
+    
+    <p>这些图标专为Odoo界面设计，与整体设计风格更为协调。</p>
+    
+    <h3>模块图标</h3>
+    <p>在Odoo中，每个模块通常都有自己的图标，显示在应用菜单和应用启动器中。</p>
+    
+    <div class="code-block">
+        <pre><code># 在模块的__manifest__.py文件中定义图标
+{
+    'name': 'My Module',
+    'icon': '/my_module/static/description/icon.png',
+    # 其他清单字段...
+}</code></pre>
+    </div>
+    
+    <p>模块图标通常放置在模块的<code>static/description</code>目录中，命名为<code>icon.png</code>。建议的尺寸是256x256像素。</p>
+    
+    <h2>在视图中使用图标</h2>
+    
+    <h3>按钮图标</h3>
+    <p>在表单视图中，按钮可以包含图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;button name="action_confirm" string="确认" type="object" icon="fa-check"/&gt;</code></pre>
+    </div>
+    
+    <p>或者在按钮内部使用图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;button name="action_confirm" type="object"&gt;
+    &lt;i class="fa fa-check"/&gt; 确认
+&lt;/button&gt;</code></pre>
+    </div>
+    
+    <h3>菜单图标</h3>
+    <p>在菜单定义中，可以为菜单项添加图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;menuitem id="menu_my_module" name="我的模块" web_icon="my_module,static/description/menu_icon.png"/&gt;</code></pre>
+    </div>
+    
+    <p>或者使用Font Awesome图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;menuitem id="menu_my_module" name="我的模块" web_icon="fa-star,#3498db,#1f2937"/&gt;</code></pre>
+    </div>
+    
+    <p>web_icon属性的三个部分：</p>
+    <ul>
+        <li>图标名称（Font Awesome图标或路径）</li>
+        <li>背景颜色（十六进制代码）</li>
+        <li>图标颜色（十六进制代码）</li>
+    </ul>
+    
+    <h3>看板视图中的图标</h3>
+    <p>在看板视图的QWeb模板中使用图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;kanban&gt;
+    &lt;templates&gt;
+        &lt;t t-name="kanban-box"&gt;
+            &lt;div class="oe_kanban_card"&gt;
+                &lt;div class="oe_kanban_content"&gt;
+                    &lt;div class="o_kanban_record_title"&gt;
+                        &lt;i class="fa fa-star text-warning me-2" t-if="record.is_favorite.raw_value"/&gt;
+                        &lt;field name="name"/&gt;
+                    &lt;/div&gt;
+                    &lt;div class="o_kanban_record_bottom"&gt;
+                        &lt;div class="oe_kanban_bottom_left"&gt;
+                            &lt;span t-if="record.priority.raw_value &gt; 0" class="o_priority_star"&gt;
+                                &lt;i class="fa fa-star"/&gt;
+                            &lt;/span&gt;
+                        &lt;/div&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/t&gt;
+    &lt;/templates&gt;
+&lt;/kanban&gt;</code></pre>
+    </div>
+    
+    <h3>列表视图中的图标</h3>
+    <p>在列表视图中，可以使用widget属性显示图标：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;list string="我的记录"&gt;
+    &lt;field name="priority" widget="priority"/&gt;
+    &lt;field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'done'"/&gt;
+    &lt;field name="is_favorite" widget="boolean_favorite"/&gt;
+    &lt;button name="toggle_active" type="object" icon="fa-archive" attrs="{'invisible': [('active', '=', False)]}"/&gt;
+    &lt;button name="toggle_active" type="object" icon="fa-archive" class="text-danger" attrs="{'invisible': [('active', '=', True)]}"/&gt;
+&lt;/list&gt;</code></pre>
+    </div>
+    
+    <h2>图标小部件</h2>
+    <p>Odoo提供了多种图标相关的小部件：</p>
+    
+    <table>
+        <tr>
+            <th>小部件名称</th>
+            <th>描述</th>
+            <th>用法</th>
+        </tr>
+        <tr>
+            <td>priority</td>
+            <td>显示星形优先级选择器</td>
+            <td><code>&lt;field name="priority" widget="priority"/&gt;</code></td>
+        </tr>
+        <tr>
+            <td>boolean_favorite</td>
+            <td>显示星形收藏切换</td>
+            <td><code>&lt;field name="is_favorite" widget="boolean_favorite"/&gt;</code></td>
+        </tr>
+        <tr>
+            <td>boolean_button</td>
+            <td>显示可点击的图标按钮</td>
+            <td><code>&lt;field name="active" widget="boolean_button" options="{&apos;icon_true&apos;: &apos;fa-check&apos;, &apos;icon_false&apos;: &apos;fa-times&apos;}"/&gt;</code></td>
+        </tr>
+        <tr>
+            <td>statusbar</td>
+            <td>显示状态流程栏</td>
+            <td><code>&lt;field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done"/&gt;</code></td>
+        </tr>
+        <tr>
+            <td>handle</td>
+            <td>显示拖动手柄图标</td>
+            <td><code>&lt;field name="sequence" widget="handle"/&gt;</code></td>
+        </tr>
+    </table>
+    
+    <h2>自定义图标</h2>
+    
+    <h3>创建自定义图标</h3>
+    <p>可以创建自定义图标并在Odoo中使用它们：</p>
+    
+    <ol>
+        <li>准备SVG格式的图标文件</li>
+        <li>将SVG文件放置在模块的静态目录中（例如<code>static/src/img/icons/</code>）</li>
+        <li>在视图中使用<code>img</code>标签引用图标：</li>
+    </ol>
+    
+    <div class="code-block">
+        <pre><code>&lt;img src="/my_module/static/src/img/icons/custom_icon.svg" alt="自定义图标" class="my_icon"/&gt;</code></pre>
+    </div>
+    
+    <p>或者，可以使用CSS/SCSS创建自定义图标类：</p>
+    
+    <div class="code-block">
+        <pre><code>/* 在SCSS文件中 */
+.my-custom-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background: url('/my_module/static/src/img/icons/custom_icon.svg') no-repeat center center;
+    background-size: contain;
+}
+
+/* 在XML视图中使用 */
+&lt;span class="my-custom-icon" title="自定义图标"/&gt;</code></pre>
+    </div>
+    
+    <h3>创建图标字体</h3>
+    <p>对于拥有大量自定义图标的高级用例，可以创建自定义图标字体：</p>
+    
+    <ol>
+        <li>使用像IcoMoon或Fontello这样的工具创建自定义图标字体</li>
+        <li>将生成的字体文件（.woff, .woff2等）放在模块的<code>static/src/fonts/</code>目录中</li>
+        <li>创建CSS文件定义字体和图标类</li>
+        <li>将CSS文件添加到资产包</li>
+    </ol>
+    
+    <h2>响应式图标</h2>
+    <p>在Odoo 18中，图标系统更好地支持响应式设计：</p>
+    
+    <ul>
+        <li>在移动视图中，图标通常会稍大以便于触摸</li>
+        <li>某些UI元素在移动视图中可能只显示图标而不显示文本</li>
+        <li>复杂视图（如看板）在移动设备上可能会调整图标的位置和大小</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>@media (max-width: $o-screen-sm-max) {
+    .o_form_button_icon {
+        font-size: 1.2rem;  /* 在移动设备上增大图标 */
+    }
+    
+    .o_form_button_text {
+        display: none;  /* 在移动设备上隐藏按钮文本 */
+    }
+}</code></pre>
+    </div>
+    
+    <h2>图标可访问性</h2>
+    <p>为了提高图标的可访问性，应遵循以下最佳实践：</p>
+    
+    <ul>
+        <li>总是为纯图标按钮添加标题（title）属性或aria-label</li>
+        <li>使用适当的对比色，确保图标在背景上清晰可见</li>
+        <li>不要仅仅依赖颜色传达信息，始终使用不同的图标形状</li>
+        <li>对于纯装饰性图标，使用<code>aria-hidden="true"</code></li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- 纯图标按钮 - 带有可访问性标签 --&gt;
+&lt;button type="button" aria-label="删除记录" title="删除记录"&gt;
+    &lt;i class="fa fa-trash-o" aria-hidden="true"/&gt;
+&lt;/button&gt;
+
+&lt;!-- 带文本的图标 - 图标是装饰性的 --&gt;
+&lt;button type="button"&gt;
+    &lt;i class="fa fa-save" aria-hidden="true"/&gt; 保存
+&lt;/button&gt;</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    
+    <h3>图标选择</h3>
+    <ul>
+        <li>选择清晰传达功能的图标</li>
+        <li>保持应用内图标风格一致性</li>
+        <li>优先使用Odoo自带的图标库，避免引入不必要的外部依赖</li>
+        <li>为类似功能使用一致的图标</li>
+    </ul>
+    
+    <h3>性能优化</h3>
+    <ul>
+        <li>优先使用图标字体而非单独的图像文件</li>
+        <li>如果使用自定义SVG图标，确保它们经过优化</li>
+        <li>避免在单个页面使用过多不同的图标库</li>
+    </ul>
+    
+    <h3>设计建议</h3>
+    <ul>
+        <li>保持图标简单清晰</li>
+        <li>确保小尺寸下图标仍然可识别</li>
+        <li>使用一致的图标尺寸和样式</li>
+        <li>对于重要操作使用带文本的图标按钮</li>
+    </ul>
+    
+    <div class="note">
+        <strong>建议：</strong>创建模块时，建立一个图标使用指南，确保整个模块中图标的一致性。
+    </div>
+</body>
+</html>

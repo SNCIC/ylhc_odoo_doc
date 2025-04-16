@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo QWeb报表系统解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo QWeb报表系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>报表在Odoo中是使用HTML/QWeb编写的，类似于Odoo中的网站视图。您可以使用常规的QWeb控制流工具。PDF渲染本身由wkhtmltopdf执行。</p>
+    
+    <p>报表通过报表动作（report action）进行声明，并使用报表模板（Report template）作为动作的执行依据。</p>
+    
+    <p>如果有用或必要，可以为报表指定纸张格式（Paper Format）。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>报表是Odoo中展示和导出数据的标准方式，QWeb作为模板引擎使报表设计更加灵活和强大。
+    </div>
+    
+    <h2>报表模板</h2>
+    <p>报表模板始终会提供以下变量：</p>
+    
+    <ul>
+        <li><code>time</code>：Python标准库中的time模块的引用</li>
+        <li><code>user</code>：打印报表的用户的<code>res.user</code>记录</li>
+        <li><code>res_company</code>：当前<code>user</code>公司的记录</li>
+        <li><code>website</code>：当前网站对象（如果有）（此项可能存在但为<code>None</code>）</li>
+        <li><code>web_base_url</code>：Web服务器的基础URL</li>
+        <li><code>context_timestamp</code>：一个函数，接收UTC时区的datetime.datetime对象，并将其转换为打印报表的用户的时区</li>
+    </ul>
+    
+    <h3>最小可行模板</h3>
+    <p>一个最小的模板看起来像这样：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;template id="report_invoice"&gt;
+    &lt;t t-call="web.html_container"&gt;
+        &lt;t t-foreach="docs" t-as="o"&gt;
+            &lt;t t-call="web.external_layout"&gt;
+                &lt;div class="page"&gt;
+                    &lt;h2&gt;报表标题&lt;/h2&gt;
+                    &lt;p&gt;此对象的名称是 &lt;span t-field="o.name"/&gt;&lt;/p&gt;
+                &lt;/div&gt;
+            &lt;/t&gt;
+        &lt;/t&gt;
+    &lt;/t&gt;
+&lt;/template&gt;</code></pre>
+    </div>
+    
+    <p>调用<code>external_layout</code>将在您的报表上添加默认的页眉和页脚。PDF正文将是<code>&lt;div class="page"&gt;</code>内的内容。模板的<code>id</code>必须是报表声明中指定的名称；例如，上面报表的<code>account.report_invoice</code>。由于这是一个QWeb模板，您可以访问模板接收的<code>docs</code>对象的所有字段。</p>
+    
+    <p>默认情况下，渲染上下文还将公开以下项目：</p>
+    
+    <ul>
+        <li><code>docs</code>：当前报表的记录</li>
+        <li><code>doc_ids</code>：<code>docs</code>记录的id列表</li>
+        <li><code>doc_model</code>：<code>docs</code>记录的模型</li>
+    </ul>
+    
+    <p>如果您希望在模板中访问其他记录/模型，则需要一个自定义报表，但在这种情况下，如果需要上述项目，您将必须自行提供它们。</p>
+    
+    <h3>可翻译的模板</h3>
+    <p>如果您希望翻译报表（例如，翻译成合作伙伴的语言），您需要定义两个模板：</p>
+    
+    <ul>
+        <li>主报表模板</li>
+        <li>可翻译的文档</li>
+    </ul>
+    
+    <p>然后，您可以从主模板调用可翻译的文档，并将属性<code>t-lang</code>设置为语言代码（例如<code>fr</code>或<code>en_US</code>）或记录字段。如果使用可翻译字段（如国家名称、销售条件等），您还需要使用适当的上下文重新浏览相关记录。</p>
+    
+    <div class="warning">
+        <strong>警告</strong>
+        <p>如果您的报表模板不使用可翻译的记录字段，则不需要以另一种语言重新浏览记录，这样做会影响性能。</p>
+    </div>
+    
+    <p>例如，让我们看看Sale模块中的销售订单报表：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- 主模板 --&gt;
+&lt;template id="report_saleorder"&gt;
+    &lt;t t-call="web.html_container"&gt;
+        &lt;t t-foreach="docs" t-as="doc"&gt;
+            &lt;t t-call="sale.report_saleorder_document" t-lang="doc.partner_id.lang"/&gt;
+        &lt;/t&gt;
+    &lt;/t&gt;
+&lt;/template&gt;
+
+&lt;!-- 可翻译模板 --&gt;
+&lt;template id="report_saleorder_document"&gt;
+    &lt;!-- 使用合作伙伴语言重新浏览记录 --&gt;
+    &lt;t t-set="doc" t-value="doc.with_context(lang=doc.partner_id.lang)" /&gt;
+    &lt;t t-call="web.external_layout"&gt;
+        &lt;div class="page"&gt;
+            &lt;div class="oe_structure"/&gt;
+            &lt;div class="row"&gt;
+                &lt;div class="col-6"&gt;
+                    &lt;strong t-if="doc.partner_shipping_id == doc.partner_invoice_id"&gt;发票和送货地址：&lt;/strong&gt;
+                    &lt;strong t-if="doc.partner_shipping_id != doc.partner_invoice_id"&gt;发票地址：&lt;/strong&gt;
+                    &lt;div t-field="doc.partner_invoice_id" t-options="{&quot;no_marker&quot;: True}"/&gt;
+                &lt;...&gt;
+            &lt;div class="oe_structure"/&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/template&gt;</code></pre>
+    </div>
+    
+    <p>主模板使用<code>doc.partner_id.lang</code>作为<code>t-lang</code>参数调用可翻译模板，因此它将以合作伙伴的语言渲染。这样，每个销售订单将以相应客户的语言打印。如果您希望只翻译文档的正文，但保持页眉和页脚使用默认语言，您可以这样调用报表的外部布局：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-call="web.external_layout" t-lang="en_US"&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>提示</strong>
+        <p>请注意，这仅在调用外部模板时有效，您将无法通过在<code>t-call</code>以外的xml节点上设置<code>t-lang</code>属性来翻译文档的一部分。如果您希望翻译模板的一部分，您可以创建一个包含此部分模板的外部模板，并从主模板中使用<code>t-lang</code>属性调用它。</p>
+    </div>
+    
+    <h3>条形码</h3>
+    <p>条形码是由控制器返回的图像，可以通过QWeb语法轻松嵌入到报表中（例如，请参阅属性）：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;img t-att-src="'/report/barcode/QR/%s' % 'My text in qr code'"/&gt;</code></pre>
+    </div>
+    
+    <p>可以作为查询字符串传递更多参数：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;img t-att-src="'/report/barcode/?
+    barcode_type=%s&amp;value=%s&amp;width=%s&amp;height=%s'%('QR', 'text', 200, 200)"/&gt;</code></pre>
+    </div>
+    
+    <h3>有用的注意事项</h3>
+    <ul>
+        <li>Twitter Bootstrap和FontAwesome类可以在您的报表模板中使用</li>
+        <li>本地CSS可以直接放在模板中</li>
+        <li>全局CSS可以通过继承其模板并插入您的CSS来插入到主报表布局中：<br>
+            <code>&lt;template id="report_saleorder_style" inherit_id="report.style"&gt;<br>
+            &nbsp;&nbsp;&lt;xpath expr="."&gt;<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;t&gt;<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.example-css-class {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;background-color: red;<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&lt;/t&gt;<br>
+            &nbsp;&nbsp;&lt;/xpath&gt;<br>
+            &lt;/template&gt;</code>
+        </li>
+        <li>如果您发现您的PDF报表缺少样式，请检查这些说明。</li>
+    </ul>
+    
+    <h2>纸张格式</h2>
+    <p>纸张格式是<code>report.paperformat</code>的记录，可以包含以下属性：</p>
+    
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name（必填）</td>
+            <td>在某种列表中查找报表时，仅作为报表的助记符/描述有用</td>
+        </tr>
+        <tr>
+            <td>description</td>
+            <td>对您的格式的简短描述</td>
+        </tr>
+        <tr>
+            <td>format</td>
+            <td>预定义格式（A0到A9，B0到B10，Legal，Letter，Tabloid等）或<code>custom</code>；默认为A4。如果定义页面尺寸，则不能使用非自定义格式</td>
+        </tr>
+        <tr>
+            <td>dpi</td>
+            <td>输出DPI；默认为90</td>
+        </tr>
+        <tr>
+            <td>margin_top, margin_bottom, margin_left, margin_right</td>
+            <td>以毫米为单位的边距大小</td>
+        </tr>
+        <tr>
+            <td>page_height, page_width</td>
+            <td>以毫米为单位的页面尺寸</td>
+        </tr>
+        <tr>
+            <td>orientation</td>
+            <td>横向（Landscape）或纵向（Portrait）</td>
+        </tr>
+        <tr>
+            <td>header_line</td>
+            <td>布尔值，显示页眉线</td>
+        </tr>
+        <tr>
+            <td>header_spacing</td>
+            <td>以毫米为单位的页眉间距</td>
+        </tr>
+    </table>
+    
+    <p>示例：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="paperformat_frenchcheck" model="report.paperformat"&gt;
+    &lt;field name="name"&gt;法国银行支票&lt;/field&gt;
+    &lt;field name="default" eval="True"/&gt;
+    &lt;field name="format"&gt;custom&lt;/field&gt;
+    &lt;field name="page_height"&gt;80&lt;/field&gt;
+    &lt;field name="page_width"&gt;175&lt;/field&gt;
+    &lt;field name="orientation"&gt;Portrait&lt;/field&gt;
+    &lt;field name="margin_top"&gt;3&lt;/field&gt;
+    &lt;field name="margin_bottom"&gt;3&lt;/field&gt;
+    &lt;field name="margin_left"&gt;3&lt;/field&gt;
+    &lt;field name="margin_right"&gt;3&lt;/field&gt;
+    &lt;field name="header_line" eval="False"/&gt;
+    &lt;field name="header_spacing"&gt;3&lt;/field&gt;
+    &lt;field name="dpi"&gt;80&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h2>自定义报表</h2>
+    <p>默认情况下，报表系统基于通过<code>model</code>字段指定的目标模型构建渲染值。</p>
+    
+    <p>但是，它首先会查找名为<code>report._module.reportname_</code>的模型，并调用该模型的<code>_get_report_values(doc_ids, data)</code>方法，以准备模板的渲染数据。</p>
+    
+    <p>这可用于在渲染模板时包含任意项目以供使用或显示，如来自其他模型的数据：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import api, models
+
+class ParticularReport(models.AbstractModel):
+    _name = 'report.module.report_name'
+
+    def _get_report_values(self, docids, data=None):
+        # 获取报表动作，因为我们需要它的数据
+        report = self.env['ir.actions.report']._get_report_from_name('module.report_name')
+        # 获取为此报表渲染选择的记录
+        obj = self.env[report.model].browse(docids)
+        # 返回自定义渲染上下文
+        return {
+            'lines': docids.get_lines()
+        }
+</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>警告</strong>
+        <p>使用自定义报表时，"默认"的文档相关项目（<code>doc_ids</code>、<code>doc_model</code>和<code>docs</code>）将不会被包含。如果您需要它们，您需要自己包含它们。</p>
+    </div>
+    
+    <p>在上面的示例中，渲染上下文将包含"全局"值以及我们放入其中的<code>lines</code>，但不包含其他内容。</p>
+    
+    <h2>自定义字体</h2>
+    <p>如果您想使用自定义字体，您需要将自定义字体和相关的less/CSS添加到<code>web.reports_assets_common</code>资产包中。将自定义字体添加到<code>web.assets_common</code>或<code>web.assets_backend</code>不会使您的字体在QWeb报表中可用。</p>
+    
+    <p>示例：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;template id="report_assets_common_custom_fonts" name="Custom QWeb fonts" inherit_id="web.report_assets_common"&gt;
+    &lt;xpath expr="." position="inside"&gt;
+        &lt;link href="/your_module/static/src/less/fonts.less" rel="stylesheet" type="text/less"/&gt;
+    &lt;/xpath&gt;
+&lt;/template&gt;</code></pre>
+    </div>
+    
+    <p>您需要在此less文件中定义您的<code>@font-face</code>，即使您已在另一个资产包（除<code>web.reports_assets_common</code>外）中使用过它。</p>
+    
+    <p>示例：</p>
+    
+    <div class="code-block">
+        <pre><code>@font-face {
+    font-family: 'MonixBold';
+    src: local('MonixBold'), local('MonixBold'), url(/your_module/static/fonts/MonixBold-Regular.otf) format('opentype');
+}
+
+.h1-title-big {
+    font-family: MonixBold;
+    font-size: 60px;
+    color: #3399cc;
+}</code></pre>
+    </div>
+    
+    <p>将less添加到资产包后，您可以在自定义QWeb报表中使用这些类——在本例中为<code>h1-title-big</code>。</p>
+    
+    <h2>报表是网页</h2>
+    <p>报表由报表模块动态生成，可以通过URL直接访问：</p>
+    
+    <p>例如，您可以通过访问 http://&lt;server-address&gt;/report/html/sale.report\_saleorder/38 在html模式下访问销售订单报表</p>
+    
+    <p>或者您可以通过 http://&lt;server-address&gt;/report/pdf/sale.report\_saleorder/38 访问pdf版本</p>
+    
+    <div class="note">
+        <strong>补充说明：</strong>不管<code>python:datetime</code>对象实际上是在哪个时区（包括没有时区），在调整为用户的时区之前，它的时区将无条件地被设置为UTC。
+    </div>
+</body>
+</html> 

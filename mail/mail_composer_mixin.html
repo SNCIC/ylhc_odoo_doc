@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo邮件撰写器混入类解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo邮件撰写器混入类解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_composer_mixin.py</code>是Odoo邮件模块中的一个重要组件，它定义了一个混入类(mixin)，用于编辑和渲染基于邮件模板发送邮件或通知时使用的字段。这个混入类提供了处理邮件主题和正文的计算与渲染逻辑。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>邮件撰写器混入类为开发者提供了一套统一处理邮件模板内容的方法，包括安全渲染、多语言支持和内容编辑权限控制，确保邮件内容的安全性和一致性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>邮件模板内容处理</strong>：管理与邮件模板相关的主题和正文内容</li>
+        <li><strong>内容渲染控制</strong>：提供机制控制谁能编辑邮件正文，特别是处理模板语言</li>
+        <li><strong>多语言支持</strong>：提供语言相关处理，确保邮件可正确国际化</li>
+        <li><strong>安全渲染</strong>：继承自mail.render.mixin，确保模板渲染的安全性</li>
+        <li><strong>访问权限控制</strong>：实现邮件内容编辑权限的精细化控制</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>MailComposerMixin是一个设计精巧的混入类，它提供了邮件内容管理的核心功能：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailComposerMixin(models.AbstractModel):
+    """ Mixin used to edit and render some fields used when sending emails or
+    notifications based on a mail template.
+
+    Main current purpose is to hide details related to subject and body computation
+    and rendering based on a mail.template. It also give the base tools to control
+    who is allowed to edit body, notably when dealing with templating language
+    like inline_template or qweb. 
+
+    It is meant to evolve in a near future with upcoming support of qweb and fine
+    grain control of rendering access.
+    """
+    _name = 'mail.composer.mixin'
+    _inherit = 'mail.render.mixin'
+    _description = 'Mail Composer Mixin'</code></pre>
+    </div>
+    
+    <h3>模型定义与继承</h3>
+    <ul>
+        <li><code>_name = 'mail.composer.mixin'</code>：定义混入类的技术名称</li>
+        <li><code>_inherit = 'mail.render.mixin'</code>：继承自mail.render.mixin，获得其渲染能力</li>
+        <li><code>_description = 'Mail Composer Mixin'</code>：提供人类可读的描述</li>
+        <li>定义为<code>models.AbstractModel</code>：表明这是一个抽象模型，不会单独创建数据库表</li>
+    </ul>
+    
+    <h3>主要字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>特性</th>
+        </tr>
+        <tr>
+            <td>subject</td>
+            <td>Char</td>
+            <td>邮件主题</td>
+            <td>计算字段，可编辑，基于模板值</td>
+        </tr>
+        <tr>
+            <td>body</td>
+            <td>Html</td>
+            <td>邮件内容</td>
+            <td>计算字段，可编辑，使用qweb引擎渲染，自动净化HTML</td>
+        </tr>
+        <tr>
+            <td>body_has_template_value</td>
+            <td>Boolean</td>
+            <td>内容是否与模板相同</td>
+            <td>计算字段，判断当前内容是否与模板值一致</td>
+        </tr>
+        <tr>
+            <td>template_id</td>
+            <td>Many2one</td>
+            <td>邮件模板</td>
+            <td>关联到mail.template模型</td>
+        </tr>
+        <tr>
+            <td>lang</td>
+            <td>Char</td>
+            <td>语言</td>
+            <td>计算字段，可编辑，从模板复制语言值</td>
+        </tr>
+        <tr>
+            <td>is_mail_template_editor</td>
+            <td>Boolean</td>
+            <td>是否编辑者</td>
+            <td>计算字段，判断当前用户是否有邮件模板编辑权限</td>
+        </tr>
+        <tr>
+            <td>can_edit_body</td>
+            <td>Boolean</td>
+            <td>是否可编辑正文</td>
+            <td>计算字段，基于模板和用户权限判断</td>
+        </tr>
+    </table>
+    
+    <h3>计算方法详解</h3>
+    
+    <h4>1. _compute_subject方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('template_id')
+def _compute_subject(self):
+    """ Computation is coming either from template, either reset. When
+    having a template with a value set, copy it. When removing the
+    template, reset it. """
+    for composer_mixin in self:
+        if composer_mixin.template_id.subject:
+            composer_mixin.subject = composer_mixin.template_id.subject
+        elif not composer_mixin.template_id:
+            composer_mixin.subject = False</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>这个方法负责计算邮件主题：</p>
+    <ul>
+        <li>当设置了模板且模板有主题值时，从模板复制主题</li>
+        <li>当移除模板时，重置主题为False</li>
+        <li>依赖于template_id字段变化触发</li>
+    </ul>
+    
+    <h4>2. _compute_body方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('template_id')
+def _compute_body(self):
+    """ Computation is coming either from template, either reset. When
+    having a template with a value set, copy it. When removing the
+    template, reset it. """
+    for composer_mixin in self:
+        if not tools.is_html_empty(composer_mixin.template_id.body_html):
+            composer_mixin.body = composer_mixin.template_id.body_html
+        elif not composer_mixin.template_id:
+            composer_mixin.body = False</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>计算邮件正文内容：</p>
+    <ul>
+        <li>当模板有非空HTML内容时，从模板复制正文</li>
+        <li>当移除模板时，重置正文为False</li>
+        <li>使用tools.is_html_empty判断模板内容是否为空</li>
+    </ul>
+    
+    <h4>3. _compute_body_has_template_value方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('body', 'template_id')
+def _compute_body_has_template_value(self):
+    """ Computes if the current body is the same as the one from template.
+    Both real and sanitized values are considered, to avoid editor issues
+    as much as possible. """
+    for composer_mixin in self:
+        if not tools.is_html_empty(composer_mixin.body) and composer_mixin.template_id:
+            template_value = composer_mixin.template_id.body_html
+            sanitized_template_value = tools.html_sanitize(template_value)
+            composer_mixin.body_has_template_value = composer_mixin.body in (template_value, sanitized_template_value)
+        else:
+            composer_mixin.body_has_template_value = False</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>判断正文是否与模板一致：</p>
+    <ul>
+        <li>比较当前正文与模板正文是否相同</li>
+        <li>考虑两种情况：原始模板值和经过HTML净化后的值</li>
+        <li>这样设计可以避免HTML编辑器可能引入的微小差异</li>
+        <li>依赖于body和template_id字段变化触发</li>
+    </ul>
+    
+    <h4>4. _compute_lang方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('template_id')
+def _compute_lang(self):
+    """ Computation is coming either from template, either reset. When
+    having a template with a value set, copy it. When removing the
+    template, reset it. """
+    for composer_mixin in self:
+        if composer_mixin.template_id.lang:
+            composer_mixin.lang = composer_mixin.template_id.lang
+        elif not composer_mixin.template_id:
+            composer_mixin.lang = False</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>计算使用的语言：</p>
+    <ul>
+        <li>当模板设置了语言时，从模板获取语言值</li>
+        <li>当移除模板时，重置语言为False</li>
+        <li>支持邮件模板的多语言功能</li>
+    </ul>
+    
+    <h4>5. _compute_is_mail_template_editor方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends_context('uid')
+def _compute_is_mail_template_editor(self):
+    is_mail_template_editor = self.env.is_admin() or self.env.user.has_group('mail.group_mail_template_editor')
+    for record in self:
+        record.is_mail_template_editor = is_mail_template_editor</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>判断当前用户是否有邮件模板编辑权限：</p>
+    <ul>
+        <li>检查用户是否是系统管理员</li>
+        <li>或者用户是否拥有'mail.group_mail_template_editor'权限组</li>
+        <li>依赖上下文中的uid（用户ID）</li>
+    </ul>
+    
+    <h4>6. _compute_can_edit_body方法</h4>
+    <div class="code-block">
+        <pre><code>@api.depends('template_id', 'is_mail_template_editor')
+def _compute_can_edit_body(self):
+    for record in self:
+        record.can_edit_body = (
+            record.is_mail_template_editor
+            or not record.template_id
+        )</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>判断是否可以编辑邮件正文：</p>
+    <ul>
+        <li>如果用户是邮件模板编辑者，则可以编辑</li>
+        <li>如果没有选择模板，也可以编辑</li>
+        <li>依赖于template_id和is_mail_template_editor字段</li>
+    </ul>
+    
+    <h3>核心渲染方法</h3>
+    
+    <h4>1. _render_lang方法</h4>
+    <div class="code-block">
+        <pre><code>def _render_lang(self, *args, **kwargs):
+    """ Given some record ids, return the lang for each record based on
+    lang field of template or through specific context-based key.
+    This method enters sudo mode to allow qweb rendering (which
+    is otherwise reserved for the 'mail template editor' group')
+    if we consider it safe. Safe means content comes from the template
+    which is a validated master data. As a summary the heuristic is :
+
+      * if no template, do not bypass the check;
+      * if record lang and template lang are the same, bypass the check;
+    """
+
+    if not self.template_id:
+        # Do not need to bypass the verification
+        return super()._render_lang(*args, **kwargs)
+
+    composer_value = self.lang
+    template_value = self.template_id.lang
+
+    call_sudo = False
+    if (not self.is_mail_template_editor and composer_value == template_value):
+        call_sudo = True
+
+    record = self.sudo() if call_sudo else self
+    return super(MailComposerMixin, record)._render_lang(*args, **kwargs)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>该方法处理渲染时的语言设置：</p>
+    <ul>
+        <li>判断在何种情况下可以安全地使用sudo权限渲染</li>
+        <li>如果没有模板，不绕过权限检查</li>
+        <li>如果记录语言和模板语言相同，可以使用sudo权限</li>
+        <li>通过有条件的sudo()调用绕过权限限制</li>
+        <li>安全地处理多语言邮件模板渲染</li>
+    </ul>
+    
+    <h4>2. _render_field方法</h4>
+    <div class="code-block">
+        <pre><code>def _render_field(self, field, *args, **kwargs):
+    """ Render the given field on the given records. This method enters
+    sudo mode to allow qweb rendering (which is otherwise reserved for
+    the 'mail template editor' group') if we consider it safe. Safe
+    means content comes from the template which is a validated master
+    data. As a summary the heuristic is :
+
+      * if no template, do not bypass the check;
+      * if current user is a template editor, do not bypass the check;
+      * if record value and template value are the same (or equals the
+        sanitized value in case of an HTML field), bypass the check;
+      * for body: if current user cannot edit it, force template value back
+        then bypass the check;
+
+    Also provide support to fetch translations on the remote template.
+    Indeed translations are often done on the master template, not on the
+    specific composer itself. In that case we need to work on template
+    value when it has not been modified in the composer. """
+    if field not in self:
+        raise ValueError(
+            _('Rendering of %(field_name)s is not possible as not defined on template.',
+              field_name=field
+             )
+        )
+
+    if not self.template_id:
+        # Do not need to bypass the verification
+        return super()._render_field(field, *args, **kwargs)
+
+    # template-based access check + translation check
+    template_field = {
+        'body': 'body_html',
+    }.get(field, field)
+    if template_field not in self.template_id:
+        raise ValueError(
+            _('Rendering of %(field_name)s is not possible as no counterpart on template.',
+              field_name=field
+             )
+        )
+
+    composer_value = self[field]
+    template_value = self.template_id[template_field]
+    translation_asked = kwargs.get('compute_lang') or kwargs.get('set_lang')
+    equality = self.body_has_template_value if field == 'body' else composer_value == template_value
+
+    call_sudo = False
+    if (not self.is_mail_template_editor and field == 'body' and
+        (not self.can_edit_body or self.body_has_template_value)):
+        call_sudo = True
+        # take the previous body which we can trust without HTML editor reformatting
+        self.body = self.template_id.body_html
+    if (not self.is_mail_template_editor and field != 'body' and
+          composer_value == template_value):
+        call_sudo = True
+
+    if translation_asked and equality:
+        template = self.template_id.sudo() if call_sudo else self.template_id
+        return template._render_field(
+            template_field, *args, **kwargs,
+        )
+
+    record = self.sudo() if call_sudo else self
+    return super(MailComposerMixin, record)._render_field(field, *args, **kwargs)</code></pre>
+    </div>
+    
+    <p><strong>功能说明：</strong>这是一个核心方法，负责字段渲染与安全控制：</p>
+    <ul>
+        <li>实现复杂的渲染安全逻辑，确定何时可以绕过权限限制</li>
+        <li>处理字段不存在、模板不匹配等错误情况</li>
+        <li>提供统一的字段映射机制(如body映射到模板的body_html)</li>
+        <li>支持从原始模板获取翻译，而不仅仅是从当前撰写器</li>
+        <li>对于正文字段有特殊处理，确保编辑权限和内容安全</li>
+        <li>根据多种条件决定是否需要sudo权限来渲染字段</li>
+    </ul>
+    
+    <h2>工作原理</h2>
+    <p>MailComposerMixin的工作原理可以概括为以下几点：</p>
+    
+    <div class="workflow">
+        <h3>邮件内容管理流程</h3>
+        <ol>
+            <li><strong>模板关联</strong>：用户选择邮件模板(template_id)</li>
+            <li><strong>内容初始化</strong>：系统自动从模板复制主题(subject)、正文(body)和语言(lang)</li>
+            <li><strong>权限检查</strong>：系统计算用户是否具有编辑权限(is_mail_template_editor, can_edit_body)</li>
+            <li><strong>内容编辑</strong>：用户可能修改主题或正文(如果有权限)</li>
+            <li><strong>内容比较</strong>：系统跟踪内容是否与模板一致(body_has_template_value)</li>
+            <li><strong>安全渲染</strong>：在发送前，系统根据权限和内容状态决定如何安全渲染字段</li>
+        </ol>
+    </div>
+    
+    <h3>权限控制机制</h3>
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>编辑权限层级</h4>
+            <ul>
+                <li><strong>管理员</strong>：始终拥有完全编辑权限</li>
+                <li><strong>模板编辑者</strong>：拥有mail.group_mail_template_editor权限组的用户</li>
+                <li><strong>普通用户</strong>：仅当没有使用模板时可以编辑内容</li>
+            </ul>
+        </div>
+        <div class="class-box">
+            <h4>渲染权限优化</h4>
+            <ul>
+                <li><strong>标准情况</strong>：使用当前用户权限渲染</li>
+                <li><strong>安全情况</strong>：特定条件下使用sudo()绕过权限限制</li>
+                <li><strong>安全条件</strong>：内容来自受信任的模板或用户无法编辑</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>Odoo 18 中的特性</h2>
+    <p>在 Odoo 18 中，MailComposerMixin 具有以下特性和改进：</p>
+    <ul>
+        <li>使用 QWeb 作为默认渲染引擎，替代了旧版的 inline_template</li>
+        <li>增强的安全渲染机制，防止恶意代码注入</li>
+        <li>更精细的权限控制系统，区分编辑权限和渲染权限</li>
+        <li>更好的多语言支持，直接从原模板获取翻译</li>
+        <li>HTML 净化和比较逻辑的改进，更好地处理编辑器格式差异</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模型中使用 MailComposerMixin？下面是一个示例：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class MyEmailWizard(models.TransientModel):
+    _name = 'my.email.wizard'
+    _inherit = ['mail.composer.mixin']
+    _description = '我的邮件向导'
+    
+    partner_id = fields.Many2one('res.partner', string='收件人')
+    
+    def action_send_email(self):
+        """发送邮件的方法"""
+        self.ensure_one()
+        # 渲染主题和正文
+        rendered_subject = self._render_field('subject', self.partner_id.ids)[self.partner_id.id]
+        rendered_body = self._render_field('body', self.partner_id.ids)[self.partner_id.id]
+        
+        # 创建并发送邮件
+        mail_values = {
+            'subject': rendered_subject,
+            'body_html': rendered_body,
+            'email_to': self.partner_id.email,
+            'auto_delete': True,
+        }
+        mail = self.env['mail.mail'].sudo().create(mail_values)
+        mail.send()
+        return {'type': 'ir.actions.act_window_close'}</code></pre>
+    </div>
+    
+    <h3>XML视图定义示例</h3>
+    <div class="code-block">
+        <pre><code>&lt;record id="view_my_email_wizard_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;my.email.wizard.form&lt;/field&gt;
+    &lt;field name="model"&gt;my.email.wizard&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="partner_id" required="1"/&gt;
+                    &lt;field name="template_id" domain="[('model', '=', 'res.partner')]"/&gt;
+                &lt;/group&gt;
+                &lt;group&gt;
+                    &lt;field name="subject" attrs="{'readonly': [('can_edit_body', '=', False)]}"/&gt;
+                    &lt;field name="body" 
+                           widget="html" 
+                           options="{'codeview': true}" 
+                           attrs="{'readonly': [('can_edit_body', '=', False)]}"/&gt;
+                    &lt;field name="can_edit_body" invisible="1"/&gt;
+                &lt;/group&gt;
+            &lt;/sheet&gt;
+            &lt;footer&gt;
+                &lt;button string="发送" name="action_send_email" type="object" class="btn-primary"/&gt;
+                &lt;button string="取消" class="btn-secondary" special="cancel"/&gt;
+            &lt;/footer&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用MailComposerMixin时，请注意以下几点：
+        <ul>
+            <li>始终处理渲染可能抛出的权限错误</li>
+            <li>合理设置字段的attrs属性，与can_edit_body字段联动</li>
+            <li>对于敏感操作，考虑添加额外的安全检查</li>
+            <li>使用_render_field方法时，传入正确的记录IDs，确保正确解析模板变量</li>
+            <li>必要时，明确处理多语言场景，如通过set_lang参数指定渲染语言</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>MailComposerMixin是Odoo邮件系统中的一个重要组件，它提供了：</p>
+    <ul>
+        <li>统一的邮件内容管理机制</li>
+        <li>基于模板的内容初始化</li>
+        <li>精细化的编辑权限控制</li>
+        <li>安全的渲染机制</li>
+        <li>对多语言的完善支持</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发邮件相关功能时，优先考虑使用MailComposerMixin或其派生类，而不是自己实现邮件内容处理逻辑。这样可以确保代码的安全性、一致性和可维护性。
+    </div>
+</body>
+</html> 

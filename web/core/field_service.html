@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 - 字段服务(Field Service)模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>字段服务(Field Service)模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>field_service.js</code>是Odoo 18框架中的一个核心服务模块，它提供了与模型字段相关的操作功能。这个服务负责加载模型的字段定义、属性以及处理字段路径和属性字段(properties)。作为Odoo框架核心服务之一，它为视图组件、表单、列表等提供了字段元数据支持。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>字段服务是Odoo前端与后端模型字段系统沟通的桥梁，它使前端组件能够获取字段的定义、类型、关系等元数据信息，是构建动态表单和视图的基础。
+    </div>
+    
+    <h2>文件源码</h2>
+    <div class="code-block">
+        <pre><code>import { Cache } from "@web/core/utils/cache";
+import { Domain } from "@web/core/domain";
+import { registry } from "@web/core/registry";
+
+/**
+ * @typedef {Object} LoadFieldsOptions
+ * @property {string[]|false} [fieldNames]
+ * @property {string[]} [attributes]
+ */
+
+export const fieldService = {
+    dependencies: ["orm"],
+    async: ["loadFields", "loadPath", "loadPropertyDefinitions"],
+    start(env, { orm }) {
+        const cache = new Cache(
+            (resModel, options) => {
+                return orm
+                    .call(resModel, "fields_get", [options.fieldNames, options.attributes])
+                    .catch((error) => {
+                        cache.clear(resModel, options);
+                        return Promise.reject(error);
+                    });
+            },
+            (resModel, options) =>
+                JSON.stringify([resModel, options.fieldNames, options.attributes])
+        );
+
+        env.bus.addEventListener("CLEAR-CACHES", () => cache.invalidate());
+
+        /**
+         * @param {string} resModel
+         * @param {LoadFieldsOptions} [options]
+         * @returns {Promise<object>}
+         */
+        async function loadFields(resModel, options = {}) {
+            if (typeof resModel !== "string" || !resModel) {
+                throw new Error(`Invalid model name: ${resModel}`);
+            }
+            return cache.read(resModel, options);
+        }
+
+        /**
+         * @param {Object} fieldDefs
+         * @param {string} name
+         * @param {import("@web/core/domain").DomainListRepr} [domain=[]]
+         * @returns {Promise<Object>}
+         */
+        async function _loadPropertyDefinitions(fieldDefs, name, domain = []) {
+            const {
+                definition_record: definitionRecord,
+                definition_record_field: definitionRecordField,
+            } = fieldDefs[name];
+            const definitionRecordModel = fieldDefs[definitionRecord].relation;
+
+            domain = Domain.and([[[definitionRecordField, "!=", false]], domain]).toList();
+
+            const result = await orm.webSearchRead(definitionRecordModel, domain, {
+                specification: {
+                    display_name: {},
+                    [definitionRecordField]: {},
+                },
+            });
+
+            const definitions = {};
+            for (const record of result.records) {
+                for (const definition of record[definitionRecordField]) {
+                    definitions[definition.name] = {
+                        is_property: true,
+                        // for now, all properties are searchable but their definitions don't contain that info
+                        searchable: true,
+                        // differentiate definitions with same name but on different parent
+                        record_id: record.id,
+                        record_name: record.display_name,
+                        ...definition,
+                    };
+                }
+            }
+            return definitions;
+        }
+
+        /**
+         * @param {string} resModel
+         * @param {string} fieldName
+         * @param {import("@web/core/domain").DomainListRepr} [domain]
+         * @returns {Promise<object[]>}
+         */
+        async function loadPropertyDefinitions(resModel, fieldName, domain) {
+            const fieldDefs = await loadFields(resModel);
+            return _loadPropertyDefinitions(fieldDefs, fieldName, domain);
+        }
+
+        /**
+         * @param {string|null} resModel valid model name or null (case virtual)
+         * @param {Object|null} fieldDefs
+         * @param {string[]} names
+         */
+        async function _loadPath(resModel, fieldDefs, names) {
+            if (!fieldDefs) {
+                return { isInvalid: "path", names, modelsInfo: [] };
+            }
+
+            const [name, ...remainingNames] = names;
+            const modelsInfo = [{ resModel, fieldDefs }];
+            if (resModel === "*" && remainingNames.length) {
+                return { isInvalid: "path", names, modelsInfo };
+            }
+
+            const fieldDef = fieldDefs[name];
+            if ((name !== "*" && !fieldDef) || (name === "*" && remainingNames.length)) {
+                return { isInvalid: "path", names, modelsInfo };
+            }
+
+            if (!remainingNames.length) {
+                return { names, modelsInfo };
+            }
+
+            let subResult;
+            if (fieldDef.relation) {
+                subResult = await _loadPath(
+                    fieldDef.relation,
+                    await loadFields(fieldDef.relation),
+                    remainingNames
+                );
+            } else if (fieldDef.type === "properties") {
+                subResult = await _loadPath(
+                    "*",
+                    await _loadPropertyDefinitions(fieldDefs, name),
+                    remainingNames
+                );
+            }
+
+            if (subResult) {
+                const result = {
+                    names,
+                    modelsInfo: [...modelsInfo, ...subResult.modelsInfo],
+                };
+                if (subResult.isInvalid) {
+                    result.isInvalid = "path";
+                }
+                return result;
+            }
+
+            return { isInvalid: "path", names, modelsInfo };
+        }
+
+        /**
+         * Note: the symbol * can be used at the end of path (e.g path="*" or path="user_id.*").
+         * It says to load the fields of the appropriate model.
+         * @param {string} resModel
+         * @param {string} path
+         * @returns {Promise<Object>}
+         */
+        async function loadPath(resModel, path = "*") {
+            const fieldDefs = await loadFields(resModel);
+            if (typeof path !== "string" || !path) {
+                throw new Error(`Invalid path: ${path}`);
+            }
+            return _loadPath(resModel, fieldDefs, path.split("."));
+        }
+
+        return { loadFields, loadPath, loadPropertyDefinitions };
+    },
+};
+
+registry.category("services").add("field", fieldService);</code></pre>
+    </div>
+    
+    <h2>核心功能解析</h2>
+    
+    <h3>1. 字段定义缓存机制</h3>
+    <p>字段服务使用缓存来提高性能，避免重复加载相同的字段定义：</p>
+    <div class="code-block">
+        <pre><code>const cache = new Cache(
+    (resModel, options) => {
+        return orm
+            .call(resModel, "fields_get", [options.fieldNames, options.attributes])
+            .catch((error) => {
+                cache.clear(resModel, options);
+                return Promise.reject(error);
+            });
+    },
+    (resModel, options) =>
+        JSON.stringify([resModel, options.fieldNames, options.attributes])
+);</code></pre>
+    </div>
+    <p>此缓存具有以下特性：</p>
+    <ul>
+        <li>使用模型名称、字段名称和属性作为缓存键</li>
+        <li>当出现错误时自动清除相关缓存条目</li>
+        <li>响应全局缓存清除事件(<code>CLEAR-CACHES</code>)</li>
+    </ul>
+    
+    <h3>2. 加载字段定义 (loadFields)</h3>
+    <p>加载指定模型的字段定义信息，支持指定要加载的字段和属性：</p>
+    <div class="code-block">
+        <pre><code>async function loadFields(resModel, options = {}) {
+    if (typeof resModel !== "string" || !resModel) {
+        throw new Error(`Invalid model name: ${resModel}`);
+    }
+    return cache.read(resModel, options);
+}</code></pre>
+    </div>
+    <p>此函数：</p>
+    <ul>
+        <li>验证模型名称的有效性</li>
+        <li>利用缓存机制提高性能</li>
+        <li>支持选择性加载特定字段和属性</li>
+        <li>返回包含字段定义的Promise</li>
+    </ul>
+    
+    <h3>3. 属性字段定义加载 (loadPropertyDefinitions)</h3>
+    <p>Odoo 18引入了新的属性字段类型(properties)，这个功能专门用于加载属性字段的定义：</p>
+    <div class="code-block">
+        <pre><code>async function loadPropertyDefinitions(resModel, fieldName, domain) {
+    const fieldDefs = await loadFields(resModel);
+    return _loadPropertyDefinitions(fieldDefs, fieldName, domain);
+}</code></pre>
+    </div>
+    <p>属性字段是Odoo 18的新特性，它允许动态定义字段和值。这个函数：</p>
+    <ul>
+        <li>加载指定属性字段的所有可能值定义</li>
+        <li>支持按域过滤属性定义</li>
+        <li>为每个属性添加额外元数据，如<code>is_property</code>标志</li>
+    </ul>
+    
+    <h3>4. 字段路径加载 (loadPath)</h3>
+    <p>加载字段路径，支持关联字段和属性字段的递归加载：</p>
+    <div class="code-block">
+        <pre><code>async function loadPath(resModel, path = "*") {
+    const fieldDefs = await loadFields(resModel);
+    if (typeof path !== "string" || !path) {
+        throw new Error(`Invalid path: ${path}`);
+    }
+    return _loadPath(resModel, fieldDefs, path.split("."));
+}</code></pre>
+    </div>
+    <p>此功能：</p>
+    <ul>
+        <li>支持点号分隔的字段路径，如<code>partner_id.country_id.name</code></li>
+        <li>支持星号通配符(<code>*</code>)来加载所有字段</li>
+        <li>递归处理关联字段和属性字段</li>
+        <li>返回路径上所有模型的字段定义</li>
+    </ul>
+    
+    <h2>工作原理</h2>
+    <div class="workflow">
+        <h3>字段定义加载流程</h3>
+        <ol>
+            <li>检查缓存中是否已有请求的字段定义</li>
+            <li>如果没有，调用ORM服务的<code>fields_get</code>方法从服务器获取字段定义</li>
+            <li>将结果存入缓存</li>
+            <li>返回字段定义</li>
+        </ol>
+    </div>
+    
+    <div class="workflow">
+        <h3>属性字段处理流程</h3>
+        <ol>
+            <li>加载包含属性字段的模型字段定义</li>
+            <li>确定属性定义记录和字段</li>
+            <li>使用域过滤查询属性定义</li>
+            <li>处理结果，为每个属性添加元数据</li>
+            <li>返回属性定义集合</li>
+        </ol>
+    </div>
+    
+    <div class="workflow">
+        <h3>字段路径解析流程</h3>
+        <ol>
+            <li>将路径按点号拆分为字段名数组</li>
+            <li>逐级加载每个字段的定义</li>
+            <li>对关联字段，递归加载关联模型的字段</li>
+            <li>对属性字段，递归加载属性的定义</li>
+            <li>组合所有模型的信息并返回</li>
+        </ol>
+    </div>
+    
+    <h2>实际使用场景</h2>
+    
+    <h3>1. 加载模型字段</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        this.fieldService = useService("field");
+        this.loadModelFields();
+    }
+    
+    async loadModelFields() {
+        // 加载所有字段
+        const allFields = await this.fieldService.loadFields("product.product");
+        
+        // 只加载特定字段
+        const specificFields = await this.fieldService.loadFields("product.product", {
+            fieldNames: ["name", "list_price", "default_code"]
+        });
+        
+        // 只加载特定属性
+        const fieldsWithSpecificAttrs = await this.fieldService.loadFields("product.product", {
+            attributes: ["string", "type", "required"]
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 使用属性字段</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class PropertyEditorComponent extends Component {
+    setup() {
+        this.fieldService = useService("field");
+        this.loadProperties();
+    }
+    
+    async loadProperties() {
+        // 假设product.product模型有一个名为custom_properties的properties字段
+        const propertyDefs = await this.fieldService.loadPropertyDefinitions(
+            "product.product", 
+            "custom_properties"
+        );
+        
+        // 使用域过滤属性定义
+        const filteredPropertyDefs = await this.fieldService.loadPropertyDefinitions(
+            "product.product", 
+            "custom_properties",
+            [["type", "in", ["char", "integer"]]]
+        );
+        
+        // 现在可以使用propertyDefs构建动态表单
+        this.propertyFields = Object.entries(propertyDefs).map(([name, def]) => ({
+            name,
+            label: def.string,
+            type: def.type,
+            required: def.required,
+        }));
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 加载关联字段路径</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class RelatedFieldsComponent extends Component {
+    setup() {
+        this.fieldService = useService("field");
+        this.loadFieldPath();
+    }
+    
+    async loadFieldPath() {
+        // 加载单级关联字段
+        const partnerFields = await this.fieldService.loadPath("sale.order", "partner_id.*");
+        
+        // 加载多级关联字段
+        const countryFields = await this.fieldService.loadPath(
+            "sale.order", 
+            "partner_id.country_id.*"
+        );
+        
+        // 加载特定多级字段
+        const currencySymbol = await this.fieldService.loadPath(
+            "sale.order", 
+            "company_id.currency_id.symbol"
+        );
+        
+        // 处理属性字段路径
+        const customPropField = await this.fieldService.loadPath(
+            "product.product", 
+            "custom_properties.color"
+        );
+    }
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的新特性</h2>
+    <p>字段服务在Odoo 18中的主要改进：</p>
+    <ul>
+        <li><strong>属性字段支持</strong>：全新的属性字段类型处理机制，支持动态字段定义</li>
+        <li><strong>改进的缓存管理</strong>：更高效的缓存策略，支持细粒度缓存失效</li>
+        <li><strong>异步API</strong>：所有操作都是异步的，支持并行加载和处理</li>
+        <li><strong>路径加载</strong>：简化的API用于访问关联字段，支持通配符</li>
+        <li><strong>类型安全</strong>：使用JSDoc强化类型定义，提高代码质量</li>
+    </ul>
+    
+    <h2>开发者注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>字段服务的所有方法都是异步的，必须使用<code>await</code>或Promise链式调用</li>
+            <li>路径加载时要注意处理可能的无效路径情况（通过检查返回对象的<code>isInvalid</code>属性）</li>
+            <li>属性字段是Odoo 18的新功能，需要正确理解其数据结构才能有效使用</li>
+            <li>虽然有缓存机制，但应避免不必要的重复加载，尤其是在性能敏感的上下文中</li>
+            <li>路径中的<code>*</code>通配符只能用在路径末尾，不支持中间位置的通配符</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>字段服务(fieldService)是Odoo 18前端框架的核心服务之一，它提供了：</p>
+    <ul>
+        <li>高效加载和缓存模型字段定义的机制</li>
+        <li>支持Odoo 18新的属性字段类型</li>
+        <li>简化关联字段路径的处理</li>
+        <li>为动态UI构建提供必要的元数据支持</li>
+        <li>与ORM服务紧密集成，实现前后端字段系统的无缝连接</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>开发Odoo 18前端组件时，应优先使用字段服务获取字段信息，而不是直接调用ORM方法。这样可以利用缓存机制提高性能，并确保与Odoo的字段系统保持一致。
+    </div>
+</body>
+</html> 

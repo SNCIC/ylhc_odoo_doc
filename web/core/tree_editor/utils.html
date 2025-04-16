@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo树编辑器工具函数解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo树编辑器工具函数解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>utils.js</code>是Odoo 18中tree_editor模块的工具函数集合，提供了一系列辅助函数来简化条件树的操作和处理。这些工具函数涵盖从值格式化到条件描述生成等多种功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>utils.js中的工具函数是连接用户界面和条件树数据模型的关键，它们使得复杂的条件树能以人类可读的方式呈现，并提供了各种钩子函数来处理树结构中的数据。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>值格式化</strong>：将各种数据类型格式化为人类可读的字符串</li>
+        <li><strong>字段定义获取</strong>：提供钩子函数获取字段定义信息</li>
+        <li><strong>条件描述生成</strong>：生成人类可读的条件描述</li>
+        <li><strong>树结构分析</strong>：分析和提取树结构中的各种信息</li>
+        <li><strong>模型和记录处理</strong>：处理与模型和记录ID相关的功能</li>
+        <li><strong>路径处理</strong>：解析和描述条件中的字段路径</li>
+    </ol>
+    
+    <h2>核心函数解析</h2>
+    <p>utils.js包含多个重要的工具函数，下面详细分析其中最主要的几个：</p>
+    
+    <h3>值格式化函数</h3>
+    <div class="code-block">
+        <pre><code>function formatValue(val, disambiguate, fieldDef, displayNames) {
+    if (val instanceof Expression) {
+        return val.toString();
+    }
+    if (displayNames && isId(val)) {
+        if (typeof displayNames[val] === "string") {
+            val = displayNames[val];
+        } else {
+            return _t("Inaccessible/missing record ID: %s", val);
+        }
+    }
+    if (fieldDef?.type === "selection") {
+        const [, label] = (fieldDef.selection || []).find(([v]) => v === val) || [];
+        if (label !== undefined) {
+            val = label;
+        }
+    }
+    if (typeof val === "string") {
+        if (fieldDef?.type === "datetime") {
+            return formatDateTime(deserializeDateTime(val));
+        }
+        if (fieldDef?.type === "date") {
+            return formatDate(deserializeDate(val));
+        }
+    }
+    if (disambiguate && typeof val === "string") {
+        return JSON.stringify(val);
+    }
+    return val;
+}</code></pre>
+    </div>
+    <p>formatValue函数负责将条件值转换为人类可读的形式，处理多种数据类型和特殊情况。</p>
+    
+    <h3>字段定义钩子函数</h3>
+    <div class="code-block">
+        <pre><code>export function useMakeGetFieldDef(fieldService) {
+    fieldService ||= useService("field");
+    const loadFieldInfo = useLoadFieldInfo(fieldService);
+    return async (resModel, tree, additionalsPath = []) => {
+        const pathsInTree = getPathsInTree(tree);
+        const paths = new Set([...pathsInTree, ...additionalsPath]);
+        const promises = [];
+        const fieldDefs = {};
+        for (const path of paths) {
+            if (typeof path === "string") {
+                promises.push(
+                    loadFieldInfo(resModel, path).then(({ fieldDef }) => {
+                        fieldDefs[path] = fieldDef;
+                    })
+                );
+            }
+        }
+        await Promise.all(promises);
+        return (path) => {
+            if (typeof path === "string") {
+                return fieldDefs[path];
+            }
+            return null;
+        };
+    };
+}</code></pre>
+    </div>
+    <p>useMakeGetFieldDef函数返回一个异步函数，该函数加载并缓存条件树中所有路径的字段定义，然后返回一个getter函数来获取特定路径的字段定义。</p>
+    
+    <h3>条件描述生成钩子</h3>
+    <div class="code-block">
+        <pre><code>export function useMakeGetConditionDescription(fieldService, nameService) {
+    const makeGetPathDescriptions = useGetTreePathDescription(fieldService);
+    return async (resModel, tree, getFieldDef) => {
+        tree = simplifyTree(tree);
+        const [displayNames, getPathDescription] = await Promise.all([
+            getDisplayNames(tree, getFieldDef, nameService),
+            makeGetPathDescriptions(resModel, tree),
+        ]);
+        return (node) =>
+            _getConditionDescription(node, getFieldDef, getPathDescription, displayNames);
+    };
+}</code></pre>
+    </div>
+    <p>useMakeGetConditionDescription函数返回一个函数，用于生成人类可读的条件描述。它处理路径描述、操作符标签和值格式化，提供完整的条件可读表示。</p>
+    
+    <h3>辅助识别和格式化函数</h3>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td>isId(value)</td>
+            <td>检查值是否为有效的记录ID</td>
+            <td>value: 要检查的值</td>
+            <td>布尔值</td>
+        </tr>
+        <tr>
+            <td>disambiguate(value, displayNames)</td>
+            <td>检查是否需要消除值的歧义</td>
+            <td>value: 值, displayNames: 显示名称映射</td>
+            <td>布尔值</td>
+        </tr>
+        <tr>
+            <td>getResModel(fieldDef)</td>
+            <td>从字段定义获取相关模型名称</td>
+            <td>fieldDef: 字段定义</td>
+            <td>模型名称字符串</td>
+        </tr>
+        <tr>
+            <td>getPathsInTree(tree)</td>
+            <td>提取树中所有路径</td>
+            <td>tree: 条件树</td>
+            <td>路径数组</td>
+        </tr>
+        <tr>
+            <td>getDefaultPath(fieldDefs)</td>
+            <td>从字段定义获取默认路径</td>
+            <td>fieldDefs: 字段定义对象</td>
+            <td>默认路径字符串</td>
+        </tr>
+    </table>
+    
+    <h2>条件描述生成机制</h2>
+    <p>utils.js的一个核心功能是生成人类可读的条件描述。这个过程包括以下步骤：</p>
+    
+    <div class="flow-diagram">
+        <h3>条件描述生成流程</h3>
+        <ol>
+            <li>获取条件节点的字段定义</li>
+            <li>应用虚拟操作符，使描述更直观</li>
+            <li>获取操作符的标签</li>
+            <li>获取字段路径的描述</li>
+            <li>根据字段类型和操作符格式化值</li>
+            <li>组合路径、操作符和值，生成完整描述</li>
+        </ol>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>function _getConditionDescription(node, getFieldDef, getPathDescription, displayNames) {
+    const nodeWithVirtualOperators = createVirtualOperators(node, { getFieldDef });
+    const { operator, negate, value, path } = nodeWithVirtualOperators;
+    const fieldDef = getFieldDef(path);
+    const operatorLabel = getOperatorLabel(operator, fieldDef?.type, negate);
+    const pathDescription = getPathDescription(path);
+    const description = {
+        pathDescription,
+        operatorDescription: operatorLabel,
+        valueDescription: null,
+    };
+
+    if (isTree(node.value)) {
+        return description;
+    }
+    if (["set", "not_set"].includes(operator)) {
+        return description;
+    }
+    
+    // ... 处理各种操作符的值格式化 ...
+    
+    return description;
+}</code></pre>
+    </div>
+    
+    <h2>字段路径描述获取</h2>
+    <p>utils.js提供了函数来获取和格式化字段路径的人类可读描述：</p>
+    
+    <div class="code-block">
+        <pre><code>function useGetTreePathDescription(fieldService) {
+    fieldService ||= useService("field");
+    const loadPathDescription = useLoadPathDescription(fieldService);
+    return async (resModel, tree) => {
+        const paths = getPathsInTree(tree);
+        const promises = [];
+        const pathDescriptions = new Map();
+        for (const path of paths) {
+            promises.push(
+                loadPathDescription(resModel, path).then(({ displayNames }) => {
+                    pathDescriptions.set(path, displayNames.join(" \u2794 "));
+                })
+            );
+        }
+        await Promise.all(promises);
+        return (path) => pathDescriptions.get(path);
+    };
+}</code></pre>
+    </div>
+    
+    <p>这个函数返回一个getter，可以获取字段路径的人类可读描述，比如将"partner_id.country_id.name"转换为"客户 » 国家 » 名称"。</p>
+    
+    <h2>记录ID和显示名称处理</h2>
+    <p>对于关联字段的值，utils.js提供了加载记录显示名称的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>async function getDisplayNames(tree, getFieldDef, nameService) {
+    const resIdsByModel = extractIdsFromTree(tree, getFieldDef);
+    const proms = [];
+    const resModels = [];
+    for (const [resModel, resIds] of Object.entries(resIdsByModel)) {
+        resModels.push(resModel);
+        proms.push(nameService.loadDisplayNames(resModel, resIds));
+    }
+    return Object.fromEntries(zip(resModels, await Promise.all(proms)));
+}</code></pre>
+    </div>
+    
+    <p>这个函数从条件树中提取所有记录ID，然后使用nameService加载对应的显示名称。</p>
+    
+    <h2>树结构简化</h2>
+    <p>为了更好地生成描述，utils.js提供了树结构简化功能：</p>
+    
+    <div class="code-block">
+        <pre><code>function simplifyTree(tree) {
+    tree = cloneTree(tree);
+    
+    // 递归处理子节点
+    if (tree.type === "connector" && tree.children.length) {
+        tree.children = tree.children.map(simplifyTree);
+        
+        // 单子节点连接符简化
+        if (tree.children.length === 1) {
+            const child = tree.children[0];
+            if (child.type === "connector" && child.value === tree.value && !child.negate) {
+                return {
+                    ...tree,
+                    children: child.children,
+                };
+            }
+            return child;
+        }
+    }
+    
+    return tree;
+}</code></pre>
+    </div>
+    
+    <p>这个函数简化树结构，移除不必要的节点和嵌套，使其更容易理解和描述。</p>
+    
+    <h2>使用示例</h2>
+    <p>下面是utils.js中一些关键功能的使用示例：</p>
+    
+    <div class="usage-examples">
+        <div class="example">
+            <h3>获取字段定义</h3>
+            <div class="code-block">
+                <pre><code>import { useMakeGetFieldDef } from "@web/core/tree_editor/utils";
+import { Component, onWillStart } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+export class MyComponent extends Component {
+    setup() {
+        this.fieldService = useService("field");
+        this.makeGetFieldDef = useMakeGetFieldDef(this.fieldService);
+        
+        onWillStart(async () => {
+            // 创建一个函数来获取字段定义
+            this.getFieldDef = await this.makeGetFieldDef("sale.order", this.tree);
+            
+            // 使用这个函数获取特定路径的字段定义
+            const partnerFieldDef = this.getFieldDef("partner_id");
+            console.log(partnerFieldDef.type); // "many2one"
+            console.log(partnerFieldDef.string); // "客户"
+            
+            // 可以根据字段类型执行不同操作
+            if (partnerFieldDef.type === "many2one") {
+                // 处理关联字段
+            }
+        });
+    }
+}</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>生成条件描述</h3>
+            <div class="code-block">
+                <pre><code>import { useMakeGetConditionDescription } from "@web/core/tree_editor/utils";
+import { Component, onWillStart } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+export class ConditionViewer extends Component {
+    setup() {
+        this.fieldService = useService("field");
+        this.nameService = useService("name");
+        this.makeGetConditionDescription = useMakeGetConditionDescription(
+            this.fieldService, 
+            this.nameService
+        );
+        
+        onWillStart(async () => {
+            // 假设已经有getFieldDef函数
+            this.getConditionDescription = await this.makeGetConditionDescription(
+                "sale.order", 
+                this.props.tree, 
+                this.getFieldDef
+            );
+            
+            // 为一个条件节点生成描述
+            const description = this.getConditionDescription(this.props.node);
+            console.log(description);
+            /* 输出例如：
+            {
+                pathDescription: "客户 » 国家",
+                operatorDescription: "是",
+                valueDescription: {
+                    values: ["中国"],
+                    join: "",
+                    addParenthesis: false
+                }
+            }
+            */
+        });
+    }
+}</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>处理记录ID</h3>
+            <div class="code-block">
+                <pre><code>import { isId, disambiguate } from "@web/core/tree_editor/utils";
+
+// 检查值是否为有效的记录ID
+console.log(isId(42)); // true
+console.log(isId("42")); // false (不是数字)
+console.log(isId(0)); // false (小于1)
+
+// 检查是否需要消除值的歧义
+const displayNames = { 1: "产品A", 2: "产品B" };
+
+console.log(disambiguate("测试", displayNames)); // false
+console.log(disambiguate([1, 2], displayNames)); // false (都是ID且在displayNames中)
+console.log(disambiguate([1, "测试"], displayNames)); // true (混合了ID和字符串)</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>utils.js与tree_editor模块的其他部分有紧密的交互：</p>
+    <ul>
+        <li><strong>condition_tree.js</strong>：使用其中的函数如cloneTree、createVirtualOperators等</li>
+        <li><strong>tree_editor_operator_editor.js</strong>：使用getOperatorLabel函数获取操作符标签</li>
+        <li><strong>tree_editor_components.js</strong>：与Within等组件的交互</li>
+        <li><strong>model_field_selector</strong>：使用useLoadFieldInfo和useLoadPathDescription</li>
+        <li><strong>nameService</strong>：加载记录的显示名称</li>
+        <li><strong>fieldService</strong>：加载字段定义和信息</li>
+    </ul>
+    
+    <h2>性能优化策略</h2>
+    <p>utils.js实现了多种性能优化策略：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>并行加载</h4>
+            <p>通过Promise.all并行加载字段定义和路径描述，提高性能。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>缓存机制</h4>
+            <p>一次性加载树中所有路径的信息，避免重复请求。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>懒加载</h4>
+            <p>返回getter函数而不是直接返回数据，实现按需获取。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>批量处理</h4>
+            <p>一次性加载所有记录的显示名称，减少网络请求次数。</p>
+        </div>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>在使用utils.js时，请注意以下几点：
+        <ul>
+            <li>优先使用提供的钩子函数(useMakeGetFieldDef等)，而不是自己实现相似功能</li>
+            <li>记得处理异步操作，所有获取字段定义和描述的函数都是异步的</li>
+            <li>注意缓存和性能，避免重复请求相同的信息</li>
+            <li>处理特殊情况，比如无效的记录ID或不存在的字段路径</li>
+            <li>使用返回的getter函数，而不是尝试直接访问内部缓存</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，utils.js有以下改进：</p>
+    <ul>
+        <li>更好的日期和时间格式化</li>
+        <li>改进的路径描述生成</li>
+        <li>更完善的值格式化处理</li>
+        <li>更好的与其他服务的集成</li>
+        <li>更高效的记录名称加载机制</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用utils.js？下面是一个完整的例子：</p>
+    
+    <div class="code-block">
+        <pre><code>import { 
+    useMakeGetFieldDef,
+    useMakeGetConditionDescription,
+    getResModel,
+    getDefaultPath
+} from "@web/core/tree_editor/utils";
+import { Component, useState, onWillStart } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+import { TreeEditor } from "@web/core/tree_editor/tree_editor";
+import { condition, connector } from "@web/core/tree_editor/condition_tree";
+
+export class MyFilterComponent extends Component {
+    static template = "my_module.MyFilterTemplate";
+    static components = { TreeEditor };
+    
+    setup() {
+        // 服务
+        this.fieldService = useService("field");
+        this.nameService = useService("name");
+        
+        // 钩子函数
+        this.makeGetFieldDef = useMakeGetFieldDef(this.fieldService);
+        this.makeGetConditionDescription = useMakeGetConditionDescription(
+            this.fieldService,
+            this.nameService
+        );
+        
+        // 初始化状态
+        this.resModel = "my.model";
+        this.state = useState({
+            filterTree: connector("&", [
+                condition("active", "=", true),
+                condition("name", "ilike", "")
+            ]),
+            filterDescription: "",
+            isReady: false
+        });
+        
+        onWillStart(async () => {
+            // 加载字段定义
+            const fieldDefs = await this.fieldService.loadFields(this.resModel);
+            this.getFieldDef = await this.makeGetFieldDef(this.resModel, this.state.filterTree);
+            this.getConditionDescription = await this.makeGetConditionDescription(
+                this.resModel,
+                this.state.filterTree,
+                this.getFieldDef
+            );
+            
+            // 生成条件描述
+            this.updateFilterDescription();
+            
+            // 设置默认字段
+            this.defaultField = getDefaultPath(fieldDefs);
+            
+            this.state.isReady = true;
+        });
+    }
+    
+    getDefaultCondition(fieldDefs) {
+        const defaultPath = getDefaultPath(fieldDefs);
+        return condition(defaultPath, "ilike", "");
+    }
+    
+    getPathEditorInfo() {
+        return {
+            // 路径编辑器配置
+        };
+    }
+    
+    getOperatorEditorInfo(fieldDef) {
+        // 根据字段类型返回可用操作符
+        return {
+            // 操作符编辑器配置
+        };
+    }
+    
+    getDefaultOperator(fieldDef) {
+        switch (fieldDef?.type) {
+            case "char":
+            case "text":
+                return "ilike";
+            case "many2one":
+            case "many2many":
+                return "in";
+            case "datetime":
+            case "date":
+                return "between";
+            default:
+                return "=";
+        }
+    }
+    
+    updateFilter(tree) {
+        this.state.filterTree = tree;
+        this.updateFilterDescription();
+    }
+    
+    updateFilterDescription() {
+        // 生成整个过滤器的描述
+        const descriptions = [];
+        
+        const processNode = (node) => {
+            if (node.type === "condition") {
+                const desc = this.getConditionDescription(node);
+                if (desc) {
+                    let text = desc.pathDescription + " " + desc.operatorDescription;
+                    if (desc.valueDescription) {
+                        const values = desc.valueDescription.values.join(
+                            " " + desc.valueDescription.join + " "
+                        );
+                        text += " " + (desc.valueDescription.addParenthesis ? "(" + values + ")" : values);
+                    }
+                    descriptions.push(text);
+                }
+            } else if (node.type === "connector") {
+                node.children.forEach(processNode);
+            }
+        };
+        
+        processNode(this.state.filterTree);
+        this.state.filterDescription = descriptions.join(
+            this.state.filterTree.value === "&" ? " 且 " : " 或 "
+        );
+    }
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;templates&gt;
+    &lt;t t-name="my_module.MyFilterTemplate"&gt;
+        &lt;div class="my-filter-component"&gt;
+            &lt;div t-if="state.filterDescription" class="filter-description mb-3"&gt;
+                &lt;h5&gt;当前过滤条件：&lt;/h5&gt;
+                &lt;p t-esc="state.filterDescription"/&gt;
+            &lt;/div&gt;
+            
+            &lt;div t-if="state.isReady" class="tree-editor-container"&gt;
+                &lt;TreeEditor
+                    tree="state.filterTree"
+                    resModel="resModel"
+                    update="(tree) => this.updateFilter(tree)"
+                    getDefaultCondition="getDefaultCondition"
+                    getPathEditorInfo="getPathEditorInfo"
+                    getOperatorEditorInfo="getOperatorEditorInfo"
+                    getDefaultOperator="getDefaultOperator"
+                /&gt;
+            &lt;/div&gt;
+            &lt;div t-else class="text-center"&gt;
+                &lt;div class="spinner-border" role="status"&gt;
+                    &lt;span class="visually-hidden"&gt;加载中...&lt;/span&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/templates&gt;</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>utils.js是tree_editor模块的核心工具函数集合，它：</p>
+    <ul>
+        <li>提供了处理条件树各个方面的函数和钩子</li>
+        <li>负责生成人类可读的条件描述</li>
+        <li>管理字段定义和路径描述的加载和缓存</li>
+        <li>处理复杂的值格式化和记录名称获取</li>
+        <li>为树编辑器和相关组件提供基础支持</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>utils.js中的函数主要是为了简化树编辑器的操作和提高可用性，在开发中应当充分利用这些工具函数，避免重复实现相似功能，并注意异步处理和性能优化。
+    </div>
+</body>
+</html> 

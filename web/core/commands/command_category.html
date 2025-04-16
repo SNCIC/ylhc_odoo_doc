@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo命令分类解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo命令分类(Command Category)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>command_category.js</code>是Odoo 18框架中的一个简单但重要的配置文件，它定义了命令面板中使用的标准命令分类。这些分类用于在命令面板中组织和排序命令，使用户可以更容易地找到所需功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>命令分类是Odoo命令系统中的一个重要概念，它允许将相关命令分组展示，提高命令面板的可用性。各个分类有不同的优先级(sequence)，决定了它们在命令面板中的显示顺序。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>定义标准命令分类</strong>：提供Odoo中使用的标准命令分类</li>
+        <li><strong>设置分类优先级</strong>：通过sequence值定义各分类的显示顺序</li>
+        <li><strong>提供分类注册点</strong>：允许其他模块添加或使用这些分类</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>命令分类定义非常简洁，仅包含注册表的使用和分类的定义：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+const commandCategoryRegistry = registry.category("command_categories");
+commandCategoryRegistry
+    .add("app", {}, { sequence: 10 })
+    .add("smart_action", {}, { sequence: 15 })
+    .add("actions", {}, { sequence: 30 })
+    .add("default", {}, { sequence: 50 })
+    .add("view_switcher", {}, { sequence: 100 })
+    .add("debug", {}, { sequence: 110 })
+    .add("disabled", {});</code></pre>
+    </div>
+    
+    <h3>分类详解</h3>
+    <table>
+        <tr>
+            <th>分类名</th>
+            <th>Sequence</th>
+            <th>描述</th>
+            <th>典型用途</th>
+        </tr>
+        <tr>
+            <td>app</td>
+            <td>10</td>
+            <td>应用分类</td>
+            <td>导航到不同的应用模块，如销售、采购、库存等</td>
+        </tr>
+        <tr>
+            <td>smart_action</td>
+            <td>15</td>
+            <td>智能操作分类</td>
+            <td>上下文感知的智能操作，如根据当前视图提供的特定功能</td>
+        </tr>
+        <tr>
+            <td>actions</td>
+            <td>30</td>
+            <td>操作分类</td>
+            <td>常规操作，如创建、编辑、删除等</td>
+        </tr>
+        <tr>
+            <td>default</td>
+            <td>50</td>
+            <td>默认分类</td>
+            <td>不属于其他特定分类的通用命令</td>
+        </tr>
+        <tr>
+            <td>view_switcher</td>
+            <td>100</td>
+            <td>视图切换分类</td>
+            <td>在不同视图类型间切换，如列表、看板、日历等</td>
+        </tr>
+        <tr>
+            <td>debug</td>
+            <td>110</td>
+            <td>调试分类</td>
+            <td>调试和开发相关命令，仅在开发模式可见</td>
+        </tr>
+        <tr>
+            <td>disabled</td>
+            <td>-</td>
+            <td>禁用命令分类</td>
+            <td>暂时禁用的命令，通常不会显示在命令面板中</td>
+        </tr>
+    </table>
+    
+    <h3>工作原理</h3>
+    <p>命令分类的工作原理非常直接：</p>
+    <ol>
+        <li>通过注册表(<code>registry</code>)创建一个名为"command_categories"的分类注册表</li>
+        <li>使用<code>add</code>方法注册各个命令分类</li>
+        <li>为每个分类指定一个唯一名称(如"app"、"actions"等)</li>
+        <li>通过<code>sequence</code>参数设置分类的显示优先级</li>
+        <li>这些分类随后被命令面板和命令服务使用</li>
+    </ol>
+    
+    <h2>命令分类的应用</h2>
+    <p>命令分类在Odoo的命令系统中发挥着重要作用：</p>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>命令组织</h4>
+            <p>分类允许将相关命令分组展示，使命令面板更有条理</p>
+            <p>例如：所有应用导航命令都归入"app"分类</p>
+        </div>
+        <div class="class-box">
+            <h4>显示优先级</h4>
+            <p>通过sequence值控制分类的显示顺序</p>
+            <p>重要和常用的分类(如"app")显示在前面</p>
+        </div>
+        <div class="class-box">
+            <h4>扩展性</h4>
+            <p>允许开发者为自定义模块定义新的命令分类</p>
+            <p>也可以使用现有分类对新命令进行分类</p>
+        </div>
+        <div class="class-box">
+            <h4>上下文适应</h4>
+            <p>某些分类（如"debug"）只在特定环境下显示</p>
+            <p>这提供了上下文感知的命令体验</p>
+        </div>
+    </div>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用和扩展命令分类？下面是一些示例：</p>
+    
+    <h3>示例1：使用现有分类</h3>
+    <div class="code-block">
+        <pre><code>// 在命令提供者中使用标准分类
+import { registry } from "@web/core/registry";
+
+const commandProviderRegistry = registry.category("command_provider");
+commandProviderRegistry.add({
+    provide: () => {
+        return [
+            {
+                name: "创建客户",
+                action: () => { /* ... */ },
+                category: "actions", // 使用标准的"actions"分类
+            },
+            {
+                name: "打开设置",
+                action: () => { /* ... */ },
+                category: "app", // 使用标准的"app"分类
+            },
+        ];
+    }
+});</code></pre>
+    </div>
+    
+    <h3>示例2：注册自定义分类</h3>
+    <div class="code-block">
+        <pre><code>// 注册自定义命令分类
+import { registry } from "@web/core/registry";
+
+const commandCategoryRegistry = registry.category("command_categories");
+// 添加一个新的分类"my_module"，设置为优先级40(在actions和default之间)
+commandCategoryRegistry.add("my_module", { 
+    name: "我的模块", // 显示名称
+    namespace: "default" // 分类所属的命名空间
+}, { 
+    sequence: 40 // 显示优先级
+});</code></pre>
+    </div>
+    
+    <h3>示例3：创建带有特定分类的命令</h3>
+    <div class="code-block">
+        <pre><code>// 使用自定义分类创建命令
+import { useService } from "@web/core/utils/hooks";
+
+// 在组件中使用
+setup() {
+    const commandService = useService("command");
+    
+    // 注册一个使用自定义分类的命令
+    commandService.add("导出报表", () => {
+        this.exportReport();
+    }, {
+        category: "my_module", // 使用自定义分类
+    });
+}</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>使用命令分类时应注意以下几点：
+        <ul>
+            <li>尽量使用标准分类，除非有特殊需求</li>
+            <li>自定义分类应选择合适的sequence值，避免干扰标准分类的展示</li>
+            <li>分类名称应简短且描述性强，帮助用户理解分组</li>
+            <li>考虑命令的使用频率和重要性，选择合适的分类</li>
+            <li>debug分类的命令应仅在开发模式可用</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>命令分类与其他Odoo核心模块的关系：</p>
+    <ul>
+        <li><strong>命令服务(command_service)</strong>：使用分类组织和过滤命令</li>
+        <li><strong>命令面板(command_palette)</strong>：根据分类展示和分组命令</li>
+        <li><strong>注册表系统(registry)</strong>：提供分类的注册和查询机制</li>
+        <li><strong>命令提供者(command_provider)</strong>：为命令指定适当的分类</li>
+    </ul>
+    
+    <h2>Odoo 18中的分类系统</h2>
+    <p>在Odoo 18中，命令分类系统相比之前版本有一些调整：</p>
+    <ul>
+        <li>更精细的分类划分，如引入"smart_action"分类</li>
+        <li>改进的优先级设置，更合理的顺序安排</li>
+        <li>与命名空间系统的更好集成</li>
+        <li>更好的分类显示逻辑</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>命令分类是Odoo命令系统中看似简单但非常重要的组成部分，它提供了：</p>
+    <ul>
+        <li>清晰的命令组织结构</li>
+        <li>灵活的分类和排序机制</li>
+        <li>良好的扩展性和自定义能力</li>
+        <li>改进的用户体验和命令查找效率</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发命令相关功能时，合理使用命令分类可以显著提高命令面板的可用性。尽量使用标准分类，并确保命令放在最合适的分类中，这样用户就能更容易找到所需功能。
+    </div>
+</body>
+</html> 

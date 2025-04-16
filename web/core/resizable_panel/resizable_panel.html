@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo可调整大小面板组件解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo可调整大小面板组件解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>resizable_panel.js</code>是Odoo框架中的一个核心组件，提供了可通过拖动调整大小的面板功能。该组件允许用户通过鼠标拖动面板边缘来调整面板的宽度，为Odoo界面提供了更灵活的布局控制。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>可调整大小面板在Odoo的许多界面中被广泛使用，如侧边栏、配置面板等。它为用户提供了自定义界面布局的能力，使用户可以根据自己的需求调整各个面板的大小，提高工作效率。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>拖动调整大小</strong>：通过鼠标拖动调整面板宽度</li>
+        <li><strong>最小宽度限制</strong>：确保面板不会被调整到小于指定的最小宽度</li>
+        <li><strong>自动适应窗口大小</strong>：当窗口大小改变时，自动调整面板大小以适应</li>
+        <li><strong>自定义调整事件</strong>：支持在调整大小时触发自定义回调函数</li>
+        <li><strong>双向支持</strong>：支持从左到右和从右到左的文字方向，适应不同语言</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>ResizablePanel组件的核心是useResizable钩子，它提供了所有调整大小的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>function useResizable({
+    containerRef,
+    handleRef,
+    initialWidth = 400,
+    getMinWidth = () => 400,
+    onResize = () => {},
+    getResizeSide = () => "end",
+}) {
+    containerRef = typeof containerRef == "string" ? useRef(containerRef) : containerRef;
+    handleRef = typeof handleRef == "string" ? useRef(handleRef) : handleRef;
+    const props = useComponent().props;
+
+    let minWidth = getMinWidth(props);
+    let resizeSide = getResizeSide(props);
+    let isChangingSize = false;
+
+    useExternalListener(document, "mouseup", () => onMouseUp());
+    useExternalListener(document, "mousemove", (ev) => onMouseMove(ev));
+
+    useExternalListener(window, "resize", () => {
+        const limit = getLimitWidth();
+        if (getContainerRect().width >= limit) {
+            resize(computeFinalWidth(limit));
+        }
+    });
+
+    let docDirection;
+    useEffect(
+        (container) => {
+            if (container) {
+                docDirection = getComputedStyle(container).direction;
+            }
+        },
+        () => [containerRef.el]
+    );
+
+    onMounted(() => {
+        if (handleRef.el) {
+            resize(initialWidth);
+            handleRef.el.addEventListener("mousedown", onMouseDown);
+        }
+    });
+
+    onWillUpdateProps((nextProps) => {
+        minWidth = getMinWidth(nextProps);
+        resizeSide = getResizeSide(nextProps);
+    });
+
+    onWillUnmount(() => {
+        if (handleRef.el) {
+            handleRef.el.removeEventListener("mousedown", onMouseDown);
+        }
+    });
+
+    function onMouseDown() {
+        isChangingSize = true;
+        document.body.classList.add("pe-none", "user-select-none");
+    }
+
+    function onMouseUp() {
+        isChangingSize = false;
+        document.body.classList.remove("pe-none", "user-select-none");
+    }
+
+    function onMouseMove(ev) {
+        if (!isChangingSize || !containerRef.el) {
+            return;
+        }
+        const direction =
+            (docDirection === "ltr" && resizeSide === "end") ||
+            (docDirection === "rtl" && resizeSide === "start")
+                ? 1
+                : -1;
+        const fixedSide = direction === 1 ? "left" : "right";
+        const containerRect = getContainerRect();
+        const newWidth = (ev.clientX - containerRect[fixedSide]) * direction;
+        resize(computeFinalWidth(newWidth));
+    }
+
+    function computeFinalWidth(targetContainerWidth) {
+        const handlerSpacing = handleRef.el ? handleRef.el.offsetWidth / 2 : 10;
+        const w = Math.max(minWidth, targetContainerWidth + handlerSpacing);
+        const limit = getLimitWidth();
+        return Math.min(w, limit - handlerSpacing);
+    }
+
+    function getContainerRect() {
+        const container = containerRef.el;
+        const offsetParent = container.offsetParent;
+        let containerRect = {};
+        if (!offsetParent) {
+            containerRect = container.getBoundingClientRect();
+        } else {
+            containerRect.left = container.offsetLeft;
+            containerRect.right = container.offsetLeft + container.offsetWidth;
+            containerRect.width = container.offsetWidth;
+        }
+        return containerRect;
+    }
+
+    function getLimitWidth() {
+        const offsetParent = containerRef.el.offsetParent;
+        return offsetParent ? offsetParent.offsetWidth : window.innerWidth;
+    }
+
+    function resize(width) {
+        containerRef.el.style.setProperty("width", `${width}px`);
+        onResize(width);
+    }
+}
+
+export class ResizablePanel extends Component {
+    static template = "web_studio.ResizablePanel";
+
+    static components = {};
+    static props = {
+        onResize: { type: Function, optional: true },
+        initialWidth: { type: Number, optional: true },
+        minWidth: { type: Number, optional: true },
+        class: { type: String, optional: true },
+        slots: { type: Object },
+        handleSide: {
+            validate: (val) => ["start", "end"].includes(val),
+            optional: true,
+        },
+    };
+    static defaultProps = {
+        onResize: () => {},
+        width: 400,
+        minWidth: 400,
+        class: "",
+        handleSide: "end",
+    };
+
+    setup() {
+        useResizable({
+            containerRef: "containerRef",
+            handleRef: "handleRef",
+            onResize: this.props.onResize,
+            initialWidth: this.props.initialWidth,
+            getMinWidth: (props) => props.minWidth,
+            getResizeSide: (props) => props.handleSide,
+        });
+    }
+
+    get class() {
+        const classes = this.props.class.split(" ");
+        if (!classes.some((cls) => cls.startsWith("position-"))) {
+            classes.push("position-relative");
+        }
+        return classes.join(" ");
+    }
+}</code></pre>
+    </div>
+    
+    <h3>useResizable钩子参数</h3>
+    <ul>
+        <li><code>containerRef</code>：要调整大小的容器元素的引用</li>
+        <li><code>handleRef</code>：用于拖动的手柄元素的引用</li>
+        <li><code>initialWidth</code>：面板的初始宽度，默认为400px</li>
+        <li><code>getMinWidth</code>：获取最小宽度的函数，默认返回400px</li>
+        <li><code>onResize</code>：调整大小时的回调函数</li>
+        <li><code>getResizeSide</code>：获取调整大小的边缘的函数，可以是"start"或"end"</li>
+    </ul>
+    
+    <h3>ResizablePanel组件属性</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>onResize</td>
+            <td>Function</td>
+            <td>() => {}</td>
+            <td>调整大小时的回调函数</td>
+        </tr>
+        <tr>
+            <td>initialWidth</td>
+            <td>Number</td>
+            <td>400</td>
+            <td>面板的初始宽度</td>
+        </tr>
+        <tr>
+            <td>minWidth</td>
+            <td>Number</td>
+            <td>400</td>
+            <td>面板的最小宽度</td>
+        </tr>
+        <tr>
+            <td>class</td>
+            <td>String</td>
+            <td>""</td>
+            <td>附加的CSS类名</td>
+        </tr>
+        <tr>
+            <td>handleSide</td>
+            <td>String</td>
+            <td>"end"</td>
+            <td>调整大小的边缘，可以是"start"或"end"</td>
+        </tr>
+        <tr>
+            <td>slots</td>
+            <td>Object</td>
+            <td>-</td>
+            <td>组件插槽</td>
+        </tr>
+    </table>
+    
+    <h3>关键方法解析</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>onMouseDown</td>
+            <td>开始调整大小，设置isChangingSize标志并添加CSS类防止文本选择</td>
+        </tr>
+        <tr>
+            <td>onMouseUp</td>
+            <td>结束调整大小，移除isChangingSize标志和CSS类</td>
+        </tr>
+        <tr>
+            <td>onMouseMove</td>
+            <td>根据鼠标移动计算新宽度并调整面板大小</td>
+        </tr>
+        <tr>
+            <td>computeFinalWidth</td>
+            <td>计算最终宽度，确保不小于最小宽度且不超过父容器宽度</td>
+        </tr>
+        <tr>
+            <td>getContainerRect</td>
+            <td>获取容器元素的位置和尺寸信息</td>
+        </tr>
+        <tr>
+            <td>getLimitWidth</td>
+            <td>获取面板可以调整的最大宽度</td>
+        </tr>
+        <tr>
+            <td>resize</td>
+            <td>设置容器宽度并调用onResize回调</td>
+        </tr>
+    </table>
+    
+    <h2>工作原理</h2>
+    <p>ResizablePanel组件的工作原理如下：</p>
+    
+    <div class="flow-diagram">
+        <ol>
+            <li>组件初始化时，设置必要的引用和事件监听器</li>
+            <li>用户按下鼠标按钮在调整手柄上，触发<code>onMouseDown</code>事件</li>
+            <li>用户移动鼠标，触发<code>onMouseMove</code>事件，计算新宽度并调整面板大小</li>
+            <li>计算新宽度时考虑文字方向（ltr或rtl）和调整边缘（start或end）</li>
+            <li>确保新宽度不小于最小宽度且不超过父容器宽度</li>
+            <li>用户释放鼠标按钮，触发<code>onMouseUp</code>事件，结束调整</li>
+            <li>窗口大小改变时，如果面板宽度超过父容器宽度，则自动调整为适当的宽度</li>
+        </ol>
+    </div>
+    
+    <h3>调整大小逻辑</h3>
+    <p>调整大小的核心逻辑在<code>onMouseMove</code>方法中，它考虑了文字方向和调整边缘来计算新宽度：</p>
+    <div class="code-block">
+        <pre><code>function onMouseMove(ev) {
+    if (!isChangingSize || !containerRef.el) {
+        return;
+    }
+    const direction =
+        (docDirection === "ltr" && resizeSide === "end") ||
+        (docDirection === "rtl" && resizeSide === "start")
+            ? 1
+            : -1;
+    const fixedSide = direction === 1 ? "left" : "right";
+    const containerRect = getContainerRect();
+    const newWidth = (ev.clientX - containerRect[fixedSide]) * direction;
+    resize(computeFinalWidth(newWidth));
+}</code></pre>
+    </div>
+    
+    <h3>双向文字支持</h3>
+    <p>组件支持从左到右（LTR）和从右到左（RTL）的文字方向，通过检测容器的<code>direction</code>样式属性：</p>
+    <div class="code-block">
+        <pre><code>useEffect(
+    (container) => {
+        if (container) {
+            docDirection = getComputedStyle(container).direction;
+        }
+    },
+    () => [containerRef.el]
+);</code></pre>
+    </div>
+    
+    <h2>使用场景示例</h2>
+    
+    <h3>示例1：基本的可调整大小面板</h3>
+    <div class="code-block">
+        <pre><code>&lt;ResizablePanel
+    initialWidth="300"
+    minWidth="200"
+    class="bg-light border"
+&gt;
+    &lt;t t-set-slot="default"&gt;
+        &lt;div class="p-3"&gt;
+            &lt;h3&gt;可调整大小的面板&lt;/h3&gt;
+            &lt;p&gt;拖动右侧的手柄来调整宽度。&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/ResizablePanel&gt;</code></pre>
+    </div>
+    <p>这个例子展示了一个基本的可调整大小面板，初始宽度为300像素，最小宽度为200像素。用户可以拖动右侧的手柄来调整面板宽度。</p>
+    
+    <h3>示例2：带有调整大小回调的面板</h3>
+    <div class="code-block">
+        <pre><code>&lt;ResizablePanel
+    initialWidth="400"
+    minWidth="250"
+    onResize="(width) => this.onPanelResize(width)"
+    class="sidebar bg-light border-end"
+    handleSide="end"
+&gt;
+    &lt;t t-set-slot="default"&gt;
+        &lt;div class="p-3"&gt;
+            &lt;h3&gt;侧边栏&lt;/h3&gt;
+            &lt;p&gt;当前宽度: &lt;span t-esc="state.sidebarWidth"/&gt;px&lt;/p&gt;
+            &lt;ul class="nav flex-column"&gt;
+                &lt;li class="nav-item"&gt;&lt;a class="nav-link" href="#"&gt;首页&lt;/a&gt;&lt;/li&gt;
+                &lt;li class="nav-item"&gt;&lt;a class="nav-link" href="#"&gt;产品&lt;/a&gt;&lt;/li&gt;
+                &lt;li class="nav-item"&gt;&lt;a class="nav-link" href="#"&gt;客户&lt;/a&gt;&lt;/li&gt;
+                &lt;li class="nav-item"&gt;&lt;a class="nav-link" href="#"&gt;报表&lt;/a&gt;&lt;/li&gt;
+            &lt;/ul&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/ResizablePanel&gt;</code></pre>
+    </div>
+    <p>这个例子展示了一个带有调整大小回调的侧边栏面板。当用户调整面板大小时，回调函数<code>onPanelResize</code>将被调用，并接收新的宽度作为参数。</p>
+    
+    <h3>示例3：在布局中使用多个可调整大小面板</h3>
+    <div class="code-block">
+        <pre><code>class ComplexLayout extends Component {
+    static components = { ResizablePanel };
+    static template = xml`
+        &lt;div class="d-flex h-100"&gt;
+            &lt;ResizablePanel
+                initialWidth="300"
+                minWidth="200"
+                onResize="(width) => this.onLeftPanelResize(width)"
+                class="bg-light border-end"
+            &gt;
+                &lt;t t-set-slot="default"&gt;
+                    &lt;div class="p-3"&gt;
+                        &lt;h3&gt;左侧面板&lt;/h3&gt;
+                        &lt;p&gt;从右侧拖动。&lt;/p&gt;
+                    &lt;/div&gt;
+                &lt;/t&gt;
+            &lt;/ResizablePanel&gt;
+            
+            &lt;div class="flex-grow-1 d-flex flex-column"&gt;
+                &lt;div class="main-content flex-grow-1 p-3"&gt;
+                    &lt;h2&gt;主要内容区域&lt;/h2&gt;
+                    &lt;p&gt;这是主要内容区域，它会根据左侧和右侧面板的调整自动改变大小。&lt;/p&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            
+            &lt;ResizablePanel
+                initialWidth="350"
+                minWidth="250"
+                onResize="(width) => this.onRightPanelResize(width)"
+                class="bg-light border-start"
+                handleSide="start"
+            &gt;
+                &lt;t t-set-slot="default"&gt;
+                    &lt;div class="p-3"&gt;
+                        &lt;h3&gt;右侧面板&lt;/h3&gt;
+                        &lt;p&gt;从左侧拖动。&lt;/p&gt;
+                    &lt;/div&gt;
+                &lt;/t&gt;
+            &lt;/ResizablePanel&gt;
+        &lt;/div&gt;
+    `;
+    
+    setup() {
+        this.state = useState({
+            leftPanelWidth: 300,
+            rightPanelWidth: 350,
+        });
+    }
+    
+    onLeftPanelResize(width) {
+        this.state.leftPanelWidth = width;
+        // 可以执行其他逻辑，如保存用户偏好
+    }
+    
+    onRightPanelResize(width) {
+        this.state.rightPanelWidth = width;
+        // 可以执行其他逻辑，如保存用户偏好
+    }
+}</code></pre>
+    </div>
+    <p>这个例子展示了如何在一个复杂布局中使用多个可调整大小的面板。左侧面板从右侧调整大小，右侧面板从左侧调整大小，中间的内容区域会自动适应两侧面板的大小变化。</p>
+    
+    <h2>自定义行为和样式</h2>
+    <p>ResizablePanel组件提供了多种自定义选项：</p>
+    
+    <h3>自定义初始宽度和最小宽度</h3>
+    <div class="code-block">
+        <pre><code>&lt;ResizablePanel initialWidth="500" minWidth="300"&gt;
+    &lt;!-- 内容 --&gt;
+&lt;/ResizablePanel&gt;</code></pre>
+    </div>
+    
+    <h3>自定义调整边缘</h3>
+    <div class="code-block">
+        <pre><code>&lt;ResizablePanel handleSide="start"&gt;
+    &lt;!-- 内容 --&gt;
+&lt;/ResizablePanel&gt;</code></pre>
+    </div>
+    <p>这将在面板的左侧（或RTL布局中的右侧）放置调整手柄。</p>
+    
+    <h3>自定义调整大小回调</h3>
+    <div class="code-block">
+        <pre><code>&lt;ResizablePanel onResize="(width) => {
+    this.saveUserPreference('panelWidth', width);
+    this.updateLayout();
+}"&gt;
+    &lt;!-- 内容 --&gt;
+&lt;/ResizablePanel&gt;</code></pre>
+    </div>
+    <p>这允许你在面板大小改变时执行自定义逻辑，如保存用户偏好或更新布局。</p>
+    
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>提示：</strong>在使用ResizablePanel组件时，请注意以下几点：
+        <ul>
+            <li>设置合理的<code>minWidth</code>，确保内容在调整大小后仍然可用</li>
+            <li>考虑小屏幕设备，提供适当的响应式行为</li>
+            <li>使用<code>onResize</code>回调保存用户偏好，以便在页面刷新后恢复</li>
+            <li>确保面板内的内容能够适应不同宽度，使用弹性布局</li>
+            <li>为面板添加视觉提示，使用户知道它可以调整大小</li>
+        </ul>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>ResizablePanel组件在设计时考虑了性能，但仍有一些注意事项：</p>
+    <ul>
+        <li>调整大小操作会频繁触发重新渲染，对于复杂内容可能会影响性能</li>
+        <li>在<code>onResize</code>回调中执行的操作应该高效，避免昂贵的计算</li>
+        <li>考虑使用节流（throttling）或防抖（debouncing）技术，特别是对于远程服务器操作</li>
+        <li>对于非常复杂的布局，考虑使用CSS变量而不是直接操作DOM样式</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，ResizablePanel组件具有以下特性和改进：</p>
+    <ul>
+        <li>更好的RTL语言支持，确保在不同文字方向下正确工作</li>
+        <li>更平滑的调整体验，通过CSS过渡效果</li>
+        <li>更好的窗口大小变化处理，确保面板在窗口调整后仍然适合</li>
+        <li>更强大的定位逻辑，处理不同布局场景</li>
+        <li>与Bootstrap 5集成，自动应用相应的位置类</li>
+    </ul>
+    
+    <h2>与其他组件的交互</h2>
+    <p>ResizablePanel组件通常与其他布局组件配合使用：</p>
+    <ul>
+        <li><strong>对话框（Dialog）</strong>：可以在对话框中使用可调整大小的面板，允许用户调整对话框的内部布局</li>
+        <li><strong>侧边栏（Sidebar）</strong>：常见的用例，允许用户调整侧边栏宽度</li>
+        <li><strong>拆分视图（SplitView）</strong>：可以创建可调整的拆分视图，允许用户调整两个相邻面板的相对大小</li>
+        <li><strong>内容编辑器</strong>：在内容编辑器中使用可调整面板，允许用户调整编辑器和预览区域的相对大小</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>ResizablePanel组件是Odoo中提供灵活界面布局的核心组件，它提供了：</p>
+    <ul>
+        <li>直观的拖动调整大小功能</li>
+        <li>自定义初始宽度和最小宽度的能力</li>
+        <li>适应窗口大小变化的响应式行为</li>
+        <li>自定义调整大小回调的灵活性</li>
+        <li>对LTR和RTL文字方向的支持</li>
+        <li>与Bootstrap布局系统的无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>底层实现：</strong>ResizablePanel的核心实现是通过useResizable钩子，这种设计使得调整大小功能可以轻松地应用到其他组件，而不仅限于ResizablePanel组件。
+    </div>
+</body>
+</html> 

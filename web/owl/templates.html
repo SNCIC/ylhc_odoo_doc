@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owl模板系统详解</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Owl模板系统全解析</h1>
+    
+    <h2>模板概述</h2>
+    <p>Owl模板使用<a href="https://www.odoo.com/documentation/13.0/reference/qweb.html">QWeb</a>规范进行描述。它基于XML格式，主要用于生成HTML。在Owl中，QWeb模板被编译成生成虚拟DOM HTML表示的函数。此外，由于Owl是一个活跃的组件系统，还有一些特定于Owl的额外指令（如<code>t-on</code>）。</p>
+    
+    <div class="note">
+        <strong>核心概念：</strong>Owl的模板系统提供了强大的声明式语法，用于定义组件的UI结构。它使用指令系统让开发者能够控制条件渲染、循环、动态属性等，同时保持模板的可读性和可维护性。
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;span t-if="somecondition"&gt;Some string&lt;/span&gt;
+    &lt;ul t-else=""&gt;
+        &lt;li t-foreach="messages" t-as="message"&gt;
+            &lt;t t-esc="message"/&gt;
+        &lt;/li&gt;
+    &lt;/ul&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>模板指令作为以<code>t-</code>为前缀的XML属性指定，例如条件的<code>t-if</code>，元素和其他属性直接渲染。</p>
+    
+    <p>为了避免元素渲染，还提供了一个占位符元素<code>&lt;t&gt;</code>，它执行其指令但本身不生成任何输出。</p>
+    
+    <h2>指令列表</h2>
+    <p>以下是所有标准QWeb指令的列表：</p>
+    
+    <table>
+        <tr>
+            <th>名称</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>t-esc</code></td>
+            <td>安全输出值</td>
+        </tr>
+        <tr>
+            <td><code>t-out</code></td>
+            <td>输出值，可能不进行转义</td>
+        </tr>
+        <tr>
+            <td><code>t-set</code>, <code>t-value</code></td>
+            <td>设置变量</td>
+        </tr>
+        <tr>
+            <td><code>t-if</code>, <code>t-elif</code>, <code>t-else</code></td>
+            <td>条件渲染</td>
+        </tr>
+        <tr>
+            <td><code>t-foreach</code>, <code>t-as</code></td>
+            <td>循环</td>
+        </tr>
+        <tr>
+            <td><code>t-att</code>, <code>t-attf-*</code>, <code>t-att-*</code></td>
+            <td>动态属性</td>
+        </tr>
+        <tr>
+            <td><code>t-call</code></td>
+            <td>渲染子模板</td>
+        </tr>
+        <tr>
+            <td><code>t-debug</code>, <code>t-log</code></td>
+            <td>调试</td>
+        </tr>
+        <tr>
+            <td><code>t-translation</code></td>
+            <td>禁用节点的翻译</td>
+        </tr>
+        <tr>
+            <td><code>t-translation-context</code></td>
+            <td>节点内翻译的上下文</td>
+        </tr>
+        <tr>
+            <td><code>t-translation-context-*</code></td>
+            <td>特定节点属性的翻译上下文</td>
+        </tr>
+    </table>
+    
+    <p>Owl组件系统需要额外的指令来表达各种需求。以下是所有特定于Owl的指令列表：</p>
+    
+    <table>
+        <tr>
+            <th>名称</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>t-component</code>, <code>t-props</code></td>
+            <td>定义子组件</td>
+        </tr>
+        <tr>
+            <td><code>t-ref</code></td>
+            <td>设置对DOM节点或子组件的引用</td>
+        </tr>
+        <tr>
+            <td><code>t-key</code></td>
+            <td>定义键（帮助虚拟DOM协调）</td>
+        </tr>
+        <tr>
+            <td><code>t-on-*</code></td>
+            <td>事件处理</td>
+        </tr>
+        <tr>
+            <td><code>t-portal</code></td>
+            <td>Portal功能</td>
+        </tr>
+        <tr>
+            <td><code>t-slot</code>, <code>t-set-slot</code>, <code>t-slot-scope</code></td>
+            <td>渲染插槽</td>
+        </tr>
+        <tr>
+            <td><code>t-model</code></td>
+            <td>表单输入绑定</td>
+        </tr>
+        <tr>
+            <td><code>t-tag</code></td>
+            <td>使用动态标签名渲染节点</td>
+        </tr>
+        <tr>
+            <td><code>t-custom-*</code></td>
+            <td>使用自定义指令渲染节点</td>
+        </tr>
+    </table>
+    
+    <h2>空白处理</h2>
+    <p>模板中的空白以特殊方式处理：</p>
+    <ul>
+        <li>连续的空白总是被压缩为单个空白</li>
+        <li>如果只包含空白的文本节点包含换行符，则忽略它</li>
+        <li>如果我们在<code>&lt;pre&gt;</code>标签中，上述规则不适用</li>
+    </ul>
+    
+    <h2>表达式求值</h2>
+    <p>QWeb表达式是将在编译时处理的字符串。JavaScript表达式中的每个变量都将被替换为上下文中的查找（因此，组件）。例如，<code>a + b.c(d)</code>将被转换为：</p>
+    
+    <div class="code-block">
+        <pre><code>context["a"] + context["b"].c(context["d"]);</code></pre>
+    </div>
+    
+    <p>解释一下适用于这些表达式的各种规则：</p>
+    
+    <ol>
+        <li>它应该是返回值的简单表达式。它不能是语句。
+            <div class="code-block">
+                <pre><code>&lt;div&gt;&lt;p t-if="1 + 2 === 3"&gt;ok&lt;/p&gt;&lt;/div&gt;</code></pre>
+            </div>
+            是有效的，但以下内容无效：
+            <div class="code-block">
+                <pre><code>&lt;div&gt;&lt;p t-if="console.log(1)"&gt;NOT valid&lt;/p&gt;&lt;/div&gt;</code></pre>
+            </div>
+        </li>
+        <li>它可以使用渲染上下文中的任何内容（通常包含组件的属性）：
+            <div class="code-block">
+                <pre><code>&lt;p t-if="user.birthday === today()"&gt;Happy bithday!&lt;/p&gt;</code></pre>
+            </div>
+            是有效的，并且将从上下文中读取<code>user</code>对象，并调用<code>today</code>函数。
+        </li>
+        <li>它可以使用一些特殊运算符，以避免使用<code>&lt;</code>、<code>&gt;</code>、<code>&amp;</code>或<code>|</code>等符号。这对于确保我们仍然编写有效的XML很有用。
+            <table>
+                <tr>
+                    <th>单词</th>
+                    <th>替换为</th>
+                </tr>
+                <tr>
+                    <td><code>and</code></td>
+                    <td><code>&amp;&amp;</code></td>
+                </tr>
+                <tr>
+                    <td><code>or</code></td>
+                    <td><code>||</code></td>
+                </tr>
+                <tr>
+                    <td><code>gt</code></td>
+                    <td><code>&gt;</code></td>
+                </tr>
+                <tr>
+                    <td><code>gte</code></td>
+                    <td><code>&gt;=</code></td>
+                </tr>
+                <tr>
+                    <td><code>lt</code></td>
+                    <td><code>&lt;</code></td>
+                </tr>
+                <tr>
+                    <td><code>lte</code></td>
+                    <td><code>&lt;=</code></td>
+                </tr>
+            </table>
+            因此，可以这样写：
+            <div class="code-block">
+                <pre><code>&lt;div&gt;&lt;p t-if="10 + 2 gt 5"&gt;ok&lt;/p&gt;&lt;/div&gt;</code></pre>
+            </div>
+        </li>
+    </ol>
+    
+    <h2>静态HTML节点</h2>
+    <p>正常的常规HTML节点被渲染为它们自身：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;hello&lt;/div&gt; &lt;!–– 作为其自身渲染 ––&gt;</code></pre>
+    </div>
+    
+    <h2>输出数据</h2>
+    <p>当您想在模板中添加动态文本表达式时，<code>t-esc</code>指令是必要的。文本被转义以避免安全问题。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p&gt;&lt;t t-esc="value"/&gt;&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p>使用渲染上下文中设置为<code>42</code>的值<code>value</code>渲染，产生：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p&gt;42&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p><code>t-out</code>指令几乎与<code>t-esc</code>相同，但可能不会转义。不同之处在于，<code>t-out</code>指令接收的值只有在使用<code>markup</code>工具函数标记为此类时才不会被转义：</p>
+    
+    <div class="code-block">
+        <pre><code>const { markup, Component, xml } = owl;
+
+class SomeComponent extends Component {
+  static template = xml`
+    &lt;t t-out="value1"/&gt;
+    &lt;t t-out="value2"/&gt;`;
+
+  value1 = "&lt;div&gt;some text 1&lt;/div&gt;";
+  value2 = markup("&lt;div&gt;some text 2&lt;/div&gt;");
+}</code></pre>
+    </div>
+    
+    <p>第一个<code>t-out</code>将像<code>t-esc</code>指令一样工作，这意味着<code>value1</code>的内容将被转义。然而，由于<code>value2</code>已被标记为标记，这将作为HTML注入。</p>
+    
+    <p><code>markup</code>也可以作为标签函数使用，允许插值值被安全地转义：</p>
+    
+    <div class="code-block">
+        <pre><code>const maliciousInput = "&lt;script&gt;alert('💥💥')&lt;/script&gt;";
+// &lt;b&gt;&amp;lt;script&amp;gt;alert(&amp;#x27;💥💥&amp;#x27;)&amp;lt;/script&amp;gt;&lt;/b&gt;
+const value = markup`&lt;b&gt;${maliciousInput}&lt;/b&gt;`;</code></pre>
+    </div>
+    
+    <h2>设置变量</h2>
+    <p>QWeb允许从模板内创建变量，以记忆计算（以多次使用它），为数据片段提供更清晰的名称等。</p>
+    
+    <p>这是通过<code>t-set</code>指令完成的，它接受要创建的变量的名称。可以通过两种方式提供要设置的值：</p>
+    
+    <ol>
+        <li>一个包含表达式的<code>t-value</code>属性，其评估结果将被设置：
+            <div class="code-block">
+                <pre><code>&lt;t t-set="foo" t-value="2 + 1"/&gt;
+&lt;t t-esc="foo"/&gt;</code></pre>
+            </div>
+            将打印<code>3</code>。注意，评估是在渲染时完成的，而不是在编译时。
+        </li>
+        <li>如果没有<code>t-value</code>属性，节点的主体将被保存，并将其值设置为变量的值：
+            <div class="code-block">
+                <pre><code>&lt;t t-set="foo"&gt;
+    &lt;li&gt;ok&lt;/li&gt;
+&lt;/t&gt;
+&lt;t t-esc="foo"/&gt;</code></pre>
+            </div>
+            将生成<code>&amp;lt;li&amp;gt;ok&amp;lt;/li&amp;gt;</code>（因为我们使用了<code>t-esc</code>指令，内容被转义）
+        </li>
+    </ol>
+    
+    <p><code>t-set</code>指令的行为类似于大多数编程语言中的普通变量。它是词法作用域的（内部节点是子作用域），可以被遮蔽等。</p>
+    
+    <h2>条件语句</h2>
+    <p><code>t-if</code>指令用于有条件地渲染内容。它评估作为属性值给出的表达式，然后相应地行动。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;t t-if="condition"&gt;
+        &lt;p&gt;ok&lt;/p&gt;
+    &lt;/t&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>如果条件（使用当前渲染上下文评估）为真，则渲染元素：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;p&gt;ok&lt;/p&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>但如果条件为假，则从结果中删除它：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>条件渲染适用于指令的承载者，不必是<code>&lt;t&gt;</code>：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;p t-if="condition"&gt;ok&lt;/p&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>将给出与前面示例相同的结果。</p>
+    
+    <p>额外的条件分支指令<code>t-elif</code>和<code>t-else</code>也可用：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;p t-if="user.birthday == today()"&gt;Happy bithday!&lt;/p&gt;
+    &lt;p t-elif="user.login == 'root'"&gt;Welcome master!&lt;/p&gt;
+    &lt;p t-else=""&gt;Welcome!&lt;/p&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>动态属性</h2>
+    <p>可以使用<code>t-att-</code>指令添加动态属性。其主要用途是在渲染时评估表达式并将属性绑定到其结果：</p>
+    
+    <p>例如，如果在渲染上下文中将<code>id</code>设置为32，</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-att-data-action-id="id"/&gt; &lt;!-- 结果: &lt;div data-action-id="32"&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <p>如果表达式的值为假，它根本不会被设置：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-att-foo="false"/&gt;  &lt;!-- 结果: &lt;div&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <p>有时使用字符串插值格式化属性很方便。在这种情况下，可以使用<code>t-attf-</code>指令。当我们需要混合文字和动态元素（如CSS类）时，它很有用。动态元素可以使用<code>{{...}}</code>或<code>#{...}</code>指定：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-attf-foo="a {{value1}} is #{value2} of {{value3}} ]"/&gt;
+&lt;!-- 如果值设置为1,2和3，结果是: &lt;div foo="a 0 is 1 of 2 ]"&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <p>如果我们需要完全动态的属性名称，那么还有一个额外的指令：<code>t-att</code>，它接受一个对象（键映射到它们的值）或一对<code>[key, value]</code>。例如：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-att="{'a': 1, 'b': 2}"/&gt; &lt;!-- 结果: &lt;div a="1" b="2"&gt;&lt;/div&gt; --&gt;
+
+&lt;div t-att="['a', 'b']"/&gt; &lt;!-- &lt;div a="b"&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <h2>动态class属性</h2>
+    <p>为方便起见，Owl支持<code>t-att-class</code>情况的特殊情况：可以使用一个对象，其键描述类，值为布尔值，表示类是否存在：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-att-class="{'a': true, 'b': true}"/&gt; &lt;!-- 结果: &lt;div class="a b"&gt;&lt;/div&gt; --&gt;
+
+&lt;div t-att-class="{'a b': true, 'c': true}"/&gt; &lt;!-- 结果: &lt;div class="a b c"&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <p>注意，它可以与普通class属性结合使用：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div class="a" t-att-class="{'b': true}"/&gt; &lt;!-- 结果: &lt;div class="a b"&gt;&lt;/div&gt; --&gt;</code></pre>
+    </div>
+    
+    <h2>动态标签名</h2>
+    <p>在编写通用组件或模板时，HTML元素的具体标签可能尚未知道。在这种情况下，<code>t-tag</code>指令非常有用。它简单地动态评估表达式以用作标签名。模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-tag="tag"&gt;
+    &lt;span&gt;content&lt;/span&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p>如果上下文键<code>tag</code>设置为<code>div</code>，将被渲染为<code>&lt;div&gt;&lt;span&gt;content&lt;/span&gt;&lt;/div&gt;</code>。</p>
+    
+    <h2>循环</h2>
+    <p>QWeb有一个迭代指令<code>t-foreach</code>，它接受一个返回要迭代的集合的表达式，以及第二个参数<code>t-as</code>，提供用于迭代当前项的名称：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-foreach="[1, 2, 3]" t-as="i" t-key="i"&gt;
+    &lt;p&gt;&lt;t t-esc="i"/&gt;&lt;/p&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p>将被渲染为：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p&gt;1&lt;/p&gt;
+&lt;p&gt;2&lt;/p&gt;
+&lt;p&gt;3&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p>与条件一样，<code>t-foreach</code>适用于带有该指令属性的元素，并且</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p t-foreach="[1, 2, 3]" t-as="i" t-key="i"&gt;
+    &lt;t t-esc="i"/&gt;
+&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p>与前面的例子等效。</p>
+    
+    <p>与通常的<code>QWeb</code>行为相比，应该注意的一个重要区别：Owl要求存在<code>t-key</code>指令，以便能够正确协调渲染。</p>
+    
+    <p><code>t-foreach</code>可以迭代任何可迭代对象，并且还对对象和映射有特殊支持，它将当前迭代的键暴露为<code>t-as</code>的内容，并将相应的值暴露为具有相同名称和后缀<code>_value</code>的内容。</p>
+    
+    <p>除了通过<code>t-as</code>传递的名称外，<code>t-foreach</code>还提供了一些其他有用的变量（注意：<code>$as</code>将被替换为传递给<code>t-as</code>的名称）：</p>
+    
+    <ul>
+        <li><code>$as_value</code>：当前迭代值，对于数组和其他可迭代对象与<code>$as</code>相同，但对于对象和映射，它提供值（其中<code>$as</code>提供键）</li>
+        <li><code>$as_index</code>：当前迭代索引（迭代的第一项索引为0）</li>
+        <li><code>$as_first</code>：当前项是否是迭代的第一项（等同于<code>$as_index == 0</code>）</li>
+        <li><code>$as_last</code>：当前项是否是迭代的最后一项（等同于<code>$as_index + 1 == $as_size</code>），需要可迭代对象的大小可用</li>
+    </ul>
+    
+    <p>这些额外提供的变量和在<code>t-foreach</code>中创建的所有新变量仅在<code>t-foreach</code>的范围内可用。如果变量在<code>t-foreach</code>上下文之外存在，则该值在foreach结束时被复制到全局上下文中。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-set="existing_variable" t-value="false"/&gt;
+&lt;!-- existing_variable现在为False --&gt;
+
+&lt;p t-foreach="Array(3)" t-as="i" t-key="i"&gt;
+    &lt;t t-set="existing_variable" t-value="true"/&gt;
+    &lt;t t-set="new_variable" t-value="true"/&gt;
+    &lt;!-- existing_variable和new_variable现在为true --&gt;
+&lt;/p&gt;
+
+&lt;!-- existing_variable始终为true --&gt;
+&lt;!-- new_variable未定义 --&gt;</code></pre>
+    </div>
+    
+    <p>虽然Owl尽量声明式，但DOM并不完全以声明方式在DOM树中公开其状态。例如，滚动状态、当前用户选择、聚焦元素或输入的状态不会作为属性设置在DOM树中。这就是为什么我们使用虚拟dom算法来确保我们保留实际的DOM节点而不是用新节点替换它。</p>
+    
+    <p>考虑以下情况：我们有一个两项的列表<code>[{text: "a"}, {text: "b"}]</code>，并在此模板中渲染它们：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p t-foreach="items" t-as="item" t-key="item_index"&gt;&lt;t t-esc="item.text"/&gt;&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p>结果将是两个带有文本<code>a</code>和<code>b</code>的<code>&lt;p&gt;</code>标签。现在，如果我们交换它们，并重新渲染模板，Owl需要知道意图是什么：</p>
+    
+    <ul>
+        <li>Owl应该实际交换DOM节点，</li>
+        <li>或者它应该保留DOM节点，但更新文本内容？</li>
+    </ul>
+    
+    <p>这可能看起来很琐碎，但实际上很重要。这两种可能性在某些情况下会导致不同的结果。例如，如果用户选择了第一个<code>p</code>的文本，交换它们将保留选择，而更新文本内容则不会。</p>
+    
+    <p>还有许多其他情况，这一点很重要：带有值的<code>input</code>标签、CSS类和动画、滚动位置等。</p>
+    
+    <p>因此，<code>t-key</code>指令用于给元素一个身份。它允许Owl理解列表的不同元素实际上是否不同。</p>
+    
+    <p>上面的例子可以通过添加ID来修改：<code>[{id: 1, text: "a"}, {id: 2, text: "b"}]</code>。然后，模板可能如下所示：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p t-foreach="items" t-as="item" t-key="item.id"&gt;&lt;t t-esc="item.text"/&gt;&lt;/p&gt;</code></pre>
+    </div>
+    
+    <p><code>t-key</code>指令对列表（<code>t-foreach</code>）有用。键应该是唯一的数字或字符串（对象不起作用：它们将被转换为<code>"[object Object]"</code>字符串，这显然不是唯一的）。</p>
+    
+    <p>此外，键可以设置在<code>t</code>标签或其子标签上。以下变体都是等效的：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;p t-foreach="items" t-as="item" t-key="item.id"&gt;
+  &lt;t t-esc="item.text"/&gt;
+&lt;/p&gt;
+
+&lt;t t-foreach="items" t-as="item" t-key="item.id"&gt;
+  &lt;p t-esc="item.text"/&gt;
+&lt;/t&gt;
+
+&lt;t t-foreach="items" t-as="item"&gt;
+  &lt;p t-key="item.id" t-esc="item.text"/&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p>如果没有<code>t-key</code>指令，Owl将使用索引作为默认键。</p>
+    
+    <p>注意：<code>t-foreach</code>指令只接受数组（列表）或对象。它不适用于其他可迭代对象，如<code>Set</code>。但是，只需使用<code>...</code> JavaScript运算符即可。例如：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-foreach="[...items]" t-as="item"&gt;...&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p><code>...</code>运算符将<code>Set</code>（或任何其他可迭代对象）转换为列表，这将与Owl QWeb一起工作。</p>
+    
+    <h2>子模板</h2>
+    <p>QWeb模板可用于顶级渲染，但也可以从另一个模板中使用（避免重复或为模板部分命名），使用<code>t-call</code>指令：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-name="other-template"&gt;
+    &lt;p&gt;&lt;t t-value="var"/&gt;&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;div t-name="main-template"&gt;
+    &lt;t t-set="var" t-value="owl"/&gt;
+    &lt;t t-call="other-template"/&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>将被渲染为<code>&lt;div&gt;&lt;p&gt;owl&lt;/p&gt;&lt;/div&gt;</code>。这个例子显示了子模板是使用父级的执行上下文渲染的。子模板实际上是内联到主模板中的，但在子作用域中：在子模板中定义的变量不会逸出。</p>
+    
+    <p>有时，您可能想向子模板传递信息。在这种情况下，<code>t-call</code>指令主体的内容可作为特殊魔术变量<code>0</code>使用：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-name="other-template"&gt;
+    This template was called with content:
+    &lt;t t-raw="0"/&gt;
+&lt;/t&gt;
+
+&lt;div t-name="main-template"&gt;
+    &lt;t t-call="other-template"&gt;
+        &lt;em&gt;content&lt;/em&gt;
+    &lt;/t&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>将导致：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    This template was called with content:
+    &lt;em&gt;content&lt;/em&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>这可用于定义作用于子模板的变量：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-call="other-template"&gt;
+    &lt;t t-set="var" t-value="1"/&gt;
+&lt;/t&gt;
+&lt;!-- "var"在这里不存在 --&gt;</code></pre>
+    </div>
+    
+    <p>注意：默认情况下，子模板的渲染上下文只是当前渲染上下文。但是，能够指定特定对象作为上下文可能会很有用。这可以通过使用<code>t-call-context</code>指令来完成：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-call="other-template" t-call-context="obj"/&gt;</code></pre>
+    </div>
+    
+    <h2>动态子模板</h2>
+    <p><code>t-call</code>指令还可用于通过字符串插值动态调用子模板。例如：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-name="main-template"&gt;
+    &lt;t t-call="{{template}}"&gt;
+        &lt;em&gt;content&lt;/em&gt;
+    &lt;/t&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>在这里，模板的名称是从模板渲染上下文中的<code>template</code>值获得的。</p>
+    
+    <h2>调试</h2>
+    <p>JavaScript QWeb实现提供了两个有用的调试指令：</p>
+    
+    <p><code>t-debug</code>在模板渲染期间添加一个调试器语句：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-if="a_test"&gt;
+    &lt;t t-debug=""/&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p>如果浏览器开发工具打开，将停止执行。</p>
+    
+    <p><code>t-log</code>接受一个表达式参数，在渲染期间评估表达式并使用console.log记录其结果：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-set="foo" t-value="42"/&gt;
+&lt;t t-log="foo"/&gt;</code></pre>
+    </div>
+    
+    <p>将在控制台上打印42。</p>
+    
+    <h2>自定义指令</h2>
+    <p>Owl 2支持声明自定义指令。要使用它们，需要在owl APP上配置一个函数对象：</p>
+    
+    <div class="code-block">
+        <pre><code>new App(..., {
+    customDirectives: {
+     test_directive: function (el, value) {
+            el.setAttribute("t-on-click", value);
+       }
+   }
+  });</code></pre>
+    </div>
+    
+    <p>当找到具有函数名称的自定义指令时，将调用这些函数。原始元素将被函数修改的元素替换。这个：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-custom-test_directive="click" /&gt;</code></pre>
+    </div>
+    
+    <p>将被替换为：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-on-click="value"/&gt;</code></pre>
+    </div>
+    
+    <h2>片段</h2>
+    <p>Owl 2支持具有任意数量根元素的模板，甚至只是一个文本节点。因此，以下模板都是有效的：</p>
+    
+    <div class="code-block">
+        <pre><code>hello owl. This is just a text node!</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;hello&lt;/div&gt;</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;hello&lt;/div&gt;
+&lt;div&gt;ola&lt;/div&gt;</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-if="someCondition"&gt;&lt;SomeChildComponent/&gt;&lt;/div&gt;</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-if="someCondition"&gt;&lt;SomeChildComponent/&gt;&lt;/t&gt;</code></pre>
+    </div>
+    
+    <h2>内联模板</h2>
+    <p>大多数实际应用程序将在XML文件中定义它们的模板，以受益于XML生态系统，并进行一些额外的处理，如翻译它们。但是，在某些情况下，能够内联定义模板很方便。为此，可以使用<code>xml</code>辅助函数：</p>
+    
+    <div class="code-block">
+        <pre><code>const { Component, xml } = owl;
+
+class MyComponent extends Component {
+  static template = xml`
+      &lt;div&gt;
+          &lt;span t-if="somecondition"&gt;text&lt;/span&gt;
+          &lt;button t-on-click="someMethod"&gt;Click&lt;/button&gt;
+      &lt;/div&gt;
+  `;
+
+    ...
+}
+
+mount(MyComponent, document.body);</code></pre>
+    </div>
+    
+    <p>这个函数简单地生成一个唯一的字符串ID，并在Owl的内部注册模板，然后返回ID。</p>
+    
+    <h2>渲染svg</h2>
+    <p>Owl组件可用于生成动态SVG图形：</p>
+    
+    <div class="code-block">
+        <pre><code>class Node extends Component {
+  static template = xml`
+        &lt;g&gt;
+            &lt;circle t-att-cx="props.x" t-att-cy="props.y" r="4" fill="black"/&gt;
+            &lt;text t-att-x="props.x - 5" t-att-y="props.y + 18"&gt;&lt;t t-esc="props.node.label"/&gt;&lt;/text&gt;
+            &lt;t t-set="childx" t-value="props.x + 100"/&gt;
+            &lt;t t-set="height" t-value="props.height/(props.node.children || []).length"/&gt;
+            &lt;t t-foreach="props.node.children || []" t-as="child"&gt;
+                &lt;t t-set="childy" t-value="props.y + child_index*height"/&gt;
+                &lt;line t-att-x1="props.x" t-att-y1="props.y" t-att-x2="childx" t-att-y2="childy" stroke="black" /&gt;
+                &lt;Node x="childx" y="childy" node="child" height="height"/&gt;
+            &lt;/t&gt;
+        &lt;/g&gt;
+    `;
+  static components = { Node };
+}
+
+class RootNode extends Component {
+  static template = xml`
+        &lt;svg height="180"&gt;
+            &lt;Node node="graph" x="10" y="20" height="180"/&gt;
+        &lt;/svg&gt;
+    `;
+  static components = { Node };
+  graph = {
+    label: "a",
+    children: [
+      { label: "b" },
+      { label: "c", children: [{ label: "d" }, { label: "e" }] },
+      { label: "f", children: [{ label: "g" }] },
+    ],
+  };
+}</code></pre>
+    </div>
+    
+    <p>这个<code>RootNode</code>组件将显示由<code>graph</code>属性描述的图形的实时SVG表示。注意这里有一个递归结构：<code>Node</code>组件将自己用作子组件。</p>
+    
+    <p><strong>重要说明：</strong>Owl需要正确设置每个svg元素的命名空间。由于Owl单独编译每个模板，它不能轻易确定模板是否应该包含在svg命名空间中。因此，Owl依赖于启发式：如果标签是<code>svg</code>、<code>g</code>或<code>path</code>，则它将被视为svg。实际上，这意味着每个组件或每个子模板（使用<code>t-call</code>包括）应该将这些标签之一作为根标签。</p>
+    
+    <h2>限制</h2>
+    <p>请注意，Owl模板禁止使用以<code>block-</code>字符串开头的标签和属性。这个限制防止与Owl内部代码发生名称冲突。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;&lt;block-1&gt;这将不被Owl接受&lt;/block-1&gt;&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    <p>Owl的模板系统在Odoo中有广泛的应用，用于构建复杂的用户界面和交互式组件。以下是一些常见的应用场景：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>响应式表单</h4>
+            <p>使用条件指令和动态属性创建根据用户输入变化的表单。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动态列表视图</h4>
+            <p>利用<code>t-foreach</code>和<code>t-key</code>创建高效的数据列表，支持排序、过滤和分页。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>可复用组件</h4>
+            <p>通过子模板和自定义组件创建可在整个应用程序中重用的UI元素。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>条件渲染</h4>
+            <p>基于用户权限、应用程序状态或其他条件显示或隐藏界面元素。</p>
+        </div>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>使用<code>&lt;t&gt;</code>元素作为不渲染任何实际元素的指令的容器</li>
+        <li>始终为<code>t-foreach</code>循环提供唯一且稳定的<code>t-key</code>值</li>
+        <li>将共享逻辑提取到子模板中，以促进代码重用</li>
+        <li>使用合适的特殊运算符（如<code>and</code>、<code>or</code>、<code>gt</code>）保持XML有效性</li>
+        <li>利用命名插槽创建灵活的可定制组件</li>
+        <li>对用户输入使用<code>t-esc</code>而不是<code>t-out</code>，以防止XSS攻击</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>Owl的模板系统提供了强大而灵活的方式来定义UI组件的结构和行为。通过结合条件渲染、循环、动态属性和事件处理，开发者可以创建高响应性和交互式的用户界面，同时保持代码的可读性和可维护性。</p>
+    
+    <div class="note">
+        <strong>记住：</strong>模板系统是Owl框架的核心部分，掌握它对于高效开发Odoo Web应用程序至关重要。随着对这些概念的熟悉，您将能够创建更复杂、更强大的UI组件。
+    </div>
+</body>
+</html> 

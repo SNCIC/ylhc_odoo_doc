@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python-JavaScript内置函数模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python-JavaScript内置函数模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py_builtin.js</code>是Odoo 18框架中的核心模块，它提供了Python内置函数和对象在JavaScript环境中的实现。该模块是Odoo前端Python表达式求值系统的重要组成部分，使得JavaScript代码能够执行包含Python内置函数的表达式。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>此模块提供了一组在JavaScript中模拟Python内置函数和常量的功能，确保前端能够正确执行和处理Python风格的表达式，尤其是在域过滤器、计算字段和条件表达式中。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>Python内置函数模拟</strong>：实现了常用的Python内置函数，如bool、set、max、min等</li>
+        <li><strong>日期时间处理</strong>：提供了日期时间相关的函数和对象，如context_today、now等</li>
+        <li><strong>Python库访问</strong>：提供了对Python datetime和relativedelta模块的访问</li>
+        <li><strong>错误处理</strong>：定义了表达式求值过程中的错误类型和处理机制</li>
+        <li><strong>Python常量</strong>：提供了Python中的true和false常量</li>
+    </ol>
+    
+    <h2>错误类型定义</h2>
+    <p>模块定义了表达式求值时可能遇到的错误类型：</p>
+    
+    <div class="code-block">
+        <pre><code>export class EvaluationError extends Error {}</code></pre>
+    </div>
+    
+    <p>EvaluationError用于表示在表达式求值过程中发生的错误，如参数不匹配、类型错误等。</p>
+    
+    <h2>辅助函数</h2>
+    <p>模块包含用于处理迭代对象的辅助函数：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {any} iterable
+ * @param {Function} func
+ */
+export function execOnIterable(iterable, func) {
+    if (iterable === null) {
+        // new Set(null) is fine in js but set(None) (-> new Set(null))
+        // is not in Python
+        throw new EvaluationError(`value not iterable`);
+    }
+    if (typeof iterable === "object" && !Array.isArray(iterable) && !(iterable instanceof Set)) {
+        // dicts are considered as iterable in Python
+        iterable = Object.keys(iterable);
+    }
+    if (typeof iterable?.[Symbol.iterator] !== "function") {
+        // rules out undefined and other values not iterable
+        throw new EvaluationError(`value not iterable`);
+    }
+    return func(iterable);
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>检查对象是否可迭代，模拟Python的迭代行为</li>
+        <li>对于对象类型（非数组、非Set），将其转换为键数组以匹配Python字典的迭代行为</li>
+        <li>对于不可迭代的值，抛出与Python一致的错误</li>
+        <li>用于支持set等需要迭代的函数</li>
+    </ul>
+    
+    <h2>内置函数详解</h2>
+    
+    <p>模块提供了一个名为BUILTINS的对象，包含常用的Python内置函数：</p>
+    
+    <h3>bool函数</h3>
+    <p>将值转换为布尔类型，模拟Python的bool()函数。</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {any} value
+ * @returns {boolean}
+ */
+bool(value) {
+    switch (typeof value) {
+        case "number":
+            return value !== 0;
+        case "string":
+            return value !== "";
+        case "boolean":
+            return value;
+        case "object":
+            if (value === null || value === undefined) {
+                return false;
+            }
+            if (value.isTrue) {
+                return value.isTrue();
+            }
+            if (value instanceof Array) {
+                return !!value.length;
+            }
+            if (value instanceof Set) {
+                return !!value.size;
+            }
+            return Object.keys(value).length !== 0;
+    }
+    return true;
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>根据不同的值类型应用不同的布尔转换规则</li>
+        <li>数值：非零为true</li>
+        <li>字符串：非空为true</li>
+        <li>布尔值：保持不变</li>
+        <li>对象：null或undefined为false，空数组/Set/对象为false</li>
+        <li>支持自定义对象通过isTrue方法定义其布尔行为</li>
+    </ul>
+    
+    <h3>set函数</h3>
+    <p>创建一个集合，模拟Python的set()函数。</p>
+    
+    <div class="code-block">
+        <pre><code>set(iterable) {
+    if (arguments.length > 2) {
+        // we always receive at least one argument: kwargs (return fnValue(...args, kwargs); in FunctionCall case)
+        throw new EvaluationError(
+            `set expected at most 1 argument, got (${arguments.length - 1}`
+        );
+    }
+    return execOnIterable(iterable, (iterable) => {
+        return new Set(iterable);
+    });
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>验证参数数量，确保与Python行为一致</li>
+        <li>使用execOnIterable辅助函数处理可迭代对象</li>
+        <li>返回一个JavaScript的Set对象，其行为类似于Python的set</li>
+    </ul>
+    
+    <h3>max和min函数</h3>
+    <p>寻找最大值和最小值，模拟Python的max()和min()函数。</p>
+    
+    <div class="code-block">
+        <pre><code>max(...args) {
+    // kwargs are not supported by Math.max.
+    return Math.max(...args.slice(0, -1));
+},
+
+min(...args) {
+    // kwargs are not supported by Math.min.
+    return Math.min(...args.slice(0, -1));
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>使用JavaScript的Math.max和Math.min实现</li>
+        <li>通过slice(0, -1)去除最后一个参数，因为在Odoo的表达式求值系统中，最后一个参数通常是kwargs对象</li>
+        <li>注意这些实现不支持关键字参数（如key函数）</li>
+    </ul>
+    
+    <h3>时间函数</h3>
+    <p>提供时间处理和格式化功能。</p>
+    
+    <div class="code-block">
+        <pre><code>time: {
+    strftime(format) {
+        return PyDateTime.now().strftime(format);
+    },
+},
+
+context_today() {
+    return PyDate.today();
+},
+
+get current_date() {
+    // deprecated: today should be prefered
+    return this.today;
+},
+
+get today() {
+    return PyDate.today().strftime("%Y-%m-%d");
+},
+
+get now() {
+    return PyDateTime.now().strftime("%Y-%m-%d %H:%M:%S");
+}</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li><code>time.strftime</code>：使用指定格式格式化当前时间</li>
+        <li><code>context_today</code>：返回当前日期的PyDate对象</li>
+        <li><code>current_date</code>：已弃用，返回今天的日期字符串（同today）</li>
+        <li><code>today</code>：返回今天的日期字符串，格式为"YYYY-MM-DD"</li>
+        <li><code>now</code>：返回当前的日期和时间字符串，格式为"YYYY-MM-DD HH:MM:SS"</li>
+    </ul>
+    
+    <h3>Python模块访问</h3>
+    <p>提供对Python datetime模块和relativedelta的访问。</p>
+    
+    <div class="code-block">
+        <pre><code>datetime: {
+    time: PyTime,
+    timedelta: PyTimeDelta,
+    datetime: PyDateTime,
+    date: PyDate,
+},
+
+relativedelta: PyRelativeDelta</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>提供与Python的datetime模块同名的对象，包括：</li>
+        <li><code>datetime.time</code>：对应PyTime类，表示时间</li>
+        <li><code>datetime.timedelta</code>：对应PyTimeDelta类，表示时间间隔</li>
+        <li><code>datetime.datetime</code>：对应PyDateTime类，表示日期和时间</li>
+        <li><code>datetime.date</code>：对应PyDate类，表示日期</li>
+        <li><code>relativedelta</code>：对应PyRelativeDelta类，表示相对日期间隔</li>
+    </ul>
+    
+    <h3>Python常量</h3>
+    <p>提供Python中的布尔常量。</p>
+    
+    <div class="code-block">
+        <pre><code>true: true,
+false: false</code></pre>
+    </div>
+    
+    <p>功能说明：</p>
+    <ul>
+        <li>提供与Python中true和false等价的常量</li>
+        <li>确保在表达式中可以直接使用这些常量</li>
+    </ul>
+    
+    <h2>使用实例</h2>
+    
+    <h3>示例1：布尔转换</h3>
+    <div class="code-block">
+        <pre><code>import { BUILTINS } from "@web/core/py_js/py_builtin";
+
+// 测试不同类型的布尔转换
+console.log(BUILTINS.bool(0));           // false
+console.log(BUILTINS.bool(1));           // true
+console.log(BUILTINS.bool(""));          // false
+console.log(BUILTINS.bool("hello"));     // true
+console.log(BUILTINS.bool([]));          // false
+console.log(BUILTINS.bool([1, 2, 3]));   // true
+console.log(BUILTINS.bool({}));          // false
+console.log(BUILTINS.bool({name: "John"})); // true
+console.log(BUILTINS.bool(null));        // false
+console.log(BUILTINS.bool(undefined));   // false
+
+// 使用自定义对象
+const customObj = {
+    value: 0,
+    isTrue() {
+        return this.value !== 0;
+    }
+};
+console.log(BUILTINS.bool(customObj));  // false
+customObj.value = 42;
+console.log(BUILTINS.bool(customObj));  // true</code></pre>
+    </div>
+    
+    <h3>示例2：使用Set</h3>
+    <div class="code-block">
+        <pre><code>import { BUILTINS } from "@web/core/py_js/py_builtin";
+
+// 创建集合
+const emptySet = BUILTINS.set();
+console.log(emptySet);  // Set(0) {}
+
+// 从数组创建集合
+const arraySet = BUILTINS.set([1, 2, 3, 2, 1]);
+console.log(arraySet);  // Set(3) {1, 2, 3}
+
+// 从字符串创建集合
+const stringSet = BUILTINS.set("hello");
+console.log(stringSet);  // Set(4) {"h", "e", "l", "o"}
+
+// 从对象创建集合（获取键）
+const objSet = BUILTINS.set({a: 1, b: 2, c: 3});
+console.log(objSet);  // Set(3) {"a", "b", "c"}
+
+// 检查集合大小
+console.log(BUILTINS.bool(emptySet));  // false
+console.log(BUILTINS.bool(arraySet));  // true</code></pre>
+    </div>
+    
+    <h3>示例3：使用max和min</h3>
+    <div class="code-block">
+        <pre><code>import { BUILTINS } from "@web/core/py_js/py_builtin";
+
+// 查找最大值
+console.log(BUILTINS.max(5, 3, 9, 1, 7));  // 9
+console.log(BUILTINS.max(-10, -5, -2, -8));  // -2
+
+// 查找最小值
+console.log(BUILTINS.min(5, 3, 9, 1, 7));  // 1
+console.log(BUILTINS.min(-10, -5, -2, -8));  // -10
+
+// 在数组中查找（需要展开）
+const numbers = [15, 7, 23, 4, 9];
+console.log(BUILTINS.max(...numbers, {}));  // 23
+console.log(BUILTINS.min(...numbers, {}));  // 4</code></pre>
+    </div>
+    
+    <h3>示例4：使用日期和时间</h3>
+    <div class="code-block">
+        <pre><code>import { BUILTINS } from "@web/core/py_js/py_builtin";
+
+// 获取今天的日期
+const today = BUILTINS.context_today();
+console.log(today);  // PyDate {year: 2023, month: 5, day: 15}
+
+// 格式化为字符串
+console.log(today.strftime("%Y年%m月%d日"));  // "2023年05月15日"
+
+// 使用today和now
+console.log(BUILTINS.today);  // "2023-05-15"
+console.log(BUILTINS.now);  // "2023-05-15 14:30:45"
+
+// 使用time.strftime
+const formattedTime = BUILTINS.time.strftime("%H:%M:%S");
+console.log(formattedTime);  // "14:30:45"</code></pre>
+    </div>
+    
+    <h3>示例5：使用datetime模块</h3>
+    <div class="code-block">
+        <pre><code>import { BUILTINS } from "@web/core/py_js/py_builtin";
+
+// 创建日期
+const date = new BUILTINS.datetime.date(2023, 5, 15);
+console.log(date.strftime("%Y-%m-%d"));  // "2023-05-15"
+
+// 创建日期时间
+const dateTime = new BUILTINS.datetime.datetime(2023, 5, 15, 14, 30, 0);
+console.log(dateTime.strftime("%Y-%m-%d %H:%M:%S"));  // "2023-05-15 14:30:00"
+
+// 创建时间
+const time = BUILTINS.datetime.time.create({hour: 14, minute: 30});
+console.log(time.strftime("%H:%M:%S"));  // "14:30:00"
+
+// 创建时间间隔
+const delta = BUILTINS.datetime.timedelta.create({days: 7});
+const futureDate = date.add(delta);
+console.log(futureDate.strftime("%Y-%m-%d"));  // "2023-05-22"
+
+// 使用相对时间间隔
+const relDelta = BUILTINS.relativedelta.create({months: 1, days: 15});
+const nextMonth = BUILTINS.relativedelta.add(date, relDelta);
+console.log(nextMonth.strftime("%Y-%m-%d"));  // "2023-06-30"</code></pre>
+    </div>
+    
+    <h2>实际应用场景</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>动态域过滤器</h4>
+            <p>使用内置函数创建日期范围过滤器，如"最近7天"、"本月"等。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>条件显示逻辑</h4>
+            <p>在视图中使用bool函数判断字段值是否为真，控制元素的显示。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>报表日期处理</h4>
+            <p>使用内置的日期函数计算报表的默认日期范围和格式化显示。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动态计算字段</h4>
+            <p>在前端使用Python风格的表达式计算派生字段的值。</p>
+        </div>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    <p>py_builtin.js在Odoo前端系统中的主要应用场景：</p>
+    <ul>
+        <li>域过滤器表达式</li>
+        <li>视图中的动态属性计算</li>
+        <li>条件显示和只读逻辑</li>
+        <li>默认值计算</li>
+        <li>报表日期范围和分组</li>
+        <li>Python表达式求值</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>// Odoo中的实际应用示例
+
+// 1. 创建日期域过滤器
+function createDateRangeFilter(fieldName, rangeType) {
+    let domain = [];
+    const today = BUILTINS.context_today();
+    
+    switch (rangeType) {
+        case 'today':
+            domain = [[fieldName, '=', BUILTINS.today]];
+            break;
+        case 'this_week':
+            const weekStart = today.add(BUILTINS.datetime.timedelta.create({days: -today.getDay()}));
+            const weekEnd = weekStart.add(BUILTINS.datetime.timedelta.create({days: 6}));
+            domain = [
+                [fieldName, '>=', weekStart.strftime('%Y-%m-%d')],
+                [fieldName, '<=', weekEnd.strftime('%Y-%m-%d')]
+            ];
+            break;
+        case 'this_month':
+            const monthStart = new BUILTINS.datetime.date(today.year, today.month, 1);
+            const nextMonth = BUILTINS.relativedelta.add(monthStart, BUILTINS.relativedelta.create({months: 1, days: -1}));
+            domain = [
+                [fieldName, '>=', monthStart.strftime('%Y-%m-%d')],
+                [fieldName, '<=', nextMonth.strftime('%Y-%m-%d')]
+            ];
+            break;
+    }
+    
+    return domain;
+}
+
+// 2. 使用条件表达式控制UI
+function isVisible(record) {
+    // 模拟Python表达式: record.state == 'done' and bool(record.amount)
+    return record.state === 'done' && BUILTINS.bool(record.amount);
+}
+
+// 3. 计算默认日期
+function getDefaultDueDate(invoice_date) {
+    // 默认到期日为发票日期后30天
+    const invoiceDate = BUILTINS.datetime.date.create(invoice_date);
+    const dueDate = invoiceDate.add(BUILTINS.datetime.timedelta.create({days: 30}));
+    return dueDate.strftime('%Y-%m-%d');
+}
+
+// 4. 在前端求值Python表达式
+import { evaluateExpr } from "@web/core/py_js/py";
+
+function evaluatePythonExpr(expr, context) {
+    // 合并内置函数到上下文
+    const evalContext = { ...BUILTINS, ...context };
+    return evaluateExpr(expr, evalContext);
+}
+
+// 例如，计算动态标题
+const title = evaluatePythonExpr(
+    "'New' if record.state == 'draft' else 'Edit: ' + record.name",
+    { record: { state: 'draft', name: 'INV/2023/0001' } }
+); // 结果: "New"</code></pre>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>py_builtin.js与其他Python-JavaScript桥接模块的关系：</p>
+    <ul>
+        <li><strong>py_date.js</strong>：提供日期时间类，被py_builtin使用实现datetime相关功能</li>
+        <li><strong>py.js</strong>：使用py_builtin中的内置函数执行表达式求值</li>
+        <li><strong>py_interpreter.js</strong>：表达式求值引擎，使用py_builtin提供的内置函数</li>
+        <li><strong>py_utils.js</strong>：提供工具函数，与py_builtin配合使用</li>
+    </ul>
+    
+    <div class="flow-diagram">
+        <h3>Python-JavaScript内置函数与其他模块的关系</h3>
+        <ul>
+            <li>py.js - 顶层接口，提供evaluateExpr等高级函数</li>
+            <li>└── py_interpreter.js - 负责表达式求值</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;├── py_parser.js - 负责解析表达式</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;├── py_builtin.js - 提供内置函数</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;├── py_utils.js - 提供工具函数</li>
+            <li>&nbsp;&nbsp;&nbsp;&nbsp;└── py_date.js - 被py_builtin使用提供日期时间支持</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性和改进</h2>
+    <p>Odoo 18中对py_builtin.js模块的改进包括：</p>
+    <ul>
+        <li>更完整的Python内置函数支持</li>
+        <li>更精确的错误处理和类型检查</li>
+        <li>与Python行为的更高一致性</li>
+        <li>更好的性能优化</li>
+        <li>更完善的文档和类型注解</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>py_builtin.js是Odoo前端Python表达式求值系统的重要组成部分，它提供了：</p>
+    <ul>
+        <li>在JavaScript环境中模拟Python内置函数的能力</li>
+        <li>日期时间处理的丰富功能</li>
+        <li>对Python风格表达式的全面支持</li>
+        <li>与后端Python代码行为一致的前端实现</li>
+        <li>各种实用功能用于域过滤器、条件逻辑和动态计算</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在Odoo前端开发中处理Python风格表达式时，应优先使用py_builtin模块提供的内置函数，而不是自己实现等价功能。这样可以确保前端行为与后端Python代码保持一致，提高代码的可维护性和正确性。
+    </div>
+</body>
+</html> 

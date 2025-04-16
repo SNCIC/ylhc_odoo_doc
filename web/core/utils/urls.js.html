@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo URL工具函数解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo URL工具函数解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>urls.js</code>是Odoo框架中的一个核心工具模块，提供了一系列用于处理URL构建、解析和转换的实用函数。这些函数确保了Odoo应用内URL的一致性，以及跨源访问的安全性。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>URL工具函数集合用于处理各种URL相关的操作，包括URL构建、图像URL生成、数据URL转换以及安全重定向等，是Odoo前端网络交互的核心基础设施。
+    </div>
+    
+    <h2>主要功能分类</h2>
+    <ol>
+        <li><strong>URL构建与解析</strong>：创建完整URL、转换对象为URL查询字符串等</li>
+        <li><strong>图像URL处理</strong>：生成适用于Odoo图像字段的URL</li>
+        <li><strong>数据URL处理</strong>：将文件转换为base64数据URL</li>
+        <li><strong>重定向与安全控制</strong>：安全重定向和URL比较</li>
+    </ol>
+    
+    <h2>模块依赖</h2>
+    <div class="code-block">
+        <pre><code>import { session } from "@web/session";
+import { browser } from "../browser/browser";
+import { shallowEqual } from "@web/core/utils/objects";
+const { DateTime } = luxon;</code></pre>
+    </div>
+    
+    <p><strong>依赖解析：</strong></p>
+    <ul>
+        <li><code>session</code>：提供当前用户会话信息，包括服务器源地址</li>
+        <li><code>browser</code>：浏览器API的抽象，用于访问location等对象</li>
+        <li><code>shallowEqual</code>：用于比较对象的工具函数</li>
+        <li><code>luxon.DateTime</code>：日期时间处理库，用于处理时间戳</li>
+    </ul>
+    
+    <h2>自定义错误类</h2>
+    <div class="code-block">
+        <pre><code>export class RedirectionError extends Error {}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong>定义了专用于重定向错误的自定义错误类，用于在重定向失败时抛出特定类型的异常，便于错误处理。</p>
+    
+    <h2>URL构建与解析功能</h2>
+    
+    <h3>1. 对象转URL编码字符串</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Transforms a key value mapping to a string formatted as url hash, e.g.
+ * {a: "x", b: 2} -> "a=x&b=2"
+ *
+ * @param {Object} obj
+ * @returns {string}
+ */
+export function objectToUrlEncodedString(obj) {
+    return Object.entries(obj)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v || "")}`)
+        .join("&");
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>objectToUrlEncodedString</code>函数将JavaScript对象转换为URL查询字符串格式，确保所有键和值都正确进行URL编码。</p>
+    
+    <p><strong>特点：</strong></p>
+    <ul>
+        <li>对所有键和值使用<code>encodeURIComponent</code>进行编码，确保特殊字符处理正确</li>
+        <li>对空值使用空字符串代替，避免<code>undefined</code>转换问题</li>
+        <li>使用<code>&</code>符号连接键值对，符合标准URL查询字符串格式</li>
+    </ul>
+    
+    <h3>2. 获取URL源地址</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Gets the origin url of the page, or cleans a given one
+ *
+ * @param {string} [origin]: a given origin url
+ * @return {string} a cleaned origin url
+ */
+export function getOrigin(origin) {
+    if (origin) {
+        // remove trailing slashes
+        origin = origin.replace(/\/+$/, "");
+    } else {
+        const { host, protocol } = browser.location;
+        origin = `${protocol}//${host}`;
+    }
+    return origin;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>getOrigin</code>函数用于获取干净的URL源地址（协议+主机名），可以清理给定源地址或基于当前页面生成源地址。</p>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>如果提供了源地址，则移除尾部的斜杠</li>
+        <li>如果没有提供源地址，则从当前浏览器位置获取协议和主机名构建源地址</li>
+        <li>返回清理后的源地址</li>
+    </ol>
+    
+    <h3>3. 构建完整URL</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {string} route: the relative route, or absolute in the case of cors urls
+ * @param {object} [queryParams]: parameters to be appended as the url's queryString
+ * @param {object} [options]
+ * @param {string} [options.origin]: a precomputed origin
+ */
+export function url(route, queryParams, options = {}) {
+    const origin = getOrigin(options.origin ?? session.origin);
+    if (!route) {
+        return origin;
+    }
+
+    let queryString = objectToUrlEncodedString(queryParams || {});
+    queryString = queryString.length > 0 ? `?${queryString}` : queryString;
+
+    // Compare the wanted url against the current origin
+    let prefix = ["http://", "https://", "//"].some(
+        (el) => route.length >= el.length && route.slice(0, el.length) === el
+    );
+    prefix = prefix ? "" : origin;
+    return `${prefix}${route}${queryString}`;
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>url</code>函数用于构建完整的URL，可以将相对路径与源地址组合，并添加查询参数。是Odoo中构建URL的主要工具函数。</p>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>获取源地址（使用提供的源、会话源或当前页面源）</li>
+        <li>如果没有提供路由，直接返回源地址</li>
+        <li>将查询参数对象转换为URL查询字符串</li>
+        <li>检查路由是否已经包含协议（是否为绝对URL）</li>
+        <li>如果是相对路由，添加源地址前缀；如果已经是绝对URL，则不添加前缀</li>
+        <li>组合前缀、路由和查询字符串，返回完整URL</li>
+    </ol>
+    
+    <h2>图像URL处理</h2>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @param {string} model
+ * @param {number} id
+ * @param {string} field
+ * @param {Object} [options]
+ * @param {string} [options.filename]
+ * @param {number} [options.height]
+ * @param {string|import('luxon').DateTime} [options.unique]
+ * @param {number} [options.width]
+ */
+export function imageUrl(model, id, field, { access_token, filename, height, unique, width } = {}) {
+    let route = `/web/image/${model}/${id}/${field}`;
+    if (width && height) {
+        route = `${route}/${width}x${height}`;
+    }
+    if (filename) {
+        route = `${route}/${filename}`;
+    }
+    const urlParams = {};
+    if (access_token) {
+        Object.assign(urlParams, { access_token });
+    }
+    if (unique) {
+        if (unique instanceof DateTime) {
+            urlParams.unique = unique.ts;
+        } else {
+            const dateTimeFromUnique = DateTime.fromSQL(unique);
+            if (dateTimeFromUnique.isValid) {
+                urlParams.unique = dateTimeFromUnique.ts;
+            } else if (typeof unique === "string" && unique.length > 0) {
+                urlParams.unique = unique;
+            }
+        }
+    }
+    return url(route, urlParams);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>imageUrl</code>函数用于生成Odoo图像资源的URL。这是访问存储在Odoo模型中图像字段的标准方式，支持调整大小、访问控制和缓存控制。</p>
+    
+    <p><strong>参数说明：</strong></p>
+    <ul>
+        <li><code>model</code>：Odoo模型名称，如'res.partner'</li>
+        <li><code>id</code>：记录ID</li>
+        <li><code>field</code>：图像字段名称，如'image_1920'</li>
+        <li><code>access_token</code>：（可选）访问令牌，用于非公开图像</li>
+        <li><code>filename</code>：（可选）文件名，影响下载时的默认文件名</li>
+        <li><code>height</code>/<code>width</code>：（可选）指定图像尺寸，服务器将调整图像大小</li>
+        <li><code>unique</code>：（可选）缓存破坏参数，可以是时间戳或字符串</li>
+    </ul>
+    
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>构建基本路由 <code>/web/image/{model}/{id}/{field}</code></li>
+        <li>如果指定了宽度和高度，添加尺寸部分 <code>/{width}x{height}</code></li>
+        <li>如果指定了文件名，添加文件名 <code>/{filename}</code></li>
+        <li>处理访问令牌和unique参数，将它们作为查询参数</li>
+        <li>对unique参数进行特殊处理，支持DateTime对象或字符串</li>
+        <li>使用<code>url</code>函数生成最终的URL</li>
+    </ol>
+    
+    <p><strong>与ImageMixin的关系：</strong>这个函数通常用于访问通过<code>ImageMixin</code>存储的图像字段，可以指定所需的尺寸版本。</p>
+    
+    <h2>数据URL处理</h2>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * Gets dataURL (base64 data) from the given file or blob.
+ * Technically wraps FileReader.readAsDataURL in Promise.
+ *
+ * @param {Blob | File} file
+ * @returns {Promise} resolved with the dataURL, or rejected if the file is
+ *  empty or if an error occurs.
+ */
+export function getDataURLFromFile(file) {
+    if (!file) {
+        return Promise.reject();
+    }
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+            // Handle Chrome bug that creates invalid data URLs for empty files
+            if (reader.result === "data:") {
+                resolve(`data:${file.type};base64,`);
+            } else {
+                resolve(reader.result);
+            }
+        });
+        reader.addEventListener("abort", reject);
+        reader.addEventListener("error", reject);
+        reader.readAsDataURL(file);
+    });
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>getDataURLFromFile</code>函数将File或Blob对象转换为base64编码的数据URL。这常用于图像预览或在上传文件前处理文件内容。</p>
+    
+    <p><strong>特点：</strong></p>
+    <ul>
+        <li>将异步的FileReader API包装为Promise，使用更方便</li>
+        <li>处理了Chrome浏览器的一个bug，该bug会为空文件创建无效的数据URL</li>
+        <li>正确处理读取中止和错误情况</li>
+    </ul>
+    
+    <p><strong>使用场景：</strong></p>
+    <ul>
+        <li>文件上传前预览（特别是图像）</li>
+        <li>客户端文件处理，避免发送到服务器</li>
+        <li>将二进制数据转换为可嵌入HTML的格式</li>
+    </ul>
+    
+    <h2>重定向与URL比较</h2>
+    
+    <h3>1. 安全重定向</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Safely redirects to the given url within the same origin.
+ *
+ * @param {string} url
+ * @throws {RedirectionError} if the given url has a different origin
+ */
+export function redirect(url) {
+    const { origin, pathname } = browser.location;
+    const _url = new URL(url, `${origin}${pathname}`);
+    if (_url.origin !== origin) {
+        throw new RedirectionError("Can't redirect to another origin");
+    }
+    browser.location.assign(_url.href);
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>redirect</code>函数提供了安全的页面重定向功能，只允许重定向到同一源的URL，防止开放重定向漏洞。</p>
+    
+    <p><strong>安全特性：</strong></p>
+    <ul>
+        <li>使用<code>URL</code>构造函数处理相对和绝对URL</li>
+        <li>明确检查目标URL的源是否与当前页面相同</li>
+        <li>如果目标URL指向不同源，抛出<code>RedirectionError</code>错误</li>
+        <li>防止开放重定向攻击，提高应用安全性</li>
+    </ul>
+    
+    <h3>2. URL比较</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * This function compares two URLs. It doesn't care about the order of the search parameters.
+ *
+ * @param {string} _url1
+ * @param {string} _url2
+ * @returns {boolean} true if the urls are identical, false otherwise
+ */
+export function compareUrls(_url1, _url2) {
+    const url1 = new URL(_url1);
+    const url2 = new URL(_url2);
+    return (
+        url1.origin === url2.origin &&
+        url1.pathname === url2.pathname &&
+        shallowEqual(
+            Object.fromEntries(url1.searchParams),
+            Object.fromEntries(url2.searchParams)
+        ) &&
+        url1.hash === url2.hash
+    );
+}</code></pre>
+    </div>
+    
+    <p><strong>功能解析：</strong><code>compareUrls</code>函数用于比较两个URL是否实质上相同，忽略查询参数的顺序。这在路由导航和缓存控制中非常有用。</p>
+    
+    <p><strong>比较逻辑：</strong></p>
+    <ol>
+        <li>比较源地址（协议+主机名+端口）是否相同</li>
+        <li>比较路径是否相同</li>
+        <li>比较查询参数是否相同（忽略顺序）</li>
+        <li>比较URL的hash部分是否相同</li>
+    </ol>
+    
+    <p><strong>注意事项：</strong>这种比较方法关注URL的语义相等性，而不是字符串完全相等。例如，<code>/?a=1&b=2</code>和<code>/?b=2&a=1</code>被视为相同。</p>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 构建应用内URL</h3>
+    <div class="code-block">
+        <pre><code>// 从相对路径构建完整URL
+import { url } from "@web/core/utils/urls";
+
+// 基本用法
+const viewProductURL = url('/shop/product/42');
+// 结果: 'http://example.com/shop/product/42'
+
+// 添加查询参数
+const searchURL = url('/shop', { 
+    category: 'electronics',
+    min_price: 100,
+    max_price: 500 
+});
+// 结果: 'http://example.com/shop?category=electronics&min_price=100&max_price=500'
+
+// 使用自定义源
+const externalURL = url('/api/data', { format: 'json' }, { 
+    origin: 'https://api.external-service.com' 
+});
+// 结果: 'https://api.external-service.com/api/data?format=json'</code></pre>
+    </div>
+    
+    <h3>2. 生成图像URL</h3>
+    <div class="code-block">
+        <pre><code>// 访问产品图像
+import { imageUrl } from "@web/core/utils/urls";
+
+// 基本用法 - 获取完整尺寸图像
+const productImageURL = imageUrl('product.product', 42, 'image_1920');
+// 结果: 'http://example.com/web/image/product.product/42/image_1920'
+
+// 指定尺寸 - 获取缩略图
+const thumbnailURL = imageUrl('product.product', 42, 'image_1920', {
+    width: 128,
+    height: 128
+});
+// 结果: 'http://example.com/web/image/product.product/42/image_1920/128x128'
+
+// 带文件名和唯一标识符 - 防止缓存
+const uniqueURL = imageUrl('product.product', 42, 'image_1920', {
+    filename: 'product_image.png',
+    unique: Date.now()
+});
+// 结果: 'http://example.com/web/image/product.product/42/image_1920/product_image.png?unique=1234567890'</code></pre>
+    </div>
+    
+    <h3>3. 文件转数据URL</h3>
+    <div class="code-block">
+        <pre><code>// 在文件上传前预览图像
+import { getDataURLFromFile } from "@web/core/utils/urls";
+
+async function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (file) {
+        try {
+            // 将文件转换为数据URL
+            const dataURL = await getDataURLFromFile(file);
+            
+            // 显示图像预览
+            const previewImg = document.getElementById('preview');
+            previewImg.src = dataURL;
+            previewImg.style.display = 'block';
+        } catch (error) {
+            console.error('无法读取文件:', error);
+        }
+    }
+}
+
+// 设置文件输入事件监听器
+document.getElementById('imageUpload').addEventListener('change', handleFileUpload);</code></pre>
+    </div>
+    
+    <h3>4. 安全重定向</h3>
+    <div class="code-block">
+        <pre><code>// 安全地重定向用户
+import { redirect } from "@web/core/utils/urls";
+
+function goToProduct(productId) {
+    try {
+        // 只允许应用内重定向
+        redirect(`/shop/product/${productId}`);
+    } catch (error) {
+        console.error('重定向失败:', error.message);
+        // 显示错误消息给用户
+        showErrorNotification('无法跳转到请求的页面。');
+    }
+}
+
+// 处理恶意URL，防止开放重定向
+function handleExternalLink(url) {
+    try {
+        // 这将抛出错误，因为目标是不同源
+        redirect('https://malicious-site.com');
+    } catch (error) {
+        // 记录尝试并警告用户
+        console.warn('阻止了到外部站点的重定向尝试');
+        
+        // 可能展示安全警告
+        showWarningDialog('应用程序阻止了到外部网站的重定向。');
+    }
+}</code></pre>
+    </div>
+    
+    <h2>性能和安全最佳实践</h2>
+    
+    <div class="best-practices">
+        <h3>性能优化：</h3>
+        <ul>
+            <li><strong>缓存URL构建结果</strong>：对于频繁使用的URL，考虑缓存结果</li>
+            <li><strong>适当使用unique参数</strong>：只有在需要防止缓存时才使用unique参数</li>
+            <li><strong>选择合适的图像尺寸</strong>：使用<code>imageUrl</code>时指定所需的最小尺寸，减少网络传输</li>
+        </ul>
+        
+        <h3>安全实践：</h3>
+        <ul>
+            <li><strong>总是使用<code>redirect</code>函数</strong>：防止开放重定向漏洞</li>
+            <li><strong>避免暴露敏感信息</strong>：不要在URL中包含敏感数据</li>
+            <li><strong>验证用户输入</strong>：在构建URL时验证和清理用户提供的参数</li>
+            <li><strong>使用access_token</strong>：对敏感资源（如非公开图像）使用access_token</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    
+    <div class="relationship">
+        <ul>
+            <li><strong>session模块</strong>：提供服务器源地址，用于构建完整URL</li>
+            <li><strong>browser模块</strong>：提供对浏览器location API的抽象，用于获取当前源和执行重定向</li>
+            <li><strong>ImageMixin</strong>：<code>imageUrl</code>函数是访问ImageMixin存储的图像的主要方式</li>
+            <li><strong>服务器控制器</strong>：URLs构建的路径对应服务器端的控制器路由</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>URL工具函数模块提供了一系列处理URL构建、解析和转换的核心功能，是Odoo前端网络交互的基础。通过规范化URL处理，确保了应用内统一的URL格式和安全的重定向机制。</p>
+    
+    <div class="note">
+        <strong>重要性：</strong>这些工具函数看似简单，但实现了URL处理的规范化和安全控制，是构建健壮Web应用不可或缺的部分。正确使用这些函数可以提高应用的安全性、性能和一致性。
+    </div>
+</body>
+</html> 

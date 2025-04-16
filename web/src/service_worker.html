@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo服务工作线程解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo服务工作线程(service_worker.js)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>service_worker.js</code>是Odoo 18中实现的服务工作线程(Service Worker)文件，用于增强Web应用的离线功能和性能。这个文件实现了PWA(渐进式Web应用)的关键特性，使Odoo应用在离线状态下仍能提供有限的功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>服务工作线程是一种在浏览器后台运行的脚本，它独立于网页，无需用户交互就能执行各种任务，例如缓存资源、处理推送通知和后台同步等。它能够拦截网络请求，使应用在离线时也能工作。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>离线页面缓存</strong>：缓存离线页面，在网络不可用时显示</li>
+        <li><strong>网络请求拦截</strong>：拦截导航请求，在离线时提供替代内容</li>
+        <li><strong>文件共享集成</strong>：提供原生应用级别的文件共享功能</li>
+        <li><strong>服务工作线程生命周期管理</strong>：处理安装和激活事件</li>
+        <li><strong>消息传递系统</strong>：实现服务工作线程和主线程之间的通信</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>1. 初始化和缓存配置</h3>
+    <div class="code-block">
+        <pre><code>// @odoo-module ignore
+
+/* eslint-disable no-restricted-globals */
+const cacheName = "odoo-sw-cache";
+const cachedRequests = ["/odoo/offline"];
+
+self.addEventListener("install", (event) => {
+    event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(cachedRequests)));
+});</code></pre>
+    </div>
+    
+    <p>这段代码设置了服务工作线程的基本配置：</p>
+    <ul>
+        <li><code>cacheName</code>：定义了缓存的唯一名称"odoo-sw-cache"</li>
+        <li><code>cachedRequests</code>：指定了需要被缓存的资源列表，这里只包含"/odoo/offline"离线页面</li>
+        <li>在安装事件中，服务工作线程打开指定的缓存并预缓存所有列表中的资源</li>
+        <li><code>event.waitUntil()</code>确保安装过程不会在缓存完成前结束</li>
+    </ul>
+    
+    <h3>2. 离线导航处理</h3>
+    <div class="code-block">
+        <pre><code>const navigateOrDisplayOfflinePage = async (request) => {
+    try {
+        return await fetch(request);
+    } catch (requestError) {
+        if (
+            request.method === "GET" &&
+            ["Failed to fetch", "Load failed"].includes(requestError.message)
+        ) {
+            if (cachedRequests.includes("/odoo/offline")) {
+                const cache = await caches.open(cacheName);
+                const cachedResponse = await cache.match("/odoo/offline");
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
+            }
+        }
+        throw requestError;
+    }
+};</code></pre>
+    </div>
+    
+    <p>这个函数处理导航请求并提供离线支持：</p>
+    <ul>
+        <li>首先尝试正常获取请求的资源</li>
+        <li>如果获取失败且错误消息表明是网络问题，则进入离线模式处理</li>
+        <li>检查"/odoo/offline"是否在缓存列表中</li>
+        <li>从缓存中获取离线页面并返回</li>
+        <li>如果离线页面不可用或错误不是网络问题，则继续抛出原始错误</li>
+    </ul>
+    
+    <h3>3. 文件共享功能</h3>
+    <div class="code-block">
+        <pre><code>const serveShareTarget = (event) => {
+    // Redirect so the user can refresh the page without resending data.
+    event.respondWith(Response.redirect("/odoo?share_target=trigger"));
+    event.waitUntil(
+        (async () => {
+            // The page sends this message to tell the service worker it's ready to receive the file.
+            await waitingMessage("odoo_share_target");
+            const client = await self.clients.get(event.resultingClientId || event.clientId);
+            const data = await event.request.formData();
+            client.postMessage({
+                shared_files: data.getAll("externalMedia") || [],
+                action: "odoo_share_target_ack",
+            });
+        })()
+    );
+};</code></pre>
+    </div>
+    
+    <p>这个函数实现了Web共享目标API功能：</p>
+    <ul>
+        <li>允许用户从其他应用共享文件到Odoo应用</li>
+        <li>处理共享事件时，首先重定向到特定URL，防止重复发送数据</li>
+        <li>等待页面发送准备就绪消息</li>
+        <li>获取共享的formData数据</li>
+        <li>将共享的文件数据发送给客户端页面处理</li>
+    </ul>
+    
+    <h3>4. 请求拦截与处理</h3>
+    <div class="code-block">
+        <pre><code>self.addEventListener("fetch", (event) => {
+    if (
+        event.request.method === "POST" &&
+        new URL(event.request.url).searchParams.has("share_target")
+    ) {
+        return serveShareTarget(event);
+    }
+    if (
+        (event.request.mode === "navigate" && event.request.destination === "document") ||
+        // request.mode = navigate isn't supported in all browsers => check for http header accept:text/html
+        event.request.headers.get("accept").includes("text/html")
+    ) {
+        event.respondWith(navigateOrDisplayOfflinePage(event.request));
+    }
+});</code></pre>
+    </div>
+    
+    <p>请求拦截是服务工作线程的核心功能：</p>
+    <ul>
+        <li>首先检查请求是否是针对共享目标的POST请求，如果是则调用serveShareTarget处理</li>
+        <li>对于导航请求（页面导航）或HTML内容请求，使用离线导航处理函数</li>
+        <li>通过检查request.mode和accept头，确保兼容性和正确识别HTML请求</li>
+        <li>其他类型的请求不做拦截，让浏览器正常处理</li>
+    </ul>
+    
+    <h3>5. 消息传递系统</h3>
+    <div class="code-block">
+        <pre><code>/**
+ *
+ * @type {Map<String, Function[]>}
+ */
+const nextMessageMap = new Map();
+/**
+ *
+ * @param message : string
+ * @return {Promise}
+ */
+const waitingMessage = async (message) => {
+    return new Promise((resolve) => {
+        if (!nextMessageMap.has(message)) {
+            nextMessageMap.set(message, []);
+        }
+        nextMessageMap.get(message).push(resolve);
+    });
+};
+
+self.addEventListener("message", (event) => {
+    const messageNotifiers = nextMessageMap.get(event.data);
+    if (messageNotifiers) {
+        for (const messageNotified of messageNotifiers) {
+            messageNotified();
+        }
+        nextMessageMap.delete(event.data);
+    }
+});</code></pre>
+    </div>
+    
+    <p>这部分实现了消息传递系统：</p>
+    <ul>
+        <li><code>nextMessageMap</code>：存储等待特定消息的Promise解析函数</li>
+        <li><code>waitingMessage</code>：创建一个Promise，等待特定消息到达</li>
+        <li>消息事件监听器：处理来自主线程的消息，并解析对应的Promise</li>
+        <li>这种机制使服务工作线程能够等待主线程的信号后再继续执行</li>
+        <li>在文件共享功能中，它确保主线程准备好接收文件时才发送文件数据</li>
+    </ul>
+    
+    <h2>工作原理</h2>
+    <p>Odoo服务工作线程的工作流程可以概括为：</p>
+    
+    <div class="flow-diagram">
+        <h3>服务工作线程生命周期</h3>
+        <ol>
+            <li>安装阶段：注册服务工作线程并预缓存必要资源（离线页面）</li>
+            <li>激活阶段：服务工作线程激活，开始拦截网络请求</li>
+            <li>运行阶段：
+                <ul>
+                    <li>拦截导航请求，在离线时提供缓存的离线页面</li>
+                    <li>处理文件共享请求，实现原生应用级别共享功能</li>
+                    <li>通过消息系统与主线程通信</li>
+                </ul>
+            </li>
+            <li>更新阶段：当服务工作线程代码更新时，安装新版本并激活</li>
+        </ol>
+    </div>
+    
+    <div class="flow-diagram">
+        <h3>离线功能流程</h3>
+        <ol>
+            <li>用户在有网络时访问Odoo应用，服务工作线程缓存离线页面</li>
+            <li>当用户失去网络连接时尝试导航</li>
+            <li>服务工作线程拦截导航请求，尝试获取请求资源</li>
+            <li>获取失败时，检测到网络错误</li>
+            <li>从缓存中提供之前存储的离线页面</li>
+            <li>用户看到离线页面，而不是浏览器的默认离线页面</li>
+        </ol>
+    </div>
+    
+    <div class="flow-diagram">
+        <h3>文件共享流程</h3>
+        <ol>
+            <li>其他应用（如相册）通过系统共享菜单选择共享到Odoo</li>
+            <li>系统启动Odoo Web应用，并发送POST请求</li>
+            <li>服务工作线程拦截带有share_target参数的POST请求</li>
+            <li>重定向到特定URL，防止重复发送数据</li>
+            <li>等待页面就绪信号</li>
+            <li>将共享的文件数据转发给主线程</li>
+            <li>主线程处理接收到的文件（上传、预览等）</li>
+        </ol>
+    </div>
+    
+    <h2>核心设计思想</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>离线优先</h4>
+            <p>即使在没有网络连接的情况下，也能提供基本的用户体验</p>
+        </div>
+        <div class="benefit-item">
+            <h4>原生集成</h4>
+            <p>通过文件共享功能，实现与原生应用类似的系统集成体验</p>
+        </div>
+        <div class="benefit-item">
+            <h4>轻量级实现</h4>
+            <p>针对性缓存最必要的资源（离线页面），而不是整个应用</p>
+        </div>
+        <div class="benefit-item">
+            <h4>优雅降级</h4>
+            <p>在不支持服务工作线程的浏览器中，应用仍能正常工作</p>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的PWA特性</h2>
+    <p>在Odoo 18中，服务工作线程是PWA功能的核心部分，它支持以下PWA特性：</p>
+    <table>
+        <tr>
+            <th>PWA特性</th>
+            <th>实现方式</th>
+            <th>用户价值</th>
+        </tr>
+        <tr>
+            <td>离线支持</td>
+            <td>缓存关键页面，离线时提供替代内容</td>
+            <td>在网络不稳定时保持基本功能</td>
+        </tr>
+        <tr>
+            <td>可安装性</td>
+            <td>通过Web App Manifest配置（与service_worker配合）</td>
+            <td>可以添加到主屏幕，像原生应用一样启动</td>
+        </tr>
+        <tr>
+            <td>文件共享</td>
+            <td>实现Web共享目标API</td>
+            <td>从其他应用直接共享内容到Odoo</td>
+        </tr>
+        <tr>
+            <td>可靠性</td>
+            <td>网络请求拦截和错误处理</td>
+            <td>网络不稳定时不会显示浏览器错误页面</td>
+        </tr>
+    </table>
+    
+    <h2>开发者使用指南</h2>
+    <p>作为Odoo模块开发者，您可以利用服务工作线程提供的功能：</p>
+    
+    <h3>1. 页面与服务工作线程通信</h3>
+    <div class="code-block">
+        <pre><code>// 在您的JavaScript模块中
+odoo.define('my_module.pwa_integration', [], function (require) {
+    "use strict";
+    
+    // 检查浏览器是否支持服务工作线程
+    if ('serviceWorker' in navigator) {
+        // 向服务工作线程发送消息
+        function sendMessageToServiceWorker(message) {
+            navigator.serviceWorker.controller?.postMessage(message);
+        }
+        
+        // 监听来自服务工作线程的消息
+        navigator.serviceWorker.addEventListener('message', function(event) {
+            if (event.data.action === 'odoo_share_target_ack') {
+                // 处理共享文件
+                const sharedFiles = event.data.shared_files;
+                if (sharedFiles && sharedFiles.length) {
+                    // 处理文件，例如显示预览或上传
+                    handleSharedFiles(sharedFiles);
+                }
+            }
+        });
+        
+        // 通知服务工作线程页面已准备好接收共享文件
+        function notifyReadyForSharedFiles() {
+            sendMessageToServiceWorker('odoo_share_target');
+        }
+        
+        // 当页面加载完成并检测到share_target参数时
+        if (new URLSearchParams(window.location.search).has('share_target')) {
+            notifyReadyForSharedFiles();
+        }
+    }
+    
+    // 处理共享文件的函数
+    function handleSharedFiles(files) {
+        // 实现文件处理逻辑...
+    }
+    
+    return {
+        sendMessageToServiceWorker: sendMessageToServiceWorker
+    };
+});</code></pre>
+    </div>
+    
+    <h3>2. 控制离线页面内容</h3>
+    <p>开发者可以通过创建或修改"/odoo/offline"路由来自定义离线页面：</p>
+    
+    <div class="code-block">
+        <pre><code># 在Python控制器中
+from odoo import http
+from odoo.http import request
+
+class PWAController(http.Controller):
+    @http.route('/odoo/offline', type='http', auth="public", website=True)
+    def offline_page(self, **kw):
+        """显示离线页面"""
+        return request.render('my_module.offline_template', {
+            'app_name': request.env['ir.config_parameter'].sudo().get_param('web.base.title', 'Odoo'),
+        })
+</code></pre>
+    </div>
+    
+    <p>对应的离线页面模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- in my_module/views/offline_template.xml -->
+&lt;template id="offline_template" name="Offline Page">
+    &lt;html>
+        &lt;head>
+            &lt;title>离线模式 - <t t-esc="app_name"/>&lt;/title>
+            &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+            &lt;style>
+                /* 自定义样式... */
+            &lt;/style>
+        &lt;/head>
+        &lt;body>
+            &lt;div class="container">
+                &lt;h1>您当前处于离线状态&lt;/h1>
+                &lt;p>无法连接到服务器。请检查您的网络连接并重试。&lt;/p>
+                &lt;button onclick="window.location.reload()">重试连接&lt;/button>
+                
+                &lt;div class="offline-features">
+                    &lt;h2>离线可用功能&lt;/h2>
+                    &lt;!-- 列出离线可用的功能 -->
+                &lt;/div>
+            &lt;/div>
+        &lt;/body>
+    &lt;/html>
+&lt;/template></code></pre>
+    </div>
+    
+    <h3>3. 扩展服务工作线程功能</h3>
+    <p>通过在assets bundle中添加JavaScript，可以扩展服务工作线程功能：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- in my_module/views/assets.xml -->
+&lt;template id="service_worker_assets" inherit_id="web.service_worker_assets">
+    &lt;xpath expr="." position="inside">
+        &lt;script type="text/javascript" src="/my_module/static/src/js/service_worker_ext.js"/>
+    &lt;/xpath>
+&lt;/template></code></pre>
+    </div>
+    
+    <p>服务工作线程扩展代码：</p>
+    
+    <div class="code-block">
+        <pre><code>// 在 /my_module/static/src/js/service_worker_ext.js 文件中
+
+// 扩展缓存列表，添加更多离线资源
+self.addEventListener('install', function(event) {
+    event.waitUntil(
+        caches.open('my-module-cache').then(function(cache) {
+            return cache.addAll([
+                '/my_module/static/src/img/offline_logo.png',
+                '/my_module/static/src/css/offline.css'
+                // 其他需要缓存的资源
+            ]);
+        })
+    );
+});
+
+// 扩展fetch处理，为特定API请求提供离线响应
+self.addEventListener('fetch', function(event) {
+    // 只处理特定URL模式
+    if (event.request.url.includes('/my_module/api/')) {
+        event.respondWith(
+            fetch(event.request).catch(function() {
+                // 网络请求失败，返回缓存的离线数据
+                return new Response(
+                    JSON.stringify({
+                        error: 'offline',
+                        offlineData: { /* 默认离线数据 */ }
+                    }),
+                    { 
+                        headers: { 'Content-Type': 'application/json' }
+                    }
+                );
+            })
+        );
+    }
+});</code></pre>
+    </div>
+    
+    <h2>注意事项与最佳实践</h2>
+    
+    <div class="warning">
+        <h3>服务工作线程调试</h3>
+        <p>服务工作线程调试可能较为复杂，需要注意：</p>
+        <ul>
+            <li>更新服务工作线程时，浏览器可能继续使用旧版本</li>
+            <li>使用Chrome DevTools中的Application标签页来管理服务工作线程</li>
+            <li>勾选"Update on reload"选项可以在每次刷新时更新服务工作线程</li>
+            <li>使用"Unregister"按钮可以完全移除服务工作线程</li>
+        </ul>
+    </div>
+    
+    <div class="warning">
+        <h3>安全考量</h3>
+        <p>服务工作线程具有拦截请求的强大能力，需要特别注意安全性：</p>
+        <ul>
+            <li>服务工作线程只能在HTTPS或localhost环境下运行</li>
+            <li>谨慎处理敏感数据，不要在服务工作线程中缓存包含敏感信息的响应</li>
+            <li>对于需要身份验证的请求，应当始终发送到服务器而不是使用缓存</li>
+        </ul>
+    </div>
+    
+    <div class="warning">
+        <h3>性能影响</h3>
+        <p>虽然服务工作线程可以提升离线性能，但也有潜在问题：</p>
+        <ul>
+            <li>过度缓存会增加存储占用</li>
+            <li>复杂的服务工作线程逻辑可能增加请求处理时间</li>
+            <li>在低端设备上，服务工作线程的额外开销可能导致性能下降</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>service_worker.js是Odoo 18中实现PWA功能的关键组件，它提供了：</p>
+    <ul>
+        <li>基本的离线功能支持，提高应用的可靠性</li>
+        <li>原生级别的文件共享集成，增强用户体验</li>
+        <li>灵活的消息传递系统，实现主线程与服务工作线程的通信</li>
+        <li>轻量级实现，只缓存必要资源，平衡性能与功能</li>
+        <li>可扩展的架构，允许开发者添加自定义离线功能</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在Odoo模块开发中，可以利用服务工作线程为用户提供更好的离线体验，但应当谨慎使用，确保不会因为过度缓存或复杂处理逻辑而影响性能或引入安全问题。
+    </div>
+</body>
+</html> 

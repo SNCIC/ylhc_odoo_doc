@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo排序服务模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo排序服务模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>sortable_service.js</code>是Odoo框架中的一个服务模块，它提供了一个全局的排序服务，用于管理和协调页面中多个可排序元素的状态和行为。该服务确保可排序功能在整个应用中的一致性和资源管理。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>排序服务是一个中心化的管理系统，允许多个组件共享和重用可排序配置，避免冲突，并确保资源（如事件监听器和DOM引用）的正确清理。通过服务模式，Odoo确保了拖放排序功能在整个应用中的统一行为和效率。
+    </div>
+    
+    <h2>引入的依赖</h2>
+    <div class="code-block">
+        <pre><code>import { registry } from "../registry";
+import { useSortable } from "@web/core/utils/sortable";
+import { throttleForAnimation } from "@web/core/utils/timing";
+import { reactive } from "@odoo/owl";</code></pre>
+    </div>
+    
+    <h3>依赖项解释</h3>
+    <ul>
+        <li><code>registry</code>：Odoo的服务注册表，用于注册和获取服务</li>
+        <li><code>useSortable</code>：核心排序功能的实现</li>
+        <li><code>throttleForAnimation</code>：用于优化动画性能的节流函数</li>
+        <li><code>reactive</code>：OWL的响应式API，用于状态管理</li>
+    </ul>
+    
+    <h2>类型定义</h2>
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef SortableServiceHookParams
+ * @extends SortableParams
+ * @property {{el: HTMLElement} | ReturnType<typeof import("@odoo/owl").useRef>} [ref] container of sortable
+ * @property {string | Symbol} [sortableId] identifier when multiple sortable on the same container
+ */</code></pre>
+    </div>
+    
+    <p>该注释定义了排序服务钩子的参数类型，包括：</p>
+    <ul>
+        <li>继承自基本排序参数的所有属性</li>
+        <li><code>ref</code>：包含可排序容器元素的引用，可以是DOM元素或OWL引用</li>
+        <li><code>sortableId</code>：当同一容器有多个可排序实例时的标识符</li>
+    </ul>
+    
+    <h2>核心服务定义</h2>
+    
+    <div class="code-block">
+        <pre><code>const DEFAULT_SORTABLE_ID = Symbol.for("defaultSortable");
+export const sortableService = {
+    start() {
+        /**
+         * Map to avoid to setup/enable twice or more time the same element
+         * @type {Map<Element, Object>}
+         */
+        const boundElements = new Map();
+        return {
+            /**
+             * @param {SortableServiceHookParams} hookParams
+             */
+            create: (hookParams) => {
+                const element = hookParams.ref.el;
+                const sortableId = hookParams.sortableId ?? DEFAULT_SORTABLE_ID;
+                if (boundElements.has(element)) {
+                    const boundElement = boundElements.get(element);
+                    if (sortableId in boundElement) {
+                        return {
+                            enable() {
+                                return {
+                                    cleanup: boundElement[sortableId],
+                                };
+                            },
+                        };
+                    }
+                }
+                /**
+                 * @type {Map<Function, function():Array>}
+                 */
+                const setupFunctions = new Map();
+                /**
+                 * @type {Array<Function>}
+                 */
+                const cleanupFunctions = [];
+
+                const cleanup = () => {
+                    const boundElement = boundElements.get(element);
+                    if (sortableId in boundElement) {
+                        delete boundElement[sortableId];
+                        if (boundElement.length === 0) {
+                            boundElements.delete(element);
+                        }
+                    }
+                    cleanupFunctions.forEach((fn) => fn());
+                };
+
+                // Setup hookParam
+                const setupHooks = {
+                    wrapState: reactive,
+                    throttle: throttleForAnimation,
+                    addListener: (el, type, listener) => {
+                        el.addEventListener(type, listener);
+                        cleanupFunctions.push(() => el.removeEventListener(type, listener));
+                    },
+                    setup: (setupFn, dependenciesFn) => setupFunctions.set(setupFn, dependenciesFn),
+                    teardown: (fn) => cleanupFunctions.push(fn),
+                };
+
+                useSortable({ setupHooks, ...hookParams });
+
+                const boundElement = boundElements.get(element);
+                if (boundElement) {
+                    boundElement[sortableId] = cleanup;
+                } else {
+                    boundElements.set(element, { [sortableId]: cleanup });
+                }
+
+                return {
+                    enable() {
+                        setupFunctions.forEach((dependenciesFn, setupFn) =>
+                            setupFn(...dependenciesFn())
+                        );
+                        return {
+                            cleanup,
+                        };
+                    },
+                };
+            },
+        };
+    },
+};</code></pre>
+    </div>
+    
+    <h3>服务注册</h3>
+    <div class="code-block">
+        <pre><code>registry.category("services").add("sortable", sortableService);</code></pre>
+    </div>
+    
+    <p>将排序服务注册到Odoo服务注册表中，使其可以在整个应用中使用。</p>
+    
+    <h2>核心功能解析</h2>
+    
+    <h3>服务启动函数</h3>
+    <p><strong>功能：</strong>初始化排序服务并返回API。</p>
+    <ul>
+        <li>创建<code>boundElements</code>映射，用于跟踪已绑定排序功能的元素</li>
+        <li>返回包含<code>create</code>方法的服务API</li>
+    </ul>
+    
+    <h3>create方法</h3>
+    <p><strong>功能：</strong>创建一个新的可排序实例。</p>
+    <ul>
+        <li>从参数中提取目标元素和排序ID</li>
+        <li>如果元素已有相同ID的排序实例，返回现有实例</li>
+        <li>创建用于存储设置和清理函数的集合</li>
+        <li>定义清理函数，用于移除排序实例和相关资源</li>
+        <li>配置排序钩子，包括状态包装、节流、事件监听等</li>
+        <li>使用<code>useSortable</code>创建排序实例</li>
+        <li>将清理函数与元素和ID关联</li>
+        <li>返回包含<code>enable</code>方法的实例API</li>
+    </ul>
+    
+    <h3>enable方法</h3>
+    <p><strong>功能：</strong>激活可排序实例。</p>
+    <ul>
+        <li>执行所有设置函数，传入其依赖值</li>
+        <li>返回包含<code>cleanup</code>方法的对象，用于销毁实例</li>
+    </ul>
+    
+    <h2>工作原理详解</h2>
+    
+    <div class="note">
+        <h3>服务模式的优势</h3>
+        <p>排序服务采用了服务模式设计，主要优势包括：</p>
+        <ol>
+            <li><strong>资源管理集中化</strong>：统一管理所有可排序实例的生命周期</li>
+            <li><strong>防止重复绑定</strong>：避免同一元素被多次绑定相同的排序行为</li>
+            <li><strong>内存泄漏预防</strong>：确保所有事件监听器和DOM引用在不再需要时被清理</li>
+            <li><strong>按需激活</strong>：排序功能只在调用<code>enable</code>时才真正设置，允许延迟初始化</li>
+        </ol>
+    </div>
+    
+    <h3>多实例管理</h3>
+    <p>该服务特别设计了处理同一DOM元素上多个排序实例的机制：</p>
+    <ul>
+        <li>通过<code>sortableId</code>为每个排序实例提供唯一标识</li>
+        <li>默认使用<code>Symbol.for("defaultSortable")</code>作为ID</li>
+        <li>维护元素到排序实例的映射，允许复用和防止冲突</li>
+    </ul>
+    
+    <h3>钩子设置</h3>
+    <p>服务配置的<code>setupHooks</code>对象是排序功能与框架集成的关键：</p>
+    <ul>
+        <li><code>wrapState</code>：使用OWL的<code>reactive</code>使状态响应式</li>
+        <li><code>throttle</code>：使用<code>throttleForAnimation</code>优化动画性能</li>
+        <li><code>addListener</code>：添加事件监听器并登记清理函数</li>
+        <li><code>setup</code>：延迟执行设置函数，直到<code>enable</code>被调用</li>
+        <li><code>teardown</code>：登记清理函数，确保资源正确释放</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>基本服务使用</h3>
+    <div class="code-block">
+        <pre><code>import { Component, useRef } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class SortableComponent extends Component {
+    setup() {
+        const sortableService = useService("sortable");
+        this.containerRef = useRef("container");
+        
+        // 创建可排序实例
+        const sortable = sortableService.create({
+            ref: this.containerRef,
+            elements: ".item",
+            onDrop: ({ element, previous, next }) => {
+                // 处理元素拖放
+                console.log("Item dropped:", element);
+            }
+        });
+        
+        // 组件挂载后启用排序
+        this.env.bus.addEventListener("mounted", () => {
+            this.sortableCleanup = sortable.enable().cleanup;
+        });
+        
+        // 组件将卸载前清理资源
+        this.env.bus.addEventListener("willUnmount", () => {
+            if (this.sortableCleanup) {
+                this.sortableCleanup();
+            }
+        });
+    }
+}
+
+SortableComponent.template = xml`
+    <div t-ref="container">
+        <div class="item" t-foreach="items" t-as="item" t-key="item.id">
+            <span t-esc="item.name"/>
+        </div>
+    </div>
+`;</code></pre>
+    </div>
+    
+    <h3>多排序实例</h3>
+    <div class="code-block">
+        <pre><code>import { Component, useRef } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class ComplexSortableComponent extends Component {
+    setup() {
+        const sortableService = useService("sortable");
+        this.containerRef = useRef("container");
+        
+        // 为同一容器创建两种不同的排序行为
+        const horizontalSortable = sortableService.create({
+            ref: this.containerRef,
+            sortableId: "horizontal",  // 自定义ID避免冲突
+            elements: ".row",
+            handle: ".row-handle",
+            onDrop: ({ element, previous, next }) => {
+                // 处理行拖放
+                console.log("Row dropped:", element);
+            }
+        });
+        
+        const verticalSortable = sortableService.create({
+            ref: this.containerRef,
+            sortableId: "vertical",  // 自定义ID避免冲突
+            elements: ".column",
+            handle: ".column-handle",
+            onDrop: ({ element, previous, next }) => {
+                // 处理列拖放
+                console.log("Column dropped:", element);
+            }
+        });
+        
+        // 组件挂载后启用所有排序
+        this.env.bus.addEventListener("mounted", () => {
+            this.cleanupFunctions = [
+                horizontalSortable.enable().cleanup,
+                verticalSortable.enable().cleanup
+            ];
+        });
+        
+        // 组件将卸载前清理所有资源
+        this.env.bus.addEventListener("willUnmount", () => {
+            this.cleanupFunctions.forEach(cleanup => cleanup());
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h2>高级功能</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>懒加载初始化</h4>
+            <p>排序功能只在调用<code>enable</code>时才真正设置，允许按需激活，提高性能</p>
+        </div>
+        <div class="benefit-item">
+            <h4>智能资源管理</h4>
+            <p>自动跟踪并清理事件监听器和DOM引用，防止内存泄漏</p>
+        </div>
+        <div class="benefit-item">
+            <h4>实例复用</h4>
+            <p>如果尝试为已有排序配置的元素创建相同ID的实例，服务会返回现有实例</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动画性能优化</h4>
+            <p>使用<code>throttleForAnimation</code>确保拖动过程中的更新不会导致性能问题</p>
+        </div>
+    </div>
+    
+    <h2>在Odoo中的应用</h2>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>复杂视图</h4>
+            <p>在包含多个可排序区域的复杂视图中，如高级看板视图，排序服务确保各区域互不干扰</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动态组件</h4>
+            <p>对于动态加载和卸载的组件，服务确保资源正确管理，避免内存泄漏和"幽灵"事件监听器</p>
+        </div>
+        <div class="benefit-item">
+            <h4>仪表板定制</h4>
+            <p>在用户可定制的仪表板中，排序服务允许同时管理多种拖放行为（调整大小、排序等）</p>
+        </div>
+    </div>
+    
+    <h2>技术细节</h2>
+    
+    <div class="note">
+        <h3>Map数据结构的使用</h3>
+        <p>服务使用JavaScript的<code>Map</code>数据结构存储元素和函数引用，这有几个优势：</p>
+        <ul>
+            <li>允许使用DOM元素作为键，而普通对象只允许字符串键</li>
+            <li>提供高效的查找和删除操作</li>
+            <li>避免原型链污染和可能的名称冲突</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <h3>Symbol的使用</h3>
+        <p>服务使用<code>Symbol.for("defaultSortable")</code>作为默认排序ID，这有几个好处：</p>
+        <ul>
+            <li>保证唯一性，避免字符串ID可能的冲突</li>
+            <li>使用<code>Symbol.for</code>确保相同名称的Symbol是同一实例</li>
+            <li>对开发者清晰表明这是一个特殊的内部标识符</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    
+    <p><code>sortable_service.js</code>模块提供了一个强大的服务，用于管理Odoo应用中的可排序功能。它主要特点包括：</p>
+    <ul>
+        <li>中心化资源管理，确保正确的初始化和清理</li>
+        <li>支持多排序实例，避免冲突</li>
+        <li>延迟初始化，提高性能</li>
+        <li>与OWL响应式系统集成</li>
+        <li>优化的动画性能</li>
+    </ul>
+    
+    <p>通过该服务，Odoo开发者可以更简单、更安全地在应用中实现拖放排序功能，无需担心底层的资源管理和冲突问题。</p>
+    
+    <div class="warning">
+        <strong>注意：</strong>当使用排序服务时，务必记得调用<code>cleanup</code>函数清理资源，尤其是在动态创建和销毁组件的场景中。未能正确清理可能导致内存泄漏和事件处理异常。
+    </div>
+</body>
+</html> 

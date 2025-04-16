@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 邮件模板模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 邮件模板模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_template.py</code>是Odoo 18中的一个核心模块，它提供了创建和管理电子邮件模板的功能。这些模板可以与系统中的任何模型关联，并支持动态内容渲染，使得大规模个性化邮件通信成为可能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>邮件模板是预定义的邮件内容结构，包含主题、正文、附件等。模板可以包含占位符，这些占位符在发送时会被替换为实际数据。这使得在Odoo中能够基于记录数据自动生成高度个性化的邮件，提高沟通效率和质量。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>模板定义与管理</strong>：创建、编辑、复制和删除邮件模板</li>
+        <li><strong>动态内容渲染</strong>：使用Python表达式和Qweb模板语言渲染动态内容</li>
+        <li><strong>附件管理</strong>：支持静态附件和动态生成的报表附件</li>
+        <li><strong>批量邮件发送</strong>：一次性向多个记录发送基于模板的邮件</li>
+        <li><strong>模板分类</strong>：支持基础模板、隐藏模板和自定义模板的分类</li>
+        <li><strong>邮件服务器配置</strong>：指定模板使用的发送服务器和参数</li>
+        <li><strong>邮件计划</strong>：支持计划邮件发送时间</li>
+    </ol>
+    
+    <h2>代码详解</h2>
+    <h3>MailTemplate 类</h3>
+    <p>这是该模块的核心类，它定义了邮件模板的数据结构和行为：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailTemplate(models.Model):
+    "Templates for sending email"
+    _name = "mail.template"
+    _inherit = ['mail.render.mixin', 'template.reset.mixin']
+    _description = 'Email Templates'
+    _order = 'user_id,name,id'
+
+    _unrestricted_rendering = True</code></pre>
+    </div>
+    
+    <p>这个类继承了两个重要的混入类：</p>
+    <ul>
+        <li><strong>mail.render.mixin</strong>：提供内容渲染功能</li>
+        <li><strong>template.reset.mixin</strong>：提供模板重置功能</li>
+    </ul>
+    <p>设置了<code>_unrestricted_rendering = True</code>，表示模板可以使用不受限制的渲染功能，允许更丰富的表达式。</p>
+    
+    <h3>基本字段</h3>
+    <table>
+        <tr>
+            <th>字段类别</th>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td rowspan="7">描述信息</td>
+            <td>name</td>
+            <td>Char</td>
+            <td>模板名称，可翻译</td>
+        </tr>
+        <tr>
+            <td>description</td>
+            <td>Text</td>
+            <td>模板描述，可翻译</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>Boolean</td>
+            <td>是否激活，默认为True</td>
+        </tr>
+        <tr>
+            <td>template_category</td>
+            <td>Selection</td>
+            <td>模板分类（基础/隐藏/自定义）</td>
+        </tr>
+        <tr>
+            <td>model_id</td>
+            <td>Many2one</td>
+            <td>关联的模型</td>
+        </tr>
+        <tr>
+            <td>model</td>
+            <td>Char</td>
+            <td>模型的技术名称</td>
+        </tr>
+        <tr>
+            <td>user_id</td>
+            <td>Many2one</td>
+            <td>所属用户</td>
+        </tr>
+        <tr>
+            <td rowspan="5">收件人设置</td>
+            <td>use_default_to</td>
+            <td>Boolean</td>
+            <td>是否使用默认收件人</td>
+        </tr>
+        <tr>
+            <td>email_to</td>
+            <td>Char</td>
+            <td>收件人邮箱地址</td>
+        </tr>
+        <tr>
+            <td>partner_to</td>
+            <td>Char</td>
+            <td>收件人合作伙伴ID</td>
+        </tr>
+        <tr>
+            <td>email_cc</td>
+            <td>Char</td>
+            <td>抄送地址</td>
+        </tr>
+        <tr>
+            <td>reply_to</td>
+            <td>Char</td>
+            <td>回复地址</td>
+        </tr>
+        <tr>
+            <td rowspan="5">内容设置</td>
+            <td>subject</td>
+            <td>Char</td>
+            <td>邮件主题</td>
+        </tr>
+        <tr>
+            <td>email_from</td>
+            <td>Char</td>
+            <td>发件人地址</td>
+        </tr>
+        <tr>
+            <td>body_html</td>
+            <td>Html</td>
+            <td>邮件HTML内容</td>
+        </tr>
+        <tr>
+            <td>attachment_ids</td>
+            <td>Many2many</td>
+            <td>静态附件</td>
+        </tr>
+        <tr>
+            <td>report_template_ids</td>
+            <td>Many2many</td>
+            <td>动态报表附件</td>
+        </tr>
+        <tr>
+            <td rowspan="4">选项设置</td>
+            <td>email_layout_xmlid</td>
+            <td>Char</td>
+            <td>邮件布局XML ID</td>
+        </tr>
+        <tr>
+            <td>mail_server_id</td>
+            <td>Many2one</td>
+            <td>发送服务器</td>
+        </tr>
+        <tr>
+            <td>scheduled_date</td>
+            <td>Char</td>
+            <td>计划发送日期</td>
+        </tr>
+        <tr>
+            <td>auto_delete</td>
+            <td>Boolean</td>
+            <td>发送后自动删除，默认为True</td>
+        </tr>
+        <tr>
+            <td rowspan="3">其他功能</td>
+            <td>ref_ir_act_window</td>
+            <td>Many2one</td>
+            <td>侧边栏动作</td>
+        </tr>
+        <tr>
+            <td>can_write</td>
+            <td>Boolean</td>
+            <td>当前用户是否可编辑</td>
+        </tr>
+        <tr>
+            <td>is_template_editor</td>
+            <td>Boolean</td>
+            <td>当前用户是否为模板编辑者</td>
+        </tr>
+    </table>
+    
+    <h3>CRUD操作</h3>
+    <p>邮件模板模块重写了多个CRUD方法，增加了特定的业务逻辑：</p>
+    
+    <h4>默认值获取</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def default_get(self, fields):
+    res = super(MailTemplate, self).default_get(fields)
+    if res.get('model'):
+        res['model_id'] = self.env['ir.model']._get(res.pop('model')).id
+    return res</code></pre>
+    </div>
+    
+    <p>该方法允许在创建模板时直接提供model字符串，自动转换为model_id。</p>
+    
+    <h4>附件所有权修复</h4>
+    <div class="code-block">
+        <pre><code>def _fix_attachment_ownership(self):
+    for record in self:
+        record.attachment_ids.write({'res_model': record._name, 'res_id': record.id})
+    return self</code></pre>
+    </div>
+    
+    <p>该方法确保附件正确关联到模板记录。</p>
+    
+    <h4>抽象模型检查</h4>
+    <div class="code-block">
+        <pre><code>def _check_abstract_models(self, vals_list):
+    model_names = self.sudo().env['ir.model'].browse(filter(None, (
+        vals.get('model_id') for vals in vals_list
+    ))).mapped('model')
+    for model in model_names:
+        if self.env[model]._abstract:
+            raise ValidationError(_('You may not define a template on an abstract model: %s', model))</code></pre>
+    </div>
+    
+    <p>该方法防止在抽象模型上创建邮件模板。</p>
+    
+    <h4>创建记录</h4>
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    self._check_abstract_models(vals_list)
+    return super().create(vals_list)\
+        ._fix_attachment_ownership()</code></pre>
+    </div>
+    
+    <p>创建时检查模型有效性并修复附件所有权。</p>
+    
+    <h4>更新记录</h4>
+    <div class="code-block">
+        <pre><code>def write(self, vals):
+    self._check_abstract_models([vals])
+    super().write(vals)
+    self._fix_attachment_ownership()
+    return True</code></pre>
+    </div>
+    
+    <p>更新时同样检查模型有效性并修复附件所有权。</p>
+    
+    <h4>记录复制</h4>
+    <div class="code-block">
+        <pre><code>def copy_data(self, default=None):
+    vals_list = super().copy_data(default=default)
+    return [dict(vals, name=self.env._("%s (copy)", template.name)) for template, vals in zip(self, vals_list)]</code></pre>
+    </div>
+    
+    <p>复制时自动添加"(copy)"后缀到模板名称。</p>
+    
+    <h3>动作管理</h3>
+    <p>邮件模板支持创建关联动作，使模板可以从记录的侧边栏快速访问：</p>
+    
+    <h4>删除动作</h4>
+    <div class="code-block">
+        <pre><code>def unlink_action(self):
+    for template in self:
+        if template.ref_ir_act_window:
+            template.ref_ir_act_window.unlink()
+    return True</code></pre>
+    </div>
+    
+    <h4>创建动作</h4>
+    <div class="code-block">
+        <pre><code>def create_action(self):
+    ActWindow = self.env['ir.actions.act_window']
+    view = self.env.ref('mail.email_compose_message_wizard_form')
+    for template in self:
+        context = {
+            'default_composition_mode': 'mass_mail',
+            'default_model': template.model,
+            'default_template_id' : template.id,
+        }
+        button_name = _('Send Mail (%s)', template.name)
+        action = ActWindow.create({
+            'name': button_name,
+            'type': 'ir.actions.act_window',
+            'res_model': 'mail.compose.message',
+            'context': repr(context),
+            'view_mode': 'form,list',
+            'view_id': view.id,
+            'target': 'new',
+            'binding_model_id': template.model_id.id,
+        })
+        template.write({'ref_ir_act_window': action.id})
+
+    return True</code></pre>
+    </div>
+    
+    <p>该方法为模板创建一个侧边栏动作，使用户可以直接从相关记录快速访问模板并发送邮件。</p>
+    
+    <h3>删除确认模态框</h3>
+    <div class="code-block">
+        <pre><code>def open_delete_confirmation_modal(self):
+    return {
+        'type': 'ir.actions.act_window',
+        'view_mode': 'form',
+        'res_id': self.id,
+        'res_model': self._name,
+        'target': 'new',
+        'view_id': self.env.ref('mail.mail_template_view_form_confirm_delete').id,
+        'context': {'dialog_size': 'medium'},
+        'name': _('Confirmation'),
+    }
+
+def cancel_unlink(self):
+    return {
+        'type': 'ir.actions.act_window',
+        'view_mode': 'form',
+        'res_id': self.id,
+        'res_model': self._name,
+        'target': 'new',
+        'context': {'dialog_size': 'large'},
+    }</code></pre>
+    </div>
+    
+    <p>这些方法提供了删除模板前的确认对话框功能，防止意外删除重要模板。</p>
+</body>
+</html> 

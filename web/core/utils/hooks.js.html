@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo钩子函数模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo钩子函数模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>hooks.js</code>是Odoo 18前端框架中的一个核心工具模块，提供了一组自定义钩子函数，用于增强OWL（Odoo Web Library）组件的功能。这些钩子可以让开发者更轻松地实现组件中的常见需求，如自动聚焦元素、事件总线监听、服务访问等。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>钩子(Hooks)是现代前端框架中的一个重要概念，它允许开发者在组件生命周期中"挂钩"自定义逻辑，而无需继承或修改核心组件类。Odoo的<code>hooks.js</code>模块扩展了OWL的原生钩子，提供了一系列特定于Odoo应用的功能钩子。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>自动聚焦</strong>：提供<code>useAutofocus</code>钩子，自动聚焦DOM元素</li>
+        <li><strong>事件总线监听</strong>：提供<code>useBus</code>钩子，简化事件总线的使用</li>
+        <li><strong>服务访问</strong>：提供<code>useService</code>钩子，方便组件访问Odoo服务</li>
+        <li><strong>拼写检查控制</strong>：提供<code>useSpellCheck</code>钩子，优化拼写检查行为</li>
+        <li><strong>引用转发</strong>：提供<code>useChildRef</code>和<code>useForwardRefToParent</code>钩子，实现引用的转发</li>
+        <li><strong>对话框管理</strong>：提供<code>useOwnedDialogs</code>钩子，自动管理组件创建的对话框</li>
+        <li><strong>引用事件监听</strong>：提供<code>useRefListener</code>钩子，简化引用元素的事件监听</li>
+    </ol>
+    
+    <h2>钩子详解</h2>
+    
+    <h3>useAutofocus钩子</h3>
+    <p>自动聚焦指定的DOM元素，特别是在表单中需要用户输入的场景。</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef {{ readonly el: HTMLElement | null; }} Ref
+ */
+
+// -----------------------------------------------------------------------------
+// useAutofocus
+// -----------------------------------------------------------------------------
+
+/**
+ * Focus an element referenced by a t-ref="autofocus" in the active component
+ * as soon as it appears in the DOM and if it was not displayed before.
+ * If it is an input/textarea, set the selection at the end.
+ * @param {Object} [params]
+ * @param {string} [params.refName] override the ref name "autofocus"
+ * @param {boolean} [params.selectAll] if true, will select the entire text value.
+ * @param {boolean} [params.mobile] if true, will force autofocus on touch devices.
+ * @returns {Ref} the element reference
+ */
+export function useAutofocus({ refName, selectAll, mobile } = {}) {
+    const ref = useRef(refName || "autofocus");
+    const uiService = useService("ui");
+
+    // Prevent autofocus on touch devices to avoid the virtual keyboard from popping up unexpectedly
+    if (!mobile && hasTouch()) {
+        return ref;
+    }
+    // LEGACY
+    if (!mobile && isMobileOS()) {
+        return ref;
+    }
+    // LEGACY
+    useEffect(
+        (el) => {
+            if (el && (!uiService.activeElement || uiService.activeElement.contains(el))) {
+                el.focus();
+                if (["INPUT", "TEXTAREA"].includes(el.tagName) && el.type !== "number") {
+                    el.selectionEnd = el.value.length;
+                    el.selectionStart = selectAll ? 0 : el.value.length;
+                }
+            }
+        },
+        () => [ref.el]
+    );
+    return ref;
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>使用说明：</strong>在组件中使用<code>t-ref="autofocus"</code>标记要自动聚焦的元素，或通过<code>refName</code>参数指定自定义引用名称。
+    </div>
+    
+    <h3>useBus钩子</h3>
+    <p>简化事件总线的监听和清理过程，确保在组件卸载时正确移除监听器。</p>
+    
+    <div class="code-block">
+        <pre><code>// -----------------------------------------------------------------------------
+// useBus
+// -----------------------------------------------------------------------------
+
+/**
+ * Ensures a bus event listener is attached and cleared the proper way.
+ *
+ * @param {import("@odoo/owl").EventBus} bus
+ * @param {string} eventName
+ * @param {EventListener} callback
+ */
+export function useBus(bus, eventName, callback) {
+    const component = useComponent();
+    useEffect(
+        () => {
+            const listener = callback.bind(component);
+            bus.addEventListener(eventName, listener);
+            return () => bus.removeEventListener(eventName, listener);
+        },
+        () => []
+    );
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>使用场景：</strong>全局通信、组件间通信，特别是在非父子关系组件之间。
+    </div>
+    
+    <h3>useService钩子</h3>
+    <p>安全地获取Odoo服务，并在组件销毁后防止服务调用导致的错误。</p>
+    
+    <div class="code-block">
+        <pre><code>// In an object so that it can be patched in tests (prevent error on blocking RPCs after tests)
+export const useServiceProtectMethodHandling = {
+    fn() {
+        return this.original();
+    },
+    mocked() {
+        // Keep them unresolved so that no crash in test due to triggered RPCs by services
+        return new Promise(() => {});
+    },
+    original() {
+        return Promise.reject(new Error("Component is destroyed"));
+    },
+};</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>设计考虑：</strong>这个对象被设计为可在测试中被打补丁(patched)，以防止在测试完成后仍有未完成的RPC调用导致错误。
+    </div>
+    
+    <div class="code-block">
+        <pre><code>function _protectMethod(component, fn) {
+    return function (...args) {
+        if (status(component) === "destroyed") {
+            return useServiceProtectMethodHandling.fn();
+        }
+
+        const prom = Promise.resolve(fn.call(this, ...args));
+        const protectedProm = prom.then((result) =>
+            status(component) === "destroyed" ? new Promise(() => {}) : result
+        );
+        return Object.assign(protectedProm, {
+            abort: prom.abort,
+            cancel: prom.cancel,
+        });
+    };
+}
+
+export const SERVICES_METADATA = {};
+
+/**
+ * Import a service into a component
+ *
+ * @template {keyof import("services").ServiceFactories} K
+ * @param {K} serviceName
+ * @returns {import("services").ServiceFactories[K]}
+ */
+export function useService(serviceName) {
+    const component = useComponent();
+    const { services } = component.env;
+    if (!(serviceName in services)) {
+        throw new Error(`Service ${serviceName} is not available`);
+    }
+    const service = services[serviceName];
+    if (serviceName in SERVICES_METADATA) {
+        if (service instanceof Function) {
+            return _protectMethod(component, service);
+        } else {
+            const methods = SERVICES_METADATA[serviceName];
+            const result = Object.create(service);
+            for (const method of methods) {
+                result[method] = _protectMethod(component, service[method]);
+            }
+            return result;
+        }
+    }
+    return service;
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>核心功能：</strong>使组件能够安全地访问Odoo的服务层，如HTTP服务、通知服务、对话框服务等。
+    </div>
+    
+    <h3>useSpellCheck钩子</h3>
+    <p>优化输入元素的拼写检查行为，使其只在获得焦点时启用拼写检查。</p>
+    
+    <div class="code-block">
+        <pre><code>export function useSpellCheck({ refName } = {}) {
+    const elements = [];
+    const ref = useRef(refName || "spellcheck");
+    function toggleSpellcheck(ev) {
+        ev.target.spellcheck = document.activeElement === ev.target;
+    }
+    useEffect(
+        (el) => {
+            if (el) {
+                const inputs = ["INPUT", "TEXTAREA"].includes(el.nodeName) || el.isContentEditable
+                    ? [el]
+                    : el.querySelectorAll("input, textarea, [contenteditable=true]");
+                inputs.forEach((input) => {
+                    if (input.spellcheck !== false) {
+                        elements.push(input);
+                        input.addEventListener("focus", toggleSpellcheck);
+                        input.addEventListener("blur", toggleSpellcheck);
+                    }
+                });
+            }
+            return () => {
+                elements.forEach((input) => {
+                    input.removeEventListener("focus", toggleSpellcheck);
+                    input.removeEventListener("blur", toggleSpellcheck);
+                });
+            };
+        },
+        () => [ref.el]
+    );
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>使用价值：</strong>避免输入元素在非焦点状态下显示拼写错误的波浪线，提升UI美观度。
+    </div>
+    
+    <h3>引用转发钩子</h3>
+    <p>包括<code>useChildRef</code>和<code>useForwardRefToParent</code>，用于在组件之间转发DOM引用。</p>
+    
+    <div class="code-block">
+        <pre><code>export function useChildRef() {
+    let defined = false;
+    let value;
+    return function ref(v) {
+        value = v;
+        if (defined) {
+            return;
+        }
+        Object.defineProperty(ref, "el", {
+            get() {
+                return value.el;
+            },
+        });
+        defined = true;
+    };
+}
+
+export function useForwardRefToParent(refName) {
+    const component = useComponent();
+    const ref = useRef(refName);
+    if (component.props[refName]) {
+        component.props[refName](ref);
+    }
+    return ref;
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>应用场景：</strong>复合组件中，父组件需要直接访问子组件内部DOM元素的情况。
+    </div>
+    
+    <h3>useOwnedDialogs钩子</h3>
+    <p>自动管理组件创建的对话框，确保在组件卸载时关闭所有对话框。</p>
+    
+    <div class="code-block">
+        <pre><code>export function useOwnedDialogs() {
+    const dialogService = useService("dialog");
+    const cbs = [];
+    onWillUnmount(() => {
+        cbs.forEach((cb) => cb());
+    });
+    const addDialog = (...args) => {
+        const close = dialogService.add(...args);
+        cbs.push(close);
+        return close;
+    };
+    return addDialog;
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>使用价值：</strong>防止组件卸载后对话框仍然显示，导致UI混乱或内存泄漏。
+    </div>
+    
+    <h3>useRefListener钩子</h3>
+    <p>简化对引用元素添加事件监听器的过程，确保监听器的正确清理。</p>
+    
+    <div class="code-block">
+        <pre><code>export function useRefListener(ref, ...listener) {
+    useEffect(
+        (el) => {
+            el?.addEventListener(...listener);
+            return () => el?.removeEventListener(...listener);
+        },
+        () => [ref.el]
+    );
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>使用场景：</strong>当组件需要为引用的DOM元素添加多个事件监听器时，可以避免重复的监听器管理代码。
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>useAutofocus示例</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useAutofocus } from "@web/core/utils/hooks";
+
+class SearchInput extends Component {
+    setup() {
+        // 使用自动聚焦钩子
+        this.inputRef = useAutofocus({ selectAll: true });
+    }
+}
+
+SearchInput.template = xml`
+<div class="search-container">
+    <input type="text" t-ref="autofocus" placeholder="搜索..." />
+    <button class="search-button">搜索</button>
+</div>
+`;</code></pre>
+    </div>
+    
+    <h3>useBus示例</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useBus } from "@web/core/utils/hooks";
+import { EventBus } from "@odoo/owl";
+
+// 全局事件总线
+export const globalBus = new EventBus();
+
+class NotificationListener extends Component {
+    setup() {
+        // 监听全局通知事件
+        useBus(globalBus, "notification", this.handleNotification);
+    }
+    
+    handleNotification(event) {
+        console.log("收到通知:", event.detail);
+        // 处理通知...
+    }
+}
+
+// 在另一个组件中发送通知
+function sendGlobalNotification() {
+    globalBus.trigger("notification", { message: "重要通知", type: "warning" });
+}</code></pre>
+    </div>
+    
+    <h3>useService示例</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class DataLoader extends Component {
+    setup() {
+        this.orm = useService("orm");
+        this.notification = useService("notification");
+        this.state = useState({ data: null, loading: false });
+    }
+    
+    async loadData() {
+        this.state.loading = true;
+        try {
+            // 使用ORM服务加载数据
+            this.state.data = await this.orm.searchRead(
+                "res.partner", 
+                [["is_company", "=", true]], 
+                ["name", "email", "phone"]
+            );
+        } catch (error) {
+            // 使用通知服务显示错误
+            this.notification.add("数据加载失败", { type: "danger" });
+            console.error(error);
+        } finally {
+            this.state.loading = false;
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>组合使用多个钩子</h3>
+    
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService, useAutofocus, useBus, useOwnedDialogs } from "@web/core/utils/hooks";
+
+class ComplexForm extends Component {
+    setup() {
+        // 获取服务
+        this.orm = useService("orm");
+        this.notification = useService("notification");
+        
+        // 自动聚焦表单第一个输入框
+        this.nameInput = useAutofocus();
+        
+        // 监听事件总线
+        useBus(this.env.bus, "form-reset", this.resetForm);
+        
+        // 对话框管理
+        this.addDialog = useOwnedDialogs();
+        
+        this.state = useState({
+            name: "",
+            email: "",
+            isSubmitting: false
+        });
+    }
+    
+    resetForm() {
+        this.state.name = "";
+        this.state.email = "";
+    }
+    
+    showConfirmDialog() {
+        this.addDialog(ConfirmDialog, {
+            title: "确认提交",
+            body: "您确定要提交这些信息吗？",
+            confirm: () => this.submitForm()
+        });
+    }
+    
+    async submitForm() {
+        this.state.isSubmitting = true;
+        try {
+            await this.orm.create("res.partner", [{
+                name: this.state.name,
+                email: this.state.email
+            }]);
+            this.notification.add("提交成功", { type: "success" });
+            this.resetForm();
+        } catch (error) {
+            this.notification.add("提交失败", { type: "danger" });
+        } finally {
+            this.state.isSubmitting = false;
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li><strong>合理使用钩子</strong>：选择最适合具体需求的钩子，不要过度使用</li>
+        <li><strong>遵循钩子规则</strong>：只在组件的顶层调用钩子，不要在条件语句或循环中使用</li>
+        <li><strong>组合使用</strong>：多个钩子可以组合使用，构建复杂的功能</li>
+        <li><strong>考虑性能影响</strong>：某些钩子可能对性能有影响，特别是在大量组件中使用时</li>
+    </ul>
+    
+    <div class="note">
+        <strong>技巧：</strong>创建自定义钩子可以进一步封装和重用常见的组件逻辑。例如，可以创建一个组合了<code>useService</code>和状态管理的数据加载钩子。
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，<code>hooks.js</code>模块有以下亮点：</p>
+    <ul>
+        <li>更好的类型注解，提供更好的IDE支持</li>
+        <li>与OWL框架的紧密集成，利用OWL的生命周期钩子</li>
+        <li>服务访问的安全保护机制，避免组件销毁后的调用错误</li>
+        <li>更多的辅助钩子，解决特定的UI交互需求</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p><code>hooks.js</code>模块是Odoo 18前端框架中的重要工具集，它提供了一系列实用的钩子函数，简化了常见的组件开发任务：</p>
+    <ul>
+        <li>通过<code>useAutofocus</code>实现自动聚焦</li>
+        <li>通过<code>useBus</code>简化事件总线使用</li>
+        <li>通过<code>useService</code>安全地访问服务</li>
+        <li>通过<code>useSpellCheck</code>优化拼写检查行为</li>
+        <li>通过<code>useChildRef</code>和<code>useForwardRefToParent</code>实现引用转发</li>
+        <li>通过<code>useOwnedDialogs</code>管理组件对话框</li>
+        <li>通过<code>useRefListener</code>简化事件监听</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发建议：</strong>熟练掌握这些钩子可以显著提高Odoo前端开发效率，减少重复代码，并确保组件行为的一致性和可靠性。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo效果服务模块解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo效果服务系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>effect_service.js</code>是Odoo 18框架中的一个核心模块，提供了一套用于管理和显示用户界面动态效果的服务。这个服务主要用于在用户完成特定操作后（如保存记录、完成任务等）显示视觉反馈，增强用户体验。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>效果服务提供了一种统一的方式来管理UI效果，使开发者能够轻松地在应用中添加视觉反馈，而无需关心具体的实现细节。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>统一效果注册表</strong>：通过registry机制管理所有可用的效果</li>
+        <li><strong>彩虹人效果</strong>：内置的主要效果，用于显示祝贺或成功信息</li>
+        <li><strong>效果服务</strong>：提供添加和显示各种效果的API</li>
+        <li><strong>自动降级处理</strong>：当用户禁用特效时，会自动降级为普通通知</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>effect_service.js模块主要由两部分组成：彩虹人效果实现和效果服务定义。</p>
+    
+    <h3>效果注册表</h3>
+    <div class="code-block">
+        <pre><code>const effectRegistry = registry.category("effects");</code></pre>
+    </div>
+    <p>创建一个专门用于注册各种UI效果的注册表，这样可以轻松添加新的效果类型。</p>
+    
+    <h3>彩虹人效果</h3>
+    <div class="code-block">
+        <pre><code>function rainbowMan(env, params = {}) {
+    let message = params.message;
+    if (message instanceof Element) {
+        console.log(
+            "Providing an HTML element to an effect is deprecated. Note that all event handlers will be lost."
+        );
+        message = message.outerHTML;
+    } else if (!message) {
+        message = _t("Well Done!");
+    }
+    if (user.showEffect) {
+        /** @type {import("./rainbow_man").RainbowManProps} */
+        const props = {
+            imgUrl: params.img_url || "/web/static/img/smile.svg",
+            fadeout: params.fadeout || "medium",
+            message,
+            Component: params.Component,
+            props: params.props,
+        };
+        return { Component: RainbowMan, props };
+    }
+    env.services.notification.add(message);
+}</code></pre>
+    </div>
+    
+    <h3>参数详解</h3>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>默认值</th>
+        </tr>
+        <tr>
+            <td>message</td>
+            <td>string/Element</td>
+            <td>要显示的消息内容</td>
+            <td>"Well Done!"</td>
+        </tr>
+        <tr>
+            <td>img_url</td>
+            <td>string</td>
+            <td>要显示的图片URL</td>
+            <td>"/web/static/img/smile.svg"</td>
+        </tr>
+        <tr>
+            <td>fadeout</td>
+            <td>string</td>
+            <td>消失效果的速度（"slow"/"medium"/"fast"/"no"）</td>
+            <td>"medium"</td>
+        </tr>
+        <tr>
+            <td>Component</td>
+            <td>Component</td>
+            <td>要在彩虹人中显示的自定义组件</td>
+            <td>无</td>
+        </tr>
+        <tr>
+            <td>props</td>
+            <td>Object</td>
+            <td>传递给自定义组件的属性</td>
+            <td>无</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>注意：</strong>当<code>user.showEffect</code>为<code>false</code>时，彩虹人效果会被降级为普通通知。
+    </div>
+    
+    <h3>效果服务定义</h3>
+    <div class="code-block">
+        <pre><code>export const effectService = {
+    dependencies: ["overlay"],
+    start(env, { overlay }) {
+        /**
+         * @param {Object} [params] various params depending on the type of effect
+         * @param {string} [params.type="rainbow_man"] the effect to display
+         */
+        const add = (params = {}) => {
+            const type = params.type || "rainbow_man";
+            const effect = effectRegistry.get(type);
+            const { Component, props } = effect(env, params) || {};
+            if (Component) {
+                const remove = overlay.add(Component, {
+                    ...props,
+                    close: () => remove(),
+                });
+            }
+        };
+
+        return { add };
+    },
+};</code></pre>
+    </div>
+    
+    <p>effectService定义了一个Odoo服务，它：</p>
+    <ul>
+        <li>依赖于overlay服务（用于在UI上添加浮层）</li>
+        <li>提供add方法来添加各种效果</li>
+        <li>默认使用"rainbow_man"效果类型</li>
+        <li>通过effectRegistry获取对应的效果实现</li>
+        <li>使用overlay服务显示效果组件</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：基本使用</h3>
+    <div class="code-block">
+        <pre><code>// 在某个动作成功后显示彩虹人效果
+env.services.effect.add({
+    message: "恭喜！您已成功创建了新记录！",
+});</code></pre>
+    </div>
+    
+    <h3>示例2：自定义彩虹人图片和消失时间</h3>
+    <div class="code-block">
+        <pre><code>// 使用自定义图片和较长的显示时间
+env.services.effect.add({
+    message: "太棒了！销售订单已确认！",
+    img_url: "/my_module/static/img/celebrate.png",
+    fadeout: "slow",
+});</code></pre>
+    </div>
+    
+    <h3>示例3：使用自定义组件</h3>
+    <div class="code-block">
+        <pre><code>// 定义一个自定义组件
+class MyCustomCelebration extends Component {
+    static template = "my_module.CustomCelebration";
+    static props = ["data"];
+    
+    setup() {
+        // 组件逻辑
+    }
+}
+
+// 在效果中使用该组件
+env.services.effect.add({
+    Component: MyCustomCelebration,
+    props: { data: someData },
+});</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>效果服务的工作流程可以概括为：</p>
+    
+    <div class="flow-diagram">
+        <ol>
+            <li>调用<code>effect.add()</code>方法，传入参数</li>
+            <li>服务确定要使用的效果类型（默认为"rainbow_man"）</li>
+            <li>从effectRegistry中获取对应的效果处理函数</li>
+            <li>调用效果处理函数，获取组件和属性</li>
+            <li>使用overlay服务在UI上显示效果组件</li>
+            <li>根据fadeout参数，效果会在适当的时间后自动消失</li>
+        </ol>
+    </div>
+    
+    <h2>注册自定义效果</h2>
+    <p>如果您想创建自己的效果类型，可以按以下方式注册：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 定义效果处理函数
+function myCustomEffect(env, params = {}) {
+    // 处理参数
+    const message = params.message || "Custom Effect";
+    
+    // 如果用户允许显示效果
+    if (user.showEffect) {
+        // 返回要显示的组件和属性
+        return {
+            Component: MyEffectComponent,
+            props: { message, /* 其他属性 */ },
+        };
+    }
+    
+    // 降级处理
+    env.services.notification.add(message);
+}
+
+// 注册效果
+registry.category("effects").add("my_custom_effect", myCustomEffect);</code></pre>
+    </div>
+    
+    <p>然后，您可以使用自定义效果：</p>
+    
+    <div class="code-block">
+        <pre><code>env.services.effect.add({
+    type: "my_custom_effect",
+    message: "使用自定义效果！",
+    // 其他特定于您效果的参数
+});</code></pre>
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>使用效果服务时，应考虑以下性能因素：</p>
+    <ul>
+        <li>效果是视觉元素，会占用一定的渲染资源</li>
+        <li>在密集操作场景中应谨慎使用，避免频繁触发</li>
+        <li>大型自定义组件可能会影响性能，应保持组件简洁</li>
+        <li>系统已通过user.showEffect提供禁用效果的选项，尊重用户的选择</li>
+    </ul>
+    
+    <h2>与其他模块的交互</h2>
+    <p>效果服务主要与以下模块交互：</p>
+    <ul>
+        <li><strong>Overlay服务</strong>：用于在UI上显示效果组件</li>
+        <li><strong>通知服务</strong>：当效果被禁用时，作为降级方案</li>
+        <li><strong>用户设置</strong>：通过user.showEffect确定是否显示效果</li>
+        <li><strong>RainbowMan组件</strong>：提供默认的彩虹人效果实现</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，效果服务相比之前的版本有以下改进：</p>
+    <ul>
+        <li>更好的组件集成，支持在彩虹人中使用自定义组件</li>
+        <li>更灵活的参数配置，提供多种自定义选项</li>
+        <li>通过注册表机制支持扩展，允许添加新的效果类型</li>
+        <li>更好的降级处理，确保在禁用效果时仍能提供适当的反馈</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>提示：</strong>请注意，在Odoo 18中，使用HTML元素作为message参数的方式已被标记为过时，将在未来版本中移除。请使用自定义Component参数代替。
+    </div>
+    
+    <h2>小结</h2>
+    <p>效果服务是Odoo中提升用户体验的重要工具，它：</p>
+    <ul>
+        <li>提供了统一的API来添加各种视觉效果</li>
+        <li>默认包含了彩虹人效果，用于庆祝或表示成功</li>
+        <li>支持扩展，可以添加自定义效果类型</li>
+        <li>考虑了用户偏好，提供了禁用效果的选项</li>
+        <li>优先考虑了开发体验，使添加效果变得简单直观</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>使用效果服务来庆祝用户完成的重要操作，如完成复杂流程、达成里程碑等，但避免过度使用，以免造成视觉疲劳。
+    </div>
+</body>
+</html> 

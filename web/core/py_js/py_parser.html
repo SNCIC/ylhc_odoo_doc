@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python语法解析器模块</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python语法解析器模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py_parser.js</code>是Odoo前端框架中的重要模块，它负责将Python表达式的词法单元(tokens)转换为抽象语法树(AST)。该模块实现了一个Pratt解析器，能够处理各种Python表达式的语法结构。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>语法分析是编译过程中的关键步骤，将线性的词法单元序列转换为层次化的语法结构。py_parser.js通过实现Pratt解析技术，能够高效地处理Python表达式的各种语法特性，包括运算符优先级和结合性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>语法分析</strong>：将词法单元序列转换为抽象语法树</li>
+        <li><strong>操作符优先级处理</strong>：实现Python操作符的正确优先级和结合性</li>
+        <li><strong>表达式结构识别</strong>：识别和处理各种Python表达式结构</li>
+        <li><strong>函数调用参数解析</strong>：处理位置参数和关键字参数</li>
+        <li><strong>错误检测和报告</strong>：检测语法错误并提供有意义的错误信息</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>py_parser.js基于Pratt解析技术，针对不同类型的词法单元和操作符实现了专门的处理逻辑：</p>
+    
+    <h3>核心数据结构：AST</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef {{type: 0, value: number}} ASTNumber
+ * @typedef {{type: 1, value: string}} ASTString
+ * @typedef {{type: 2, value: boolean}} ASTBoolean
+ * @typedef {{type: 3}} ASTNone
+ * @typedef {{type: 4, value: AST[]}} ASTList
+ * @typedef {{type: 5, value: string}} ASTName
+ * @typedef {{type: 6, op: string, right: AST}} ASTUnaryOperator
+ * @typedef {{type: 7, op: string, left: AST, right: AST}} ASTBinaryOperator
+ * @typedef {{type: 8, fn: AST, args: AST[], kwargs: {[key: string]: AST}}} ASTFunctionCall
+ * @typedef {{type: 9, name: ASTName, value: AST}} ASTAssignment
+ * @typedef {{type: 10, value: AST[]}} ASTTuple
+ * @typedef {{type: 11, value: { [key: string]: AST}}} ASTDictionary
+ * @typedef {{type: 12, target: AST, key: AST}} ASTLookup
+ * @typedef {{type: 13, condition: AST, ifTrue: AST, ifFalse: AST}} ASTIf
+ * @typedef {{type: 14, op: string, left: AST, right: AST}} ASTBooleanOperator
+ * @typedef {{type: 15, obj: AST, key: string}} ASTObjLookup
+ */</code></pre>
+    </div>
+    
+    <h3>操作符优先级</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Compute the "binding power" of a symbol
+ *
+ * @param {string} symbol
+ * @returns {number}
+ */
+export function bp(symbol) {
+    switch (symbol) {
+        case "=":
+            return 10;
+        case "if":
+            return 20;
+        case "in":
+        case "not in":
+        case "is":
+        case "is not":
+        case "<":
+        case "<=":
+        case ">":
+        case ">=":
+        case "<>":
+        case "==":
+        case "!=":
+            return 60;
+        case "or":
+            return 30;
+        case "and":
+            return 40;
+        case "not":
+            return 50;
+        case "|":
+            return 70;
+        case "^":
+            return 80;
+        case "&":
+            return 90;
+        case "<<":
+        case ">>":
+            return 100;
+        case "+":
+        case "-":
+            return 110;
+        case "*":
+        case "/":
+        case "//":
+        case "%":
+            return 120;
+        case "**":
+            return 140;
+        case ".":
+        case "(":
+        case "[":
+            return 150;
+    }
+    return 0;
+}</code></pre>
+    </div>
+    
+    <h3>前缀表达式解析</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {Token} current
+ * @param {Token[]} tokens
+ * @returns {AST}
+ */
+function parsePrefix(current, tokens) {
+    switch (current.type) {
+        case 0 /* Number */:
+            return { type: 0 /* Number */, value: current.value };
+        case 1 /* String */:
+            return { type: 1 /* String */, value: current.value };
+        case 4 /* Constant */:
+            if (current.value === "None") {
+                return { type: 3 /* None */ };
+            } else {
+                return { type: 2 /* Boolean */, value: current.value === "True" };
+            }
+        case 3 /* Name */:
+            return { type: 5 /* Name */, value: current.value };
+        case 2 /* Symbol */:
+            switch (current.value) {
+                case "-":
+                case "+":
+                case "~":
+                    return {
+                        type: 6 /* UnaryOperator */,
+                        op: current.value,
+                        right: _parse(tokens, 130),
+                    };
+                case "not":
+                    return {
+                        type: 6 /* UnaryOperator */,
+                        op: current.value,
+                        right: _parse(tokens, 50),
+                    };
+                // 处理其他符号...
+            }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>中缀表达式解析</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {AST} left
+ * @param {Token} current
+ * @param {Token[]} tokens
+ * @returns {AST}
+ */
+function parseInfix(left, current, tokens) {
+    const symbol = current.value;
+    
+    // 函数调用
+    if (symbol === "(") {
+        // 解析函数参数...
+        return {
+            type: 8 /* FunctionCall */,
+            fn: left,
+            args,
+            kwargs,
+        };
+    }
+    
+    // 属性访问
+    if (symbol === ".") {
+        if (tokens[0].type !== 3 /* Name */) {
+            throw new ParserError("Expected a name");
+        }
+        const key = tokens.shift().value;
+        return {
+            type: 15 /* ObjLookup */,
+            obj: left,
+            key,
+        };
+    }
+    
+    // 索引访问
+    if (symbol === "[") {
+        // 解析索引...
+        return {
+            type: 12 /* Lookup */,
+            target: left,
+            key,
+        };
+    }
+    
+    // 条件表达式
+    if (symbol === "if") {
+        // 解析条件表达式...
+        return {
+            type: 13 /* If */,
+            condition,
+            ifTrue: left,
+            ifFalse,
+        };
+    }
+    
+    // 普通二元操作符
+    const right = _parse(tokens, bindingPower(current));
+    if (symbol === "and" || symbol === "or") {
+        return {
+            type: 14 /* BooleanOperator */,
+            op: symbol,
+            left,
+            right,
+        };
+    }
+    return {
+        type: 7 /* BinaryOperator */,
+        op: symbol,
+        left,
+        right,
+    };
+}</code></pre>
+    </div>
+    
+    <h3>主解析函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Parses an array of tokens into an AST
+ * @param {Token[]} tokens
+ * @returns {AST}
+ */
+export function parse(tokens) {
+    const result = _parse([...tokens]);
+    if (tokens.length) {
+        throw new ParserError("Parsing error: unexpected tokens");
+    }
+    return result;
+}
+
+/**
+ * Internal parse function with binding power (precedence)
+ * @param {Token[]} tokens
+ * @param {number} [bp=0] - binding power
+ * @returns {AST}
+ */
+function _parse(tokens, bp = 0) {
+    if (!tokens.length) {
+        throw new ParserError("Parsing error: unexpected end of input");
+    }
+    
+    // 解析前缀表达式
+    const current = tokens.shift();
+    let left = parsePrefix(current, tokens);
+    
+    // 解析中缀表达式，直到遇到优先级较低的操作符
+    while (tokens.length && bp < bindingPower(tokens[0])) {
+        const current = tokens.shift();
+        left = parseInfix(left, current, tokens);
+    }
+    
+    return left;
+}</code></pre>
+    </div>
+    
+    <h3>参数解析函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Parses function arguments according to specifications
+ * @param {any[]} args - The arguments to parse
+ * @param {Object} spec - The argument specification
+ * @returns {Object} - The parsed arguments
+ */
+export function parseArgs(args, spec) {
+    const result = {};
+    let positional = [];
+    
+    // 设置默认值
+    if (spec.defaults) {
+        for (const key in spec.defaults) {
+            result[key] = spec.defaults[key];
+        }
+    }
+    
+    // 处理位置参数和关键字参数
+    if (args.length === 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0])) {
+        // 单个对象参数，作为关键字参数处理
+        const kwargs = args[0];
+        for (const key in kwargs) {
+            if (spec.args && spec.args.includes(key)) {
+                result[key] = kwargs[key];
+            } else if (!spec.kwargs) {
+                throw new Error(`Unknown parameter: ${key}`);
+            }
+        }
+    } else {
+        // 多个参数，按位置处理
+        positional = args;
+    }
+    
+    // 将位置参数映射到命名参数
+    if (spec.args) {
+        for (let i = 0; i < Math.min(positional.length, spec.args.length); i++) {
+            result[spec.args[i]] = positional[i];
+        }
+    }
+    
+    // 检查必需参数
+    if (spec.required) {
+        for (const req of spec.required) {
+            if (!(req in result)) {
+                throw new Error(`Missing required parameter: ${req}`);
+            }
+        }
+    }
+    
+    return result;
+}</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>py_parser.js模块使用Pratt解析技术，这是一种自顶向下的操作符优先级解析方法，特别适合处理复杂的表达式语法：</p>
+    
+    <div class="flow-diagram">
+        <h3>解析流程</h3>
+        <ol>
+            <li><strong>初始化</strong>：准备词法单元序列和表达式当前的绑定力（优先级）</li>
+            <li><strong>前缀解析</strong>：处理表达式的第一个词法单元，如常量、变量、前缀操作符等</li>
+            <li><strong>中缀解析</strong>：根据运算符优先级规则，递归解析表达式的其余部分</li>
+            <li><strong>构建AST</strong>：将解析结果组织成抽象语法树节点，表示表达式的层次结构</li>
+            <li><strong>错误处理</strong>：检测语法错误并提供有意义的错误信息</li>
+        </ol>
+    </div>
+    
+    <h3>优先级和结合性</h3>
+    <p>解析器通过"绑定力"(binding power)机制实现操作符优先级和结合性：</p>
+    <ul>
+        <li>每个操作符都有一个绑定力值，表示其优先级</li>
+        <li>绑定力越高，操作符优先级越高，越先被计算</li>
+        <li>相同绑定力的操作符通常从左到右结合</li>
+        <li>特殊情况（如指数运算符**）可以指定右结合性</li>
+    </ul>
+    
+    <div class="note">
+        <strong>绑定力示例：</strong>在表达式<code>a + b * c</code>中，<code>*</code>的绑定力(120)高于<code>+</code>的绑定力(110)，因此<code>b * c</code>会先被解析为一个整体，然后再与<code>a</code>相加。
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：解析简单表达式</h3>
+    <div class="code-block">
+        <pre><code>import { parse } from "@web/core/py_js/py_parser";
+import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 解析一个简单的算术表达式
+const tokens = tokenize("1 + 2 * 3");
+const ast = parse(tokens);
+
+console.log(JSON.stringify(ast, null, 2));
+/* 输出:
+{
+  "type": 7,
+  "op": "+",
+  "left": {
+    "type": 0,
+    "value": 1
+  },
+  "right": {
+    "type": 7,
+    "op": "*",
+    "left": {
+      "type": 0,
+      "value": 2
+    },
+    "right": {
+      "type": 0,
+      "value": 3
+    }
+  }
+}
+*/</code></pre>
+    </div>
+    
+    <h3>示例2：解析嵌套表达式</h3>
+    <div class="code-block">
+        <pre><code>import { parse } from "@web/core/py_js/py_parser";
+import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 解析一个条件表达式
+const tokens = tokenize("x + 1 if x > 0 else x - 1");
+const ast = parse(tokens);
+
+console.log(JSON.stringify(ast, null, 2));
+/* 输出:
+{
+  "type": 13,
+  "condition": {
+    "type": 7,
+    "op": ">",
+    "left": {
+      "type": 5,
+      "value": "x"
+    },
+    "right": {
+      "type": 0,
+      "value": 0
+    }
+  },
+  "ifTrue": {
+    "type": 7,
+    "op": "+",
+    "left": {
+      "type": 5,
+      "value": "x"
+    },
+    "right": {
+      "type": 0,
+      "value": 1
+    }
+  },
+  "ifFalse": {
+    "type": 7,
+    "op": "-",
+    "left": {
+      "type": 5,
+      "value": "x"
+    },
+    "right": {
+      "type": 0,
+      "value": 1
+    }
+  }
+}
+*/</code></pre>
+    </div>
+    
+    <h3>示例3：解析函数调用</h3>
+    <div class="code-block">
+        <pre><code>import { parse } from "@web/core/py_js/py_parser";
+import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 解析函数调用表达式
+const tokens = tokenize("filter(lambda x: x > 0, [-1, 0, 1, 2])");
+const ast = parse(tokens);
+
+console.log(JSON.stringify(ast, null, 2));
+/* 输出:
+{
+  "type": 8,
+  "fn": {
+    "type": 5,
+    "value": "filter"
+  },
+  "args": [
+    {
+      "type": ...  // lambda表达式AST
+    },
+    {
+      "type": 4,
+      "value": [
+        {
+          "type": 0,
+          "value": -1
+        },
+        {
+          "type": 0,
+          "value": 0
+        },
+        {
+          "type": 0,
+          "value": 1
+        },
+        {
+          "type": 0,
+          "value": 2
+        }
+      ]
+    }
+  ],
+  "kwargs": {}
+}
+*/</code></pre>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>py_parser.js模块与以下模块密切相关：</p>
+    <ul>
+        <li><code>py_tokenizer.js</code> - 提供词法分析，生成供解析器处理的tokens</li>
+        <li><code>py_interpreter.js</code> - 使用解析器生成的AST进行表达式求值</li>
+        <li><code>py.js</code> - 提供高级接口，整合tokenizer和parser功能</li>
+    </ul>
+    
+    <div class="note">
+        <strong>协作流程：</strong>在完整的Python表达式处理流程中，py_parser.js承担中间环节的角色：
+        <ol>
+            <li><code>py_tokenizer.js</code>将字符串转换为词法单元</li>
+            <li><code>py_parser.js</code>将词法单元转换为抽象语法树</li>
+            <li><code>py_interpreter.js</code>遍历抽象语法树并执行表达式</li>
+        </ol>
+    </div>
+    
+    <h2>AST节点类型</h2>
+    <p>py_parser.js生成的AST由多种节点类型组成，每种类型表示不同的语法结构：</p>
+    
+    <table class="ast-types">
+        <tr>
+            <th>类型ID</th>
+            <th>类型名称</th>
+            <th>描述</th>
+            <th>属性</th>
+        </tr>
+        <tr>
+            <td>0</td>
+            <td>Number</td>
+            <td>数字字面量</td>
+            <td>value: number</td>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>String</td>
+            <td>字符串字面量</td>
+            <td>value: string</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>Boolean</td>
+            <td>布尔字面量</td>
+            <td>value: boolean</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>None</td>
+            <td>Python None值</td>
+            <td>无</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>List</td>
+            <td>列表字面量</td>
+            <td>value: AST[]</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td>Name</td>
+            <td>标识符/变量名</td>
+            <td>value: string</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td>UnaryOperator</td>
+            <td>一元操作符</td>
+            <td>op: string, right: AST</td>
+        </tr>
+        <tr>
+            <td>7</td>
+            <td>BinaryOperator</td>
+            <td>二元操作符</td>
+            <td>op: string, left: AST, right: AST</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td>FunctionCall</td>
+            <td>函数调用</td>
+            <td>fn: AST, args: AST[], kwargs: Object</td>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Tuple</td>
+            <td>元组字面量</td>
+            <td>value: AST[]</td>
+        </tr>
+        <tr>
+            <td>11</td>
+            <td>Dictionary</td>
+            <td>字典字面量</td>
+            <td>value: Object</td>
+        </tr>
+        <tr>
+            <td>12</td>
+            <td>Lookup</td>
+            <td>索引访问</td>
+            <td>target: AST, key: AST</td>
+        </tr>
+        <tr>
+            <td>13</td>
+            <td>If</td>
+            <td>条件表达式</td>
+            <td>condition: AST, ifTrue: AST, ifFalse: AST</td>
+        </tr>
+        <tr>
+            <td>14</td>
+            <td>BooleanOperator</td>
+            <td>布尔操作符</td>
+            <td>op: string, left: AST, right: AST</td>
+        </tr>
+        <tr>
+            <td>15</td>
+            <td>ObjLookup</td>
+            <td>属性访问</td>
+            <td>obj: AST, key: string</td>
+        </tr>
+    </table>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用py_parser.js模块时需要注意以下几点：
+        <ul>
+            <li>解析器不支持完整的Python语法，主要针对表达式子集</li>
+            <li>不支持复杂语句，如def、class、try-except等</li>
+            <li>解析复杂表达式可能影响性能，应当避免在性能敏感的代码中处理过于复杂的表达式</li>
+            <li>解析错误会抛出ParserError异常，应当适当处理这些异常</li>
+            <li>解析器输出的AST结构与标准Python AST不同，设计专门适配Odoo前端环境</li>
+        </ul>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>直接使用py.js提供的高级接口，而不是直接调用parser</li>
+        <li>在处理用户输入的表达式时，增加适当的错误处理</li>
+        <li>复杂表达式可考虑在服务器端预处理或简化</li>
+        <li>如需调试表达式解析问题，可使用formatAST函数将AST转回可读的字符串</li>
+        <li>自定义解析逻辑时，参考现有的parsePrefix和parseInfix函数的实现模式</li>
+    </ul>
+    
+    <h2>支持的Python语法特性</h2>
+    <table>
+        <tr>
+            <th>类别</th>
+            <th>支持的特性</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>字面量</td>
+            <td>数字、字符串、布尔值、None、列表、字典、元组</td>
+            <td>42, "text", True, None, [1,2], {"a":1}, (1,2)</td>
+        </tr>
+        <tr>
+            <td>操作符</td>
+            <td>算术、比较、逻辑、位运算、成员检测</td>
+            <td>+, -, *, /, %, **, &lt;, &gt;, ==, and, or, not, in</td>
+        </tr>
+        <tr>
+            <td>表达式</td>
+            <td>变量、属性访问、索引访问、函数调用、条件表达式</td>
+            <td>x.name, obj["key"], func(x), x if cond else y</td>
+        </tr>
+        <tr>
+            <td>有限支持</td>
+            <td>lambda表达式、列表推导</td>
+            <td>lambda x: x*2, [x for x in list if x&gt;0]</td>
+        </tr>
+        <tr>
+            <td>不支持</td>
+            <td>语句、类定义、异常处理、导入、装饰器等</td>
+            <td>def, class, try-except, import, @decorator</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>py_parser.js模块是Odoo前端框架中的关键组件，它提供了：</p>
+    <ul>
+        <li>高效的Python表达式语法分析能力</li>
+        <li>正确处理操作符优先级和结合性</li>
+        <li>生成结构化的抽象语法树</li>
+        <li>支持Odoo系统中常用的Python表达式特性</li>
+        <li>与其他py_js模块无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发者建议：</strong>理解py_parser.js的工作原理和AST结构，对于调试和扩展Odoo前端的Python表达式处理能力非常有帮助。在需要设计新的表达式处理功能时，可以参考此模块的实现方式。
+    </div>
+</body>
+</html> 

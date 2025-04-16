@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 邮件计划消息模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 邮件计划消息模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_scheduled_message.py</code>是Odoo 18中的一个重要模块，它提供了在未来特定时间发送邮件消息的功能。这个模块允许用户提前撰写消息，并指定一个特定的时间来发送这些消息，而不是立即发送。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>计划消息允许用户安排在未来时间点自动发送的消息，这对于需要在特定时间发送提醒、通知或其他信息的情况非常有用。与mail.message.schedule不同的是，后者是发送消息但延迟通知过程，而mail.scheduled.message则是完全延迟消息的发送。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>消息计划</strong>：允许在特定日期和时间安排消息的发送</li>
+        <li><strong>附件支持</strong>：支持在计划消息中包含附件</li>
+        <li><strong>访问控制</strong>：确保只有有权限的用户才能创建和管理计划消息</li>
+        <li><strong>自动发送</strong>：到达指定时间后自动发送计划的消息</li>
+        <li><strong>错误处理</strong>：处理发送失败的情况并通知消息创建者</li>
+    </ol>
+    
+    <h2>代码详解</h2>
+    <h3>ScheduledMessage 类</h3>
+    <p>这是该模块的核心类，它定义了计划消息的数据结构和行为：</p>
+    
+    <div class="code-block">
+        <pre><code>class ScheduledMessage(models.Model):
+    _name = 'mail.scheduled.message'
+    _description = 'Scheduled Message'
+
+    # content
+    subject = fields.Char('Subject')
+    body = fields.Html('Contents', sanitize_style=True)
+    scheduled_date = fields.Datetime('Scheduled Date', required=True)
+    attachment_ids = fields.Many2many(
+        'ir.attachment', 'scheduled_message_attachment_rel',
+        'scheduled_message_id', 'attachment_id',
+        string='Attachments')
+
+    # related document
+    model = fields.Char('Related Document Model', required=True)
+    res_id = fields.Many2oneReference('Related Document Id', model_field='model', required=True)
+
+    # origin
+    author_id = fields.Many2one('res.partner', 'Author', required=True)
+
+    # recipients
+    partner_ids = fields.Many2many('res.partner', string='Recipients')
+
+    # characteristics
+    is_note = fields.Boolean('Is a note', default=False, help="If the message will be posted as a Note.")
+
+    # notify parameters
+    notification_parameters = fields.Text('Notification parameters')</code></pre>
+    </div>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>subject</td>
+            <td>Char</td>
+            <td>消息的主题</td>
+        </tr>
+        <tr>
+            <td>body</td>
+            <td>Html</td>
+            <td>消息的HTML内容，带样式清理功能</td>
+        </tr>
+        <tr>
+            <td>scheduled_date</td>
+            <td>Datetime</td>
+            <td>计划发送消息的日期时间，必填字段</td>
+        </tr>
+        <tr>
+            <td>attachment_ids</td>
+            <td>Many2many</td>
+            <td>与消息关联的附件</td>
+        </tr>
+        <tr>
+            <td>model</td>
+            <td>Char</td>
+            <td>相关文档模型的技术名称，必填字段</td>
+        </tr>
+        <tr>
+            <td>res_id</td>
+            <td>Many2oneReference</td>
+            <td>相关文档的ID，必填字段</td>
+        </tr>
+        <tr>
+            <td>author_id</td>
+            <td>Many2one</td>
+            <td>消息作者（合作伙伴记录），必填字段</td>
+        </tr>
+        <tr>
+            <td>partner_ids</td>
+            <td>Many2many</td>
+            <td>消息接收者列表</td>
+        </tr>
+        <tr>
+            <td>is_note</td>
+            <td>Boolean</td>
+            <td>标识消息是否为注释而非评论</td>
+        </tr>
+        <tr>
+            <td>notification_parameters</td>
+            <td>Text</td>
+            <td>存储通知参数的JSON字符串</td>
+        </tr>
+    </table>
+    
+    <h3>约束方法</h3>
+    <p>模块定义了两个重要的约束方法，确保数据有效性：</p>
+    
+    <div class="code-block">
+        <pre><code>@api.constrains('model')
+def _check_model(self):
+    if not all(model in self.pool and issubclass(self.pool[model], self.pool['mail.thread']) for model in self.mapped("model")):
+        raise ValidationError(_("A message cannot be scheduled on a model that does not have a mail thread."))</code></pre>
+    </div>
+    
+    <p>这个约束确保只能在继承了mail.thread的模型上计划消息。</p>
+    
+    <div class="code-block">
+        <pre><code>@api.constrains('scheduled_date')
+def _check_scheduled_date(self):
+    if any(scheduled_message.scheduled_date < fields.Datetime().now() for scheduled_message in self):
+        raise ValidationError(_("A Scheduled Message cannot be scheduled in the past"))</code></pre>
+    </div>
+    
+    <p>这个约束确保消息不能被计划在过去的时间点发送。</p>
+    
+    <h3>CRUD操作</h3>
+    <p>模块重写了基本的CRUD方法，添加了特定于计划消息的逻辑：</p>
+    
+    <h4>创建记录</h4>
+    <div class="code-block">
+        <pre><code>@api.model_create_multi
+def create(self, vals_list):
+    # 确保用户有权限在相关记录上发布
+    for vals in vals_list:
+        self._check(vals)
+
+    # 清理上下文以防止使用default_model和default_res_id
+    scheduled_messages = super(ScheduledMessage, self.with_context(clean_context(self.env.context))).create(vals_list)
+    # 将附件从composer转移到计划消息
+    for scheduled_message in scheduled_messages:
+        if attachments := scheduled_message.attachment_ids:
+            attachments.filtered(
+                lambda a: a.res_model == 'mail.compose.message' and not a.res_id and a.create_uid.id == self.env.uid
+            ).write({
+                'res_model': scheduled_message._name,
+                'res_id': scheduled_message.id,
+            })
+    # 计划cron触发器
+    if scheduled_messages:
+        self.env.ref('mail.ir_cron_post_scheduled_message')._trigger_list(
+            set(scheduled_messages.mapped('scheduled_date'))
+        )
+    return scheduled_messages</code></pre>
+    </div>
+    
+    <p>创建方法实现了以下功能：</p>
+    <ol>
+        <li>验证用户权限</li>
+        <li>创建计划消息记录</li>
+        <li>将临时附件关联到创建的消息</li>
+        <li>触发定时任务以便在指定时间发送消息</li>
+    </ol>
+    
+    <h4>搜索记录</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _search(self, domain, offset=0, limit=None, order=None):
+    # 重写搜索方法以添加特定的访问权限控制
+    if self.env.is_superuser():
+        return super()._search(domain, offset, limit, order)
+
+    # 避免使用ORM以防止缓存污染
+    query = super()._search(domain, offset, limit, order)
+    fnames_to_read = ['id', 'model', 'res_id']
+    rows = self.env.execute_query(query.select(
+        *[self._field_to_sql(self._table, fname) for fname in fnames_to_read],
+    ))
+
+    # 按模型分组res_ids并确定可访问的记录
+    model_ids = defaultdict(set)
+    for __, model, res_id in rows:
+        model_ids[model].add(res_id)
+
+    allowed_ids = defaultdict(set)
+    for model, res_ids in model_ids.items():
+        records = self.env[model].browse(res_ids)
+        operation = getattr(records, '_mail_post_access', 'write')
+        if records.has_access(operation):
+            allowed_ids[model] = set(records._filtered_access(operation)._ids)
+
+    scheduled_messages = self.browse(
+        msg_id
+        for msg_id, res_model, res_id in rows
+        if res_id in allowed_ids[res_model]
+    )
+
+    return scheduled_messages._as_query(order)</code></pre>
+    </div>
+    
+    <p>搜索方法实现了复杂的访问控制：</p>
+    <ol>
+        <li>对于超级用户，直接使用原始搜索</li>
+        <li>对于普通用户，仅返回他们有权访问的相关记录上的计划消息</li>
+        <li>直接使用SQL查询以防止缓存污染</li>
+        <li>根据记录上的权限（默认为写入权限）过滤结果</li>
+    </ol>
+    
+    <h4>写入与删除</h4>
+    <div class="code-block">
+        <pre><code>def unlink(self):
+    self._check()
+    return super().unlink()
+
+def write(self, vals):
+    # 防止更改消息计划的目标记录
+    if vals.get('model') or vals.get('res_id'):
+        raise UserError(_('You are not allowed to change the target record of a scheduled message.'))
+    # 确保用户有权在记录上写入消息
+    self._check()
+    res = super().write(vals)
+    if new_scheduled_date := vals.get('scheduled_date'):
+        self.env.ref('mail.ir_cron_post_scheduled_message')._trigger(fields.Datetime.to_datetime(new_scheduled_date))
+    return res</code></pre>
+    </div>
+    
+    <p>写入方法实现了以下功能：</p>
+    <ol>
+        <li>禁止更改消息关联的目标记录</li>
+        <li>验证用户权限</li>
+        <li>如果计划日期被修改，重新触发计划任务</li>
+    </ol>
+    
+    <h3>消息发送与管理</h3>
+    <h4>编辑表单</h4>
+    <div class="code-block">
+        <pre><code>def open_edit_form(self):
+    self.ensure_one()
+    return {
+        'type': 'ir.actions.act_window',
+        'name': _("Edit Scheduled Note") if self.is_note else _("Edit Scheduled Message"),
+        'res_model': self._name,
+        'view_mode': 'form',
+        'views': [[False, 'form']],
+        'target': 'new',
+        'res_id': self.id,
+    }</code></pre>
+    </div>
+    
+    <p>该方法返回一个动作字典，用于在表单视图中打开消息以供编辑。</p>
+    
+    <h4>发送消息</h4>
+    <div class="code-block">
+        <pre><code>def post_message(self):
+    self.ensure_one()
+    if self.env.is_admin() or self.create_uid.id == self.env.uid:
+        self._post_message()
+    else:
+        raise UserError(_("You are not allowed to send this scheduled message"))</code></pre>
+    </div>
+    
+    <p>该方法验证用户是否为管理员或消息创建者，以确保只有授权用户才能发送消息。</p>
+    
+    <h4>发送消息（私有方法）</h4>
+    <div class="code-block">
+        <pre><code>def _post_message(self, raise_exception=True):
+    """ 发送计划消息。
+        使用消息创建者作为用户来发送，这样可以检查创建者对相关记录的发布权限，
+        并允许将附件转移到消息（见mail.thread中的_process_attachments_for_post）。
+        如果raise_exception设置为False，方法将跳过消息发送而不是引发错误，
+        并向作者发送失败通知。这在从_post_messages_cron发送计划消息时很有用。
+    """
+    notification_parameters_whitelist = self._notification_parameters_whitelist()
+    for scheduled_message in self:
+        message_creator = scheduled_message.create_uid
+        try:
+            with self.env.cr.savepoint():
+                scheduled_message.with_user(message_creator)._check()
+                self.env[scheduled_message.model].browse(scheduled_message.res_id).with_user(message_creator).message_post(
+                    attachment_ids=list(scheduled_message.attachment_ids.ids),
+                    author_id=scheduled_message.author_id.id,
+                    body=scheduled_message.body,
+                    partner_ids=list(scheduled_message.partner_ids.ids),
+                    subtype_xmlid='mail.mt_note' if scheduled_message.is_note else 'mail.mt_comment',
+                    **{k: v for k, v in json.loads(scheduled_message.notification_parameters or '{}').items() if k in notification_parameters_whitelist},
+                )
+        except Exception:
+            if raise_exception:
+                raise
+            _logger.info("Posting of scheduled message with ID %s failed", scheduled_message.id, exc_info=True)
+            # 通知用户发送失败（发送内容，因为用户可能已失去对记录的访问权限）
+            try:
+                with self.env.cr.savepoint():
+                    self.env['mail.thread'].message_notify(
+                        partner_ids=[message_creator.partner_id.id],
+                        subject=_("A scheduled message could not be sent"),
+                        body=_("The message scheduled on %(model)s(%(id)s) with the following content could not be sent:%(original_message)s",
+                            model=scheduled_message.model,
+                            id=scheduled_message.res_id,
+                            original_message=Markup("<br>-----<br>%s<br>-----<br>") % scheduled_message.body,
+                        )
+                    )
+            except Exception:
+                # 即使message_notify失败，也要确保删除失败的计划消息
+                _logger.exception("The notification about the failed scheduled message could not be sent")
+    self.unlink()</code></pre>
+    </div>
+    
+    <p>该方法是实际发送消息的核心逻辑：</p>
+    <ol>
+        <li>使用消息创建者的权限发送消息</li>
+        <li>使用savepoint事务保护，确保错误不会影响其他消息的发送</li>
+        <li>将消息发布到目标记录</li>
+        <li>处理发送失败的情况，可以选择抛出异常或发送通知</li>
+        <li>发送后删除计划消息记录</li>
+    </ol>
+    
+    <h3>业务方法</h3>
+    <h4>权限检查</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _check(self, values=None):
+    """ 限制对计划消息的访问。
+        访问基于计划消息将发布到的记录。
+        :param values: 包含要执行检查的model和res_id的字典
+    """
+    if self.env.is_superuser():
+        return True
+
+    model_ids = defaultdict(set)
+    # 无论如何都要检查相关记录的访问权限
+    for scheduled_message in self.sudo():
+        model_ids[scheduled_message.model].add(scheduled_message.res_id)
+    if values:
+        model_ids[values['model']].add(values['res_id'])
+
+    for model, res_ids in model_ids.items():
+        records = self.env[model].browse(res_ids)
+        operation = getattr(records, '_mail_post_access', 'write')
+        records.check_access(operation)</code></pre>
+    </div>
+    
+    <p>该方法处理访问权限控制：</p>
+    <ol>
+        <li>超级用户始终有权限</li>
+        <li>对于普通用户，检查他们是否有权限在目标记录上发布消息</li>
+        <li>使用特定模型定义的访问操作（默认为写入权限）</li>
+    </ol>
+    
+    <h4>通知参数白名单</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _notification_parameters_whitelist(self):
+    """ 可在发布计划消息时使用的参数。
+    """
+    return {
+        'email_add_signature',
+        'email_from',
+        'email_layout_xmlid',
+        'force_email_lang',
+        'mail_activity_type_id',
+        'mail_auto_delete',
+        'mail_server_id',
+        'message_type',
+        'model_description',
+        'reply_to',
+        'reply_to_force_new',
+        'subtype_id',
+    }</code></pre>
+    </div>
+    
+    <p>该方法定义了可以从notification_parameters中使用的参数白名单，以确保安全。</p>
+    
+    <h4>计划任务发送消息</h4>
+    <div class="code-block">
+        <pre><code>@api.model
+def _post_messages_cron(self, limit=50):
+    """ 发送逾期的计划消息。
+    """
+    domain = [('scheduled_date', '<=', fields.Datetime.now())]
+    messages_to_post = self.search(domain, limit=limit)
+    _logger.info("Posting %s scheduled messages", len(messages_to_post))
+    messages_to_post._post_message(raise_exception=False)
+
+    # 如果需要，重启cron
+    if self.search_count(domain, limit=1):
+        self.env.ref('mail.ir_cron_post_scheduled_message')._trigger()</code></pre>
+    </div>
+    
+    <p>该方法通常由定时任务调用，用于发送已到期的计划消息：</p>
+    <ol>
+        <li>查找所有已到期的计划消息（scheduled_date <= 当前时间）</li>
+        <li>调用_post_message方法发送这些消息，不抛出异常</li>
+        <li>如果还有更多待发送的消息，重新触发定时任务</li>
+    </ol>
+    
+    <h4>存储转换</h4>
+    <div class="code-block">
+        <pre><code>def _to_store(self, store: Store):
+    for scheduled_message in self:
+        data = scheduled_message._read_format(['body', 'is_note', 'scheduled_date', 'subject'])[0]
+        data['attachment_ids'] = Store.many(scheduled_message.attachment_ids)
+        data['author'] = Store.one(scheduled_message.author_id)
+        store.add(scheduled_message, data)</code></pre>
+    </div>
+    
+    <p>该方法用于将计划消息转换为前端可用的格式，配合Discuss Store使用。</p>
+    
+    <h2>使用示例</h2>
+    <h3>创建计划消息</h3>
+    <div class="code-block">
+        <pre><code># 创建一个计划在明天发送的消息
+from datetime import datetime, timedelta
+
+scheduled_date = datetime.now() + timedelta(days=1)
+
+self.env['mail.scheduled.message'].create({
+    'subject': '明天的会议提醒',
+    'body': '&lt;p&gt;请记得参加明天的项目评审会议&lt;/p&gt;',
+    'scheduled_date': scheduled_date,
+    'model': 'project.project',
+    'res_id': project.id,
+    'author_id': self.env.user.partner_id.id,
+    'partner_ids': [(6, 0, team_member_ids)],
+    'is_note': False,
+    'notification_parameters': json.dumps({
+        'email_layout_xmlid': 'mail.mail_notification_light',
+        'mail_server_id': company_mail_server.id,
+    })
+})</code></pre>
+    </div>
+    
+    <h3>查找和管理计划消息</h3>
+    <div class="code-block">
+        <pre><code># 查找明天到期的计划消息
+tomorrow = datetime.now() + timedelta(days=1)
+tomorrow_start = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 0)
+tomorrow_end = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 23, 59, 59)
+
+messages = self.env['mail.scheduled.message'].search([
+    ('scheduled_date', '>=', tomorrow_start),
+    ('scheduled_date', '<=', tomorrow_end),
+    ('model', '=', 'project.project')
+])
+
+# 修改计划消息
+for message in messages:
+    message.write({
+        'subject': message.subject + ' [更新]',
+        'scheduled_date': message.scheduled_date + timedelta(hours=1)
+    })
+
+# 立即发送所选消息
+messages[0].post_message()
+
+# 删除计划消息
+messages[1:].unlink()</code></pre>
+    </div>
+    
+    <h2>相关依赖和集成</h2>
+    <p>ScheduledMessage模块与其他Odoo模块有多种集成方式：</p>
+    <ul>
+        <li><strong>mail.thread</strong>：目标记录必须继承mail.thread才能计划消息</li>
+        <li><strong>ir.cron</strong>：使用定时任务自动发送逾期的计划消息</li>
+        <li><strong>mail.compose.message</strong>：邮件撰写器可以创建计划消息</li>
+        <li><strong>ir.attachment</strong>：支持附件的关联和管理</li>
+        <li><strong>res.partner</strong>：用于作者和接收者关联</li>
+    </ul>
+    
+    <h2>定时任务配置</h2>
+    <p>Odoo中通常会有一个定时任务用于发送计划消息，配置如下：</p>
+    <div class="code-block">
+        <pre><code>&lt;record id="ir_cron_post_scheduled_message" model="ir.cron"&gt;
+    &lt;field name="name"&gt;Mail: Post scheduled messages&lt;/field&gt;
+    &lt;field name="model_id" ref="model_mail_scheduled_message"/&gt;
+    &lt;field name="state"&gt;code&lt;/field&gt;
+    &lt;field name="code"&gt;model._post_messages_cron()&lt;/field&gt;
+    &lt;field name="interval_number"&gt;1&lt;/field&gt;
+    &lt;field name="interval_type"&gt;minutes&lt;/field&gt;
+    &lt;field name="numbercall"&gt;-1&lt;/field&gt;
+    &lt;field name="doall"&gt;False&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>注意：</strong>使用计划消息功能时需要考虑以下几点：
+        <ul>
+            <li>计划消息只能计划在未来的时间点</li>
+            <li>目标记录必须继承mail.thread模型</li>
+            <li>只有消息创建者或管理员才能手动发送或修改计划消息</li>
+            <li>无法更改计划消息的目标记录（model和res_id）</li>
+            <li>大量计划消息可能会影响系统性能</li>
+        </ul>
+    </div>
+    
+    <h2>UI交互</h2>
+    <p>在Odoo的用户界面中，计划消息通常通过以下方式创建和管理：</p>
+    <ol>
+        <li>在讨论视图或记录表单中的消息撰写器</li>
+        <li>在电子邮件模板使用时指定计划日期</li>
+        <li>通过服务器动作自动创建</li>
+    </ol>
+    
+    <h2>总结</h2>
+    <p>mail.scheduled.message模块提供了一个强大且灵活的机制，用于在Odoo中安排未来消息的发送。它支持：</p>
+    <ul>
+        <li>精确的时间计划</li>
+        <li>完整的附件支持</li>
+        <li>严格的权限控制</li>
+        <li>错误恢复机制</li>
+        <li>与Odoo邮件系统的无缝集成</li>
+    </ul>
+    
+    <p>通过使用这个模块，企业可以实现更高效的沟通和自动化工作流程，确保信息在适当的时间发送给适当的接收者。</p>
+</body>
+</html> 

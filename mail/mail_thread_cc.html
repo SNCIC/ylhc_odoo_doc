@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 邮件抄送(CC)混入模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 邮件抄送(CC)混入模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>mail_thread_cc.py</code>是Odoo 18中的一个专用模块，它提供了处理电子邮件抄送（CC）功能的混入类（mixin）。这个模块允许任何需要处理和保存邮件抄送信息的模型继承并获得这些功能，通常用于客户关系管理(CRM)、支持工单等需要跟踪邮件通信的模块中。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>邮件抄送（CC）是电子邮件系统中的一个基本功能，允许发送者将邮件副本发送给除主要收件人外的其他人。Odoo的这个混入类使系统能够正确处理、存储和显示这些CC信息，并在回复邮件时保持这些抄送者在通信循环中。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>CC信息存储</strong>：保存与记录相关的邮件抄送信息</li>
+        <li><strong>CC信息处理</strong>：在接收新邮件时提取和处理CC字段</li>
+        <li><strong>CC信息更新</strong>：在更新记录时合并新旧CC信息</li>
+        <li><strong>CC收件人建议</strong>：在撰写新邮件时建议包含CC收件人</li>
+    </ol>
+    
+    <h2>代码详解</h2>
+    <h3>MailCCMixin 类</h3>
+    <p>这是该模块的核心类，它定义了邮件抄送功能的基本结构和行为：</p>
+    
+    <div class="code-block">
+        <pre><code>class MailCCMixin(models.AbstractModel):
+    _name = 'mail.thread.cc'
+    _inherit = 'mail.thread'
+    _description = 'Email CC management'
+
+    email_cc = fields.Char('Email cc')</code></pre>
+    </div>
+    
+    <h3>字段详解</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>email_cc</td>
+            <td>Char</td>
+            <td>存储邮件抄送地址，通常以逗号分隔的格式</td>
+        </tr>
+    </table>
+    
+    <h3>辅助方法：CC字符串处理</h3>
+    <div class="code-block">
+        <pre><code>def _mail_cc_sanitized_raw_dict(self, cc_string):
+    '''return a dict of sanitize_email:raw_email from a string of cc'''
+    if not cc_string:
+        return {}
+    return {
+        tools.email_normalize(email): tools.formataddr((name, tools.email_normalize(email)))
+        for (name, email) in tools.mail.email_split_tuples(cc_string)
+    }</code></pre>
+    </div>
+    
+    <p>该方法处理CC字符串并返回字典格式：</p>
+    <ol>
+        <li>如果cc_string为空，返回空字典</li>
+        <li>使用Odoo的email_split_tuples工具将CC字符串拆分为(名称,邮箱)元组列表</li>
+        <li>对每个邮箱进行标准化处理</li>
+        <li>返回一个字典，键为标准化的邮箱，值为格式化的地址（包含名称和邮箱）</li>
+    </ol>
+    
+    <h3>创建新记录时处理CC</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def message_new(self, msg_dict, custom_values=None):
+    if custom_values is None:
+        custom_values = {}
+    cc_values = {
+        'email_cc': ", ".join(self._mail_cc_sanitized_raw_dict(msg_dict.get('cc')).values()),
+    }
+    cc_values.update(custom_values)
+    return super(MailCCMixin, self).message_new(msg_dict, cc_values)</code></pre>
+    </div>
+    
+    <p>该方法在从邮件创建新记录时处理CC信息：</p>
+    <ol>
+        <li>提取邮件的cc字段</li>
+        <li>使用_mail_cc_sanitized_raw_dict方法处理cc字符串</li>
+        <li>将处理后的CC值加入到自定义值字典中</li>
+        <li>调用父类的message_new方法创建记录</li>
+    </ol>
+    
+    <h3>更新记录时处理CC</h3>
+    <div class="code-block">
+        <pre><code>def message_update(self, msg_dict, update_vals=None):
+    '''Adds cc email to self.email_cc while trying to keep email as raw as possible but unique'''
+    if update_vals is None:
+        update_vals = {}
+    cc_values = {}
+    new_cc = self._mail_cc_sanitized_raw_dict(msg_dict.get('cc'))
+    if new_cc:
+        old_cc = self._mail_cc_sanitized_raw_dict(self.email_cc)
+        new_cc.update(old_cc)
+        cc_values['email_cc'] = ", ".join(new_cc.values())
+    cc_values.update(update_vals)
+    return super(MailCCMixin, self).message_update(msg_dict, cc_values)</code></pre>
+    </div>
+    
+    <p>该方法在从邮件更新记录时处理CC信息：</p>
+    <ol>
+        <li>提取邮件的cc字段并处理为字典</li>
+        <li>如果有新的CC地址：
+            <ul>
+                <li>获取记录上已有的CC地址并处理为字典</li>
+                <li>将新CC地址合并到旧CC地址字典中</li>
+                <li>将合并后的CC地址转换回字符串格式</li>
+            </ul>
+        </li>
+        <li>将CC值加入到更新值字典中</li>
+        <li>调用父类的message_update方法更新记录</li>
+    </ol>
+    
+    <h3>建议收件人</h3>
+    <div class="code-block">
+        <pre><code>def _message_get_suggested_recipients(self):
+    recipients = super()._message_get_suggested_recipients()
+    if self.email_cc:
+        for email in tools.mail.email_split_and_format(self.email_cc):
+            self._message_add_suggested_recipient(recipients, email=email, reason=_('CC Email'))
+    return recipients</code></pre>
+    </div>
+    
+    <p>该方法扩展了建议收件人列表，加入CC地址：</p>
+    <ol>
+        <li>调用父类方法获取基本建议收件人</li>
+        <li>如果存在CC地址：
+            <ul>
+                <li>拆分并格式化CC字符串</li>
+                <li>将每个CC地址添加到建议收件人列表中</li>
+                <li>添加原因"CC Email"</li>
+            </ul>
+        </li>
+        <li>返回扩展后的建议收件人列表</li>
+    </ol>
+    
+    <h2>使用示例</h2>
+    <h3>继承邮件抄送混入类</h3>
+    <div class="code-block">
+        <pre><code>from odoo import models, fields
+
+class HelpdeskTicket(models.Model):
+    _name = 'helpdesk.ticket'
+    _inherit = ['mail.thread', 'mail.thread.cc']
+    _description = '服务台工单'
+    
+    name = fields.Char('标题', required=True)
+    description = fields.Text('描述')
+    partner_id = fields.Many2one('res.partner', '客户')
+    
+    # 继承了email_cc字段，用于存储工单相关邮件的抄送人</code></pre>
+    </div>
+    
+    <h3>处理收到的邮件</h3>
+    <div class="code-block">
+        <pre><code># 服务台邮件网关配置
+def setup_helpdesk_mail_gateway(self):
+    # 创建一个邮件别名
+    self.env['mail.alias'].create({
+        'alias_name': 'support',
+        'alias_model_id': self.env['ir.model']._get('helpdesk.ticket').id,
+        'alias_defaults': {'team_id': self.id},
+        'alias_contact': 'everyone',
+    })
+    
+# 当收到一封邮件
+# 1. Odoo将提取主要收件人(TO)、抄送人(CC)等信息
+# 2. 创建工单时，系统调用message_new方法，自动处理CC信息:
+# - 工单的email_cc字段会存储所有抄送人
+# - 当回复工单时，这些CC人会被建议添加到收件人列表中</code></pre>
+    </div>
+    
+    <h3>访问和使用CC信息</h3>
+    <div class="code-block">
+        <pre><code># 获取工单的CC列表
+def get_ticket_cc_list(self, ticket):
+    cc_emails = []
+    if ticket.email_cc:
+        cc_emails = [email.strip() for email in tools.mail.email_split(ticket.email_cc)]
+    return cc_emails
+
+# 在向客户发送通知时添加CC
+def notify_customer_with_cc(self, ticket, subject, body):
+    cc_emails = self.get_ticket_cc_list(ticket)
+    
+    # 创建邮件，包含所有CC
+    mail_values = {
+        'subject': subject,
+        'body_html': body,
+        'email_to': ticket.partner_id.email,
+        'email_cc': ', '.join(cc_emails) if cc_emails else False,
+        'model': 'helpdesk.ticket',
+        'res_id': ticket.id,
+    }
+    
+    self.env['mail.mail'].create(mail_values).send()</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <div class="flow-diagram">
+        <h3>邮件处理流程</h3>
+        <ol>
+            <li>收到一封新邮件（通过邮件网关或别名）</li>
+            <li>系统提取邮件的CC地址</li>
+            <li>如果是创建新记录，将CC存储在email_cc字段中</li>
+            <li>如果是更新现有记录，合并新的CC地址与已有CC地址</li>
+            <li>在回复或撰写新邮件时，系统建议将CC地址添加为收件人</li>
+        </ol>
+    </div>
+    
+    <h3>CC地址处理流程</h3>
+    <ol>
+        <li>收到的CC字符串格式可能为："John Doe &lt;john@example.com&gt;, jane@example.com"</li>
+        <li>通过email_split_tuples拆分为(名称,邮箱)元组列表：[("John Doe", "john@example.com"), ("", "jane@example.com")]</li>
+        <li>对每个邮箱进行标准化处理，并保留原始格式</li>
+        <li>在更新时，通过标准化邮箱作为键，确保每个邮箱只出现一次</li>
+        <li>最终合并为逗号分隔的字符串，存储在email_cc字段中</li>
+    </ol>
+    
+    <h2>数据流程</h2>
+    <p>以下是CC数据在Odoo中的流转过程：</p>
+    <pre>
+    邮件服务器 → 邮件网关 → mail_thread.message_process → mail_thread_cc.message_new/message_update
+     ↓                                                       ↓
+    存储在记录的email_cc字段                               合并新旧CC
+     ↓                                                       ↓ 
+    用户界面显示                                          回复时建议收件人
+    </pre>
+    
+    <h2>相关依赖和集成</h2>
+    <p>MailCCMixin模块与其他Odoo模块有多种集成方式：</p>
+    <ul>
+        <li><strong>mail.thread</strong>：基础邮件线程功能，提供邮件处理和通信能力</li>
+        <li><strong>mail.message</strong>：存储邮件内容和元数据</li>
+        <li><strong>mail.alias</strong>：处理邮件别名，通常是CC功能的入口点</li>
+        <li><strong>mail.composer</strong>：撰写邮件时可以看到建议的CC收件人</li>
+    </ul>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>注意：</strong>使用邮件抄送功能时需要考虑以下几点：
+        <ul>
+            <li>email_cc字段以文本形式存储，没有直接关联到合作伙伴记录</li>
+            <li>在使用复杂电子邮件格式时，确保正确处理名称和地址</li>
+            <li>CC收件人数量过多可能导致性能问题</li>
+            <li>处理回复时，记得包含所有原始CC地址以保持通信循环完整</li>
+            <li>email_cc字段可能包含不再有效的地址，因为它们是直接从邮件中提取的</li>
+        </ul>
+    </div>
+    
+    <h2>应用场景</h2>
+    <p>mail.thread.cc模块特别适用于以下场景：</p>
+    <ul>
+        <li><strong>客户支持系统</strong>：工单可能需要抄送给多个相关方</li>
+        <li><strong>CRM</strong>：销售机会沟通可能涉及多个客户联系人</li>
+        <li><strong>项目管理</strong>：项目更新需要抄送给所有相关的团队成员</li>
+        <li><strong>采购/销售流程</strong>：订单信息可能需要抄送给多个部门</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>mail.thread.cc模块提供了一个简单但有效的机制，用于在Odoo记录中处理和管理电子邮件的抄送信息：</p>
+    <ul>
+        <li>提供了一个统一的方式来存储和处理CC地址</li>
+        <li>自动处理新收到邮件中的CC信息</li>
+        <li>在更新时智能合并新旧CC地址</li>
+        <li>在回复邮件时建议包含所有相关CC收件人</li>
+        <li>帮助保持完整的沟通循环，确保所有相关方都被通知到</li>
+    </ul>
+    
+    <p>对于需要处理电子邮件通信且希望保持CC信息的Odoo模型，继承这个混入类是一个简单而有效的解决方案。</p>
+</body>
+</html> 

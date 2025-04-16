@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python词法分析器模块</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python词法分析器模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py_tokenizer.js</code>是Odoo前端框架中的基础模块，它负责将Python表达式字符串分解为词法单元(tokens)序列。这是Python表达式解析过程的第一步，为后续的语法分析和表达式求值奠定基础。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>词法分析是编译过程中的第一个阶段，将源代码文本分解成一系列具有特定含义的词法单元或标记(tokens)。py_tokenizer.js模块专注于处理Python表达式的词法规则，识别出数字、字符串、符号、名称和常量等基本元素。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>词法分析</strong>：将字符串分解为词法单元序列</li>
+        <li><strong>语法元素识别</strong>：识别Python表达式中的各种语法元素</li>
+        <li><strong>字符串字面量处理</strong>：解析和处理Python字符串字面量及其转义序列</li>
+        <li><strong>操作符和分隔符识别</strong>：识别Python中的各种操作符和分隔符</li>
+        <li><strong>错误检测和报告</strong>：在词法分析阶段检测并报告错误</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>py_tokenizer.js实现了一个手写的词法分析器，专门用于处理Python表达式：</p>
+    
+    <h3>核心数据结构：Token</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @typedef {{type: 0, value: number}} TokenNumber
+ *
+ * @typedef {{type: 1, value: string}} TokenString
+ *
+ * @typedef {{type: 2, value: string}} TokenSymbol
+ *
+ * @typedef {{type: 3, value: string}} TokenName
+ *
+ * @typedef {{type: 4, value: string}} TokenConstant
+ *
+ * @typedef {TokenNumber | TokenString | TokenSymbol | TokenName | TokenConstant} Token
+ */</code></pre>
+    </div>
+    
+    <h3>常量和集合定义</h3>
+    <div class="code-block">
+        <pre><code>// 定义Python内置常量集合
+const constants = new Set(["None", "False", "True"]);
+
+// 定义比较操作符集合
+export const comparators = [
+    "in",
+    "not",
+    "not in",
+    "is",
+    "is not",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "<>",
+    "!=",
+    "==",
+];
+
+// 定义二元操作符集合
+export const binaryOperators = [
+    "or",
+    "and",
+    "|",
+    "^",
+    "&",
+    "<<",
+    ">>",
+    "+",
+    "-",
+    "*",
+    "/",
+    "//",
+    "%",
+    "~",
+    "**",
+    ".",
+];
+
+// 定义一元操作符集合
+export const unaryOperators = ["-"];
+
+// 定义所有符号的集合
+const symbols = new Set([
+    ...["(", ")", "[", "]", "{", "}", ":", ","],
+    ...["if", "else", "lambda", "="],
+    ...comparators,
+    ...binaryOperators,
+    ...unaryOperators,
+]);</code></pre>
+    </div>
+    
+    <h3>字符串字面量处理</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * 解码Python字符串字面量中的转义序列
+ * @param {string} str - 需要解码的字符串
+ * @param {boolean} unicode - 是否按Unicode字符串处理
+ * @returns {string} - 解码后的字符串
+ */
+function decodeStringLiteral(str, unicode) {
+    const out = [];
+    let code;
+    
+    for (var i = 0; i < str.length; ++i) {
+        if (str[i] !== "\\") {
+            // 非转义字符直接保留
+            out.push(str[i]);
+            continue;
+        }
+        
+        // 处理转义字符
+        var escape = str[i + 1];
+        
+        // 处理直接映射的转义字符
+        if (escape in directMap) {
+            out.push(directMap[escape]);
+            ++i;
+            continue;
+        }
+        
+        // 处理特殊转义序列
+        switch (escape) {
+            // 忽略换行转义
+            case "\n":
+                ++i;
+                continue;
+            // 处理Unicode转义序列 \uXXXX
+            case "u":
+                if (!unicode) break;
+                
+                var uni = str.slice(i + 2, i + 6);
+                if (!/[0-9a-f]{4}/i.test(uni)) {
+                    throw new TokenizerError(
+                        "SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes..."
+                    );
+                }
+                code = parseInt(uni, 16);
+                out.push(String.fromCharCode(code));
+                i += 5;
+                continue;
+            
+            // 处理十六进制转义序列 \xXX
+            case "x":
+                var hex = str.slice(i + 2, i + 4);
+                if (!/[0-9a-f]{2}/i.test(hex)) {
+                    throw new TokenizerError("ValueError: invalid \\x escape");
+                }
+                code = parseInt(hex, 16);
+                out.push(String.fromCharCode(code));
+                i += 3;
+                continue;
+                
+            // 处理其他情况，如八进制转义等
+            default:
+                // 处理八进制转义 \ooo
+                if (/[0-8]/.test(escape)) {
+                    var r = /[0-8]{1,3}/g;
+                    r.lastIndex = i + 1;
+                    var m = r.exec(str);
+                    var oct = m[0];
+                    code = parseInt(oct, 8);
+                    out.push(String.fromCharCode(code));
+                    i += oct.length;
+                    continue;
+                }
+                out.push("\\");
+        }
+    }
+    
+    return out.join("");
+}</code></pre>
+    </div>
+    
+    <h3>主要词法分析函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * 将Python表达式字符串分解为词法单元序列
+ * @param {string} str - 要分析的Python表达式字符串
+ * @returns {Token[]} - 词法单元数组
+ */
+export function tokenize(str) {
+    const tokens = [];
+    let i = 0;
+    const length = str.length;
+    
+    // 跳过空白字符
+    function skipWhitespace() {
+        while (i < length && /\s/.test(str[i])) {
+            i++;
+        }
+    }
+    
+    while (i < length) {
+        skipWhitespace();
+        if (i >= length) break;
+        
+        // 当前字符
+        const c = str[i];
+        
+        // 处理数字字面量
+        if (/[0-9]/.test(c) || (c === "." && i + 1 < length && /[0-9]/.test(str[i + 1]))) {
+            // 解析十进制数字
+            const start = i;
+            let foundDot = c === ".";
+            if (foundDot) i++;
+            
+            while (i < length && /[0-9]/.test(str[i])) i++;
+            if (!foundDot && i < length && str[i] === ".") {
+                foundDot = true;
+                i++;
+                while (i < length && /[0-9]/.test(str[i])) i++;
+            }
+            
+            // 处理科学计数法
+            if (i < length && (str[i] === "e" || str[i] === "E")) {
+                i++;
+                if (i < length && (str[i] === "+" || str[i] === "-")) i++;
+                const digitStart = i;
+                while (i < length && /[0-9]/.test(str[i])) i++;
+                if (digitStart === i) {
+                    throw new TokenizerError(`Invalid number: ${str.slice(start, i)}`);
+                }
+            }
+            
+            // 创建数字Token
+            const numberStr = str.slice(start, i);
+            tokens.push({
+                type: 0 /* Number */,
+                value: foundDot ? parseFloat(numberStr) : parseInt(numberStr, 10),
+            });
+            continue;
+        }
+        
+        // 处理字符串字面量
+        if (c === "'" || c === '"') {
+            // 解析字符串
+            const start = i;
+            const quote = c;
+            let content = "";
+            i++;
+            
+            // 检查是否为三引号字符串
+            const isTripleQuoted = 
+                i + 1 < length && str[i] === quote && str[i + 1] === quote;
+            if (isTripleQuoted) i += 2;
+            
+            // 解析字符串内容
+            while (i < length) {
+                if (isTripleQuoted) {
+                    if (i + 2 < length && 
+                        str[i] === quote && 
+                        str[i + 1] === quote && 
+                        str[i + 2] === quote) {
+                        i += 3;
+                        break;
+                    }
+                } else if (str[i] === quote) {
+                    i++;
+                    break;
+                }
+                
+                // 处理转义字符
+                if (str[i] === "\\") {
+                    content += str[i];
+                    i++;
+                    if (i < length) {
+                        content += str[i];
+                        i++;
+                    }
+                } else {
+                    content += str[i];
+                    i++;
+                }
+            }
+            
+            // 处理未闭合的字符串
+            if (isTripleQuoted && i > length) {
+                throw new TokenizerError("Unterminated triple quoted string");
+            }
+            if (!isTripleQuoted && i > length) {
+                throw new TokenizerError("Unterminated string");
+            }
+            
+            // 创建字符串Token
+            const raw = str.slice(start + (isTripleQuoted ? 3 : 1), i - (isTripleQuoted ? 3 : 1));
+            tokens.push({
+                type: 1 /* String */,
+                value: decodeStringLiteral(raw, true),
+            });
+            continue;
+        }
+        
+        // 处理标识符和关键字
+        if (/[a-zA-Z_]/.test(c)) {
+            const start = i;
+            while (i < length && /[a-zA-Z0-9_]/.test(str[i])) i++;
+            const name = str.slice(start, i);
+            
+            // 区分常量、符号和名称
+            if (constants.has(name)) {
+                tokens.push({ type: 4 /* Constant */, value: name });
+            } else if (symbols.has(name)) {
+                tokens.push({ type: 2 /* Symbol */, value: name });
+            } else {
+                tokens.push({ type: 3 /* Name */, value: name });
+            }
+            continue;
+        }
+        
+        // 处理多字符符号（如 <=, !=, == 等）
+        let found = false;
+        for (const multi of ["<=", ">=", "==", "!=", "<>", "//", "**"]) {
+            if (str.startsWith(multi, i)) {
+                tokens.push({ type: 2 /* Symbol */, value: multi });
+                i += multi.length;
+                found = true;
+                break;
+            }
+        }
+        if (found) continue;
+        
+        // 处理单字符符号
+        if (symbols.has(str[i])) {
+            tokens.push({ type: 2 /* Symbol */, value: str[i] });
+            i++;
+            continue;
+        }
+        
+        // 无法识别的字符
+        throw new TokenizerError(`Unexpected character: ${str[i]}`);
+    }
+    
+    return tokens;
+}</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>py_tokenizer.js模块采用逐字符扫描的方式对Python表达式进行词法分析：</p>
+    
+    <div class="flow-diagram">
+        <h3>词法分析流程</h3>
+        <ol>
+            <li><strong>初始化</strong>：准备空的token数组，设置字符指针</li>
+            <li><strong>扫描</strong>：逐字符扫描输入字符串，跳过空白字符</li>
+            <li><strong>模式匹配</strong>：根据当前字符判断可能的token类型</li>
+            <li><strong>解析token</strong>：根据规则解析完整的token并前进字符指针</li>
+            <li><strong>添加到结果</strong>：将解析出的token添加到结果数组</li>
+            <li><strong>重复</strong>：重复上述过程直到处理完所有字符</li>
+            <li><strong>返回结果</strong>：返回token数组</li>
+        </ol>
+    </div>
+    
+    <h3>Token类型</h3>
+    <table>
+        <tr>
+            <th>类型ID</th>
+            <th>类型名称</th>
+            <th>描述</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>0</td>
+            <td>Number</td>
+            <td>数字字面量</td>
+            <td>42, 3.14, 1e-10</td>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>String</td>
+            <td>字符串字面量</td>
+            <td>"hello", 'world'</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>Symbol</td>
+            <td>操作符和分隔符</td>
+            <td>+, -, *, /, (, ), [, ]</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>Name</td>
+            <td>标识符</td>
+            <td>x, name, counter</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>Constant</td>
+            <td>内置常量</td>
+            <td>True, False, None</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：简单表达式词法分析</h3>
+    <div class="code-block">
+        <pre><code>import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 对简单算术表达式进行词法分析
+const tokens = tokenize("1 + 2 * 3");
+console.log(tokens);
+
+/* 输出:
+[
+  { type: 0, value: 1 },
+  { type: 2, value: "+" },
+  { type: 0, value: 2 },
+  { type: 2, value: "*" },
+  { type: 0, value: 3 }
+]
+*/</code></pre>
+    </div>
+    
+    <h3>示例2：包含不同类型token的表达式</h3>
+    <div class="code-block">
+        <pre><code>import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 对含有多种类型token的表达式进行词法分析
+const tokens = tokenize("x = 10 if condition == True else 'not found'");
+console.log(tokens);
+
+/* 输出:
+[
+  { type: 3, value: "x" },
+  { type: 2, value: "=" },
+  { type: 0, value: 10 },
+  { type: 2, value: "if" },
+  { type: 3, value: "condition" },
+  { type: 2, value: "==" },
+  { type: 4, value: "True" },
+  { type: 2, value: "else" },
+  { type: 1, value: "not found" }
+]
+*/</code></pre>
+    </div>
+    
+    <h3>示例3：处理转义字符和特殊字符串</h3>
+    <div class="code-block">
+        <pre><code>import { tokenize } from "@web/core/py_js/py_tokenizer";
+
+// 处理含有转义序列的字符串
+const tokens1 = tokenize("'Hello\\nWorld'");
+console.log(tokens1[0].value);  // 输出: "Hello\nWorld"
+
+// 处理Unicode转义
+const tokens2 = tokenize("'\\u00A9 Copyright'");
+console.log(tokens2[0].value);  // 输出: "© Copyright"
+
+// 处理十六进制转义
+const tokens3 = tokenize("'\\x41\\x42\\x43'");
+console.log(tokens3[0].value);  // 输出: "ABC"</code></pre>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>py_tokenizer.js模块是Python表达式处理管道的第一步，与以下模块密切配合：</p>
+    <ul>
+        <li><code>py_parser.js</code> - 接收tokenizer输出的tokens，进行语法分析</li>
+        <li><code>py.js</code> - 提供高级接口，调用tokenizer作为第一步</li>
+    </ul>
+    
+    <div class="note">
+        <strong>处理流程：</strong>在完整的Python表达式处理中，py_tokenizer.js承担关键的预处理角色：
+        <ol>
+            <li><code>py_tokenizer.js</code> - 将字符串转换为token序列</li>
+            <li><code>py_parser.js</code> - 将token序列转换为AST</li>
+            <li><code>py_interpreter.js</code> - 执行AST生成结果</li>
+        </ol>
+    </div>
+    
+    <h2>关键特性</h2>
+    
+    <h3>字符串处理</h3>
+    <p>py_tokenizer.js支持Python的多种字符串表示形式：</p>
+    <ul>
+        <li>单引号字符串：<code>'text'</code></li>
+        <li>双引号字符串：<code>"text"</code></li>
+        <li>转义序列处理：<code>\n</code>, <code>\t</code>, <code>\"</code>等</li>
+        <li>Unicode转义：<code>\uXXXX</code></li>
+        <li>十六进制转义：<code>\xXX</code></li>
+    </ul>
+    
+    <h3>数字处理</h3>
+    <p>支持多种数字格式：</p>
+    <ul>
+        <li>整数：<code>42</code></li>
+        <li>浮点数：<code>3.14</code></li>
+        <li>科学计数法：<code>1e10</code>, <code>2.5e-3</code></li>
+    </ul>
+    
+    <h3>符号和操作符</h3>
+    <p>识别Python中常用的符号和操作符：</p>
+    <ul>
+        <li>算术操作符：<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, <code>**</code></li>
+        <li>比较操作符：<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code></li>
+        <li>逻辑操作符：<code>and</code>, <code>or</code>, <code>not</code></li>
+        <li>成员检测：<code>in</code>, <code>not in</code></li>
+        <li>身份检测：<code>is</code>, <code>is not</code></li>
+        <li>位操作符：<code>&</code>, <code>|</code>, <code>^</code>, <code>~</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code></li>
+    </ul>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用py_tokenizer.js模块时需要注意以下几点：
+        <ul>
+            <li>tokenizer不支持所有Python语法，主要处理表达式</li>
+            <li>不处理代码缩进，不适用于包含代码块的Python代码</li>
+            <li>不处理注释，表达式中的注释会导致错误</li>
+            <li>错误处理机制相对简单，对于复杂表达式可能需要额外的错误处理</li>
+            <li>某些高级Python语法特性可能不被支持或解析不正确</li>
+        </ul>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>通常不需要直接使用tokenizer，而是使用py.js提供的高级接口</li>
+        <li>如需调试表达式解析问题，可以使用tokenize查看中间结果</li>
+        <li>处理用户输入的表达式时，使用try-catch捕获TokenizerError</li>
+        <li>避免处理过于复杂的表达式，尤其是包含高级语法特性的表达式</li>
+        <li>考虑对频繁使用的表达式进行预处理或缓存tokenize结果</li>
+    </ul>
+    
+    <h2>支持的Python语法特性</h2>
+    <table>
+        <tr>
+            <th>类别</th>
+            <th>支持的特性</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>字面量</td>
+            <td>数字、字符串、常量</td>
+            <td>42, "hello", True</td>
+        </tr>
+        <tr>
+            <td>操作符</td>
+            <td>算术、比较、逻辑、位操作</td>
+            <td>+, -, *, /, ==, !=, and, or</td>
+        </tr>
+        <tr>
+            <td>标识符</td>
+            <td>变量名、函数名</td>
+            <td>x, my_function</td>
+        </tr>
+        <tr>
+            <td>结构元素</td>
+            <td>括号、方括号、逗号、冒号</td>
+            <td>(), [], {}, :, ,</td>
+        </tr>
+        <tr>
+            <td>不支持</td>
+            <td>注释、代码块、装饰器</td>
+            <td># comment, def, class, @</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>py_tokenizer.js模块是Odoo前端框架中的基础组件，它提供了：</p>
+    <ul>
+        <li>高效的Python表达式词法分析能力</li>
+        <li>准确识别Python中的各种语法元素</li>
+        <li>强大的字符串和数字字面量处理</li>
+        <li>支持Python常用的操作符和表达式结构</li>
+        <li>为后续的语法分析和表达式求值奠定基础</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发者建议：</strong>了解py_tokenizer.js的工作原理对于理解Odoo前端如何处理Python表达式非常有帮助。当需要调试复杂表达式问题时，可以从词法分析阶段开始排查，观察tokenize的输出是否符合预期。
+    </div>
+</body>
+</html>

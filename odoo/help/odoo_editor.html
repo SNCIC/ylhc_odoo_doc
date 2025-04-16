@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 编辑器</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 编辑器</h1>
+    
+    <h2>概述</h2>
+    <p>Odoo编辑器是一个强大的富文本编辑器，用于在Odoo应用程序中编辑HTML内容。它是Odoo网站、邮件编辑和HTML字段编辑的基础。</p>
+    
+    <div class="note">
+        <strong>重要提示：</strong>Odoo 18中的编辑器经过了重新设计，提供了改进的用户体验和更强大的功能，同时保持了简单直观的界面。
+    </div>
+    
+    <h2>编辑器架构</h2>
+    <p>Odoo编辑器建立在以下核心技术基础上：</p>
+    <ul>
+        <li>原生DOM操作：不依赖于外部框架，直接使用浏览器的DOM API</li>
+        <li>命令模式：编辑操作通过命令实现，支持撤销/重做</li>
+        <li>Owl组件：UI元素使用Odoo的Owl框架构建</li>
+        <li>轻量级：设计轻量高效，仅包含必要功能</li>
+    </ul>
+    
+    <h2>基本用法</h2>
+    <p>在Odoo中，编辑器可以通过多种方式使用：</p>
+    
+    <h3>1. 在表单视图中作为HTML字段</h3>
+    <div class="code-block">
+        <pre><code>&lt;field name="description" widget="html"/&gt;</code></pre>
+    </div>
+    
+    <h3>2. 在网站构建器中</h3>
+    <p>网站构建器使用Odoo编辑器作为核心编辑工具，通过拖放界面扩展了其功能。</p>
+    
+    <h3>3. 在邮件撰写中</h3>
+    <p>撰写电子邮件和聊天消息时使用编辑器的简化版本。</p>
+    
+    <h3>4. 作为独立组件</h3>
+    <div class="code-block">
+        <pre><code>// 引入和初始化Odoo编辑器
+import { OdooEditor } from '@web_editor/js/editor/odoo-editor/src/OdooEditor';
+
+// 初始化编辑器
+const editorEl = document.querySelector('#editor');
+const editor = new OdooEditor(editorEl, {
+    placeholder: '在此输入内容...',
+    toSanitize: false,
+    toolbar: true,
+});
+
+// 获取HTML内容
+const content = editor.getValue();</code></pre>
+    </div>
+    
+    <h2>主要功能</h2>
+    <p>Odoo编辑器提供了丰富的编辑功能：</p>
+    
+    <h3>文本格式化</h3>
+    <ul>
+        <li>基本格式化：粗体、斜体、下划线、删除线</li>
+        <li>文本对齐：左对齐、居中对齐、右对齐、两端对齐</li>
+        <li>列表：有序列表、无序列表、检查列表</li>
+        <li>文本样式：标题、引用、代码块</li>
+        <li>文本颜色和背景颜色</li>
+        <li>字体系列和字体大小</li>
+    </ul>
+    
+    <h3>内容插入</h3>
+    <ul>
+        <li>图像：从URL、本地上传或媒体库</li>
+        <li>表格：创建和编辑表格</li>
+        <li>链接：创建内部或外部链接</li>
+        <li>水平线：分隔内容</li>
+        <li>页面分隔符：用于分页打印</li>
+        <li>特殊字符：符号和表情符号</li>
+        <li>媒体：视频和其他媒体嵌入</li>
+    </ul>
+    
+    <h3>高级功能</h3>
+    <ul>
+        <li>内容清理：清除格式和移除样式</li>
+        <li>HTML编辑：直接编辑HTML源代码</li>
+        <li>撤销/重做：多级操作历史</li>
+        <li>拼写检查：依赖浏览器的拼写检查功能</li>
+        <li>自动保存：防止内容丢失</li>
+        <li>在线协作：多用户同时编辑（特定场景）</li>
+    </ul>
+    
+    <h2>工具栏</h2>
+    <p>编辑器的工具栏提供了对常用功能的快速访问。默认工具栏包括：</p>
+    
+    <div class="image-example">
+        <div class="image-card">
+            <div>样式</div>
+            <div>标题、段落、引用等</div>
+        </div>
+        <div class="image-card">
+            <div>文本格式</div>
+            <div>粗体、斜体、下划线等</div>
+        </div>
+        <div class="image-card">
+            <div>对齐</div>
+            <div>左、中、右、两端对齐</div>
+        </div>
+        <div class="image-card">
+            <div>列表</div>
+            <div>有序、无序、检查列表</div>
+        </div>
+        <div class="image-card">
+            <div>插入</div>
+            <div>图像、表格、链接等</div>
+        </div>
+        <div class="image-card">
+            <div>其他</div>
+            <div>清除格式、HTML源码等</div>
+        </div>
+    </div>
+    
+    <p>工具栏可以自定义，以显示更多或更少的选项：</p>
+    
+    <div class="code-block">
+        <pre><code>// 自定义工具栏
+const editor = new OdooEditor(editorEl, {
+    toolbar: [
+        ['bold', 'italic', 'underline'],
+        ['alignleft', 'aligncenter', 'alignright'],
+        ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+        ['ul', 'ol'],
+        ['table', 'image', 'link'],
+        ['undo', 'redo'],
+    ],
+});</code></pre>
+    </div>
+    
+    <h2>自定义配置</h2>
+    <p>Odoo编辑器提供了多种配置选项，可以根据需求进行自定义：</p>
+    
+    <div class="code-block">
+        <pre><code>const editor = new OdooEditor(editorEl, {
+    // 基本配置
+    placeholder: '开始输入...',  // 编辑器为空时显示的占位符文本
+    defaultLinkAttributes: { rel: 'nofollow' },  // 链接的默认属性
+    allowCommandVideo: true,  // 允许插入视频
+    allowInlineVideos: true,  // 允许内联视频
+    
+    // 内容处理配置
+    toSanitize: true,  // 是否清理HTML
+    filterPaste: true,  // 粘贴时过滤内容
+    
+    // 行为配置
+    autohideToolbar: true,  // 自动隐藏工具栏
+    showStatusbar: true,  // 显示状态栏
+    
+    // 特性配置
+    allowResizer: true,  // 允许调整图像大小
+    allowInlineFormatting: true,  // 允许内联格式化
+    
+    // 集成配置
+    snippetsMenu: null,  // 自定义片段菜单
+    getContentEditableAreas: () => [],  // 获取可编辑区域
+    
+    // 回调函数
+    onChange: () => {},  // 内容变化时调用
+    onFocus: () => {},  // 获得焦点时调用
+    onBlur: () => {},  // 失去焦点时调用
+});</code></pre>
+    </div>
+    
+    <h2>命令系统</h2>
+    <p>Odoo编辑器使用命令系统来实现操作，这支持撤销/重做和复杂的编辑操作。</p>
+    
+    <div class="code-block">
+        <pre><code>// 执行命令
+editor.execCommand('bold');  // 将选中文本设为粗体
+editor.execCommand('insertText', 'Hello World');  // 在光标位置插入文本
+editor.execCommand('insertHTML', '&lt;strong&gt;Hello&lt;/strong&gt;');  // 插入HTML</code></pre>
+    </div>
+    
+    <p>可用的命令包括：</p>
+    <ul>
+        <li>基本格式化：bold, italic, underline, strikethrough</li>
+        <li>段落格式：formatBlock, removeFormat</li>
+        <li>对齐：justifyLeft, justifyCenter, justifyRight, justifyFull</li>
+        <li>列表：insertUnorderedList, insertOrderedList</li>
+        <li>插入内容：insertText, insertHTML, insertImage</li>
+        <li>链接：createLink, unlink</li>
+        <li>历史：undo, redo</li>
+        <li>其他：indent, outdent, fontName, fontSize, foreColor, backColor</li>
+    </ul>
+    
+    <h2>与Owl框架集成</h2>
+    <p>Odoo编辑器与Owl框架集成，可以在Owl组件中使用。</p>
+    
+    <div class="code-block">
+        <pre><code>import { Component, useState, onMounted } from "@odoo/owl";
+import { OdooEditor } from '@web_editor/js/editor/odoo-editor/src/OdooEditor';
+
+class EditorComponent extends Component {
+    setup() {
+        this.state = useState({
+            content: "",
+        });
+        
+        onMounted(() => {
+            this.editor = new OdooEditor(this.el.querySelector('.editor'), {
+                onChange: () => {
+                    // 更新组件状态
+                    this.state.content = this.editor.getValue();
+                }
+            });
+        });
+    }
+    
+    saveContent() {
+        // 获取编辑器内容
+        const html = this.editor.getValue();
+        // 保存内容
+        this.props.onSave(html);
+    }
+}
+EditorComponent.template = "module.EditorComponent";</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- EditorComponent模板 --&gt;
+&lt;t t-name="module.EditorComponent"&gt;
+    &lt;div class="editor-wrapper"&gt;
+        &lt;div class="editor" contenteditable="true"&gt;&lt;/div&gt;
+        &lt;div class="actions"&gt;
+            &lt;button t-on-click="saveContent"&gt;保存&lt;/button&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <h2>扩展和自定义</h2>
+    <p>Odoo编辑器可以通过多种方式进行扩展，以添加自定义功能。</p>
+    
+    <h3>添加自定义按钮</h3>
+    <div class="code-block">
+        <pre><code>// 定义自定义按钮
+const customButtons = [
+    {
+        id: 'customButton',
+        title: '自定义操作',
+        description: '执行自定义操作',
+        fontawesome: 'fa-star',
+        callback: (editor) => {
+            // 自定义操作
+            editor.execCommand('insertText', '[Custom Content]');
+        },
+    },
+];
+
+// 初始化编辑器时传入自定义按钮
+const editor = new OdooEditor(editorEl, {
+    customButtons: customButtons,
+});</code></pre>
+    </div>
+    
+    <h3>添加自定义插件</h3>
+    <div class="code-block">
+        <pre><code>// 定义自定义插件
+class MyPlugin {
+    constructor(editor) {
+        this.editor = editor;
+        this.init();
+    }
+    
+    init() {
+        // 初始化插件
+        this.editor.on('keydown', this.onKeyDown.bind(this));
+    }
+    
+    onKeyDown(event) {
+        // 处理键盘事件
+        if (event.key === '@') {
+            // 例如处理@提及功能
+            event.preventDefault();
+            this.showMentionPopup();
+        }
+    }
+    
+    showMentionPopup() {
+        // 显示提及弹出框
+        // ...
+    }
+}
+
+// 初始化编辑器时附加插件
+const editor = new OdooEditor(editorEl);
+new MyPlugin(editor);</code></pre>
+    </div>
+    
+    <h2>事件处理</h2>
+    <p>Odoo编辑器触发多种事件，可以监听这些事件来响应用户操作。</p>
+    
+    <div class="code-block">
+        <pre><code>// 监听编辑器事件
+editor.addEventListener('blur', () => {
+    console.log('编辑器失去焦点');
+});
+
+editor.addEventListener('focus', () => {
+    console.log('编辑器获得焦点');
+});
+
+editor.addEventListener('change', () => {
+    console.log('内容已更改');
+});
+
+editor.addEventListener('keydown', (event) => {
+    console.log('按下按键:', event.key);
+});
+
+editor.addEventListener('click', (event) => {
+    console.log('点击位置:', event.clientX, event.clientY);
+});</code></pre>
+    </div>
+    
+    <h2>内容处理</h2>
+    <p>Odoo编辑器提供了处理和转换内容的方法。</p>
+    
+    <h3>获取和设置内容</h3>
+    <div class="code-block">
+        <pre><code>// 获取HTML内容
+const html = editor.getValue();
+
+// 设置HTML内容
+editor.setValue('&lt;p&gt;新内容&lt;/p&gt;');
+
+// 获取纯文本内容
+const text = editor.getTextContent();</code></pre>
+    </div>
+    
+    <h3>内容清理</h3>
+    <div class="code-block">
+        <pre><code>// 清理HTML内容，移除不安全或不需要的标签和属性
+const cleanHtml = editor.sanitize(html);
+
+// 移除所有格式，只保留纯文本
+editor.execCommand('removeFormat');</code></pre>
+    </div>
+    
+    <h2>选择和范围</h2>
+    <p>Odoo编辑器提供了处理文本选择和范围的方法。</p>
+    
+    <div class="code-block">
+        <pre><code>// 获取当前选择
+const selection = editor.document.getSelection();
+
+// 获取选中的HTML
+const selectedHtml = editor.getSelectedHTML();
+
+// 获取选中的文本
+const selectedText = editor.getSelectedText();
+
+// 创建并设置一个新的范围
+const range = document.createRange();
+range.setStart(node, 0);
+range.setEnd(node, node.childNodes.length);
+editor.setSelection(range);
+
+// 选择整个编辑器内容
+editor.selectAll();</code></pre>
+    </div>
+    
+    <h2>网站构建器中的编辑器</h2>
+    <p>在Odoo网站构建器中，编辑器被扩展为更强大的WYSIWYG（所见即所得）编辑器，包含以下额外功能：</p>
+    
+    <ul>
+        <li>拖放内容块</li>
+        <li>预定义的内容片段</li>
+        <li>高级布局选项</li>
+        <li>响应式设计控制</li>
+        <li>媒体库集成</li>
+        <li>动画效果</li>
+        <li>SEO优化工具</li>
+    </ul>
+    
+    <div class="note">
+        <strong>注意：</strong>网站构建器的编辑器是基础Odoo编辑器的扩展版本，包含更多面向网站构建的功能。
+    </div>
+    
+    <h2>最佳实践</h2>
+    <p>使用Odoo编辑器时，请遵循以下最佳实践：</p>
+    
+    <ul>
+        <li>使用编辑器命令而不是直接修改DOM，以确保撤销/重做功能正常工作</li>
+        <li>为大型内容启用自动保存功能，防止意外丢失</li>
+        <li>使用适当的HTML结构，避免过度嵌套</li>
+        <li>使用样式预设而不是内联样式，以保持一致性</li>
+        <li>在需要时清理粘贴的内容，避免引入不需要的样式和标记</li>
+        <li>针对不同设备测试编辑器内容的响应式设计</li>
+        <li>使用内容清理功能防止XSS攻击</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>安全警告：</strong>当允许用户生成内容时，始终启用HTML清理功能，以防止跨站脚本攻击(XSS)。Odoo编辑器默认启用内容清理，但如果禁用了此功能，请确保通过其他方式对内容进行验证。
+    </div>
+    
+    <h2>性能考虑</h2>
+    <p>编辑非常大的文档或在低性能设备上使用编辑器时，请考虑以下性能优化：</p>
+    <ul>
+        <li>限制编辑区域大小，使用分页或折叠部分</li>
+        <li>减少工具栏中的可用选项，只保留常用功能</li>
+        <li>禁用不必要的功能，如实时预览或自动完成</li>
+        <li>对大型文档使用延迟加载和渲染</li>
+        <li>避免在一个页面上使用多个并发编辑器实例</li>
+    </ul>
+    
+    <h2>移动设备支持</h2>
+    <p>Odoo编辑器针对移动设备进行了优化，但在移动环境中使用时有一些特殊考虑：</p>
+    <ul>
+        <li>工具栏自动调整为移动友好布局</li>
+        <li>触摸操作优化，支持常见触摸手势</li>
+        <li>移动键盘集成，支持特殊输入方法</li>
+        <li>响应式界面，适应小屏幕设备</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>在移动设备上，可以使用简化版的工具栏，只显示最常用的功能，以提高用户体验。
+    </div>
+</body>
+</html> 

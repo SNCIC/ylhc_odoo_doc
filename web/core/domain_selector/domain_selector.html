@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo领域选择器(Domain Selector)组件解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo领域选择器(Domain Selector)组件解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>domain_selector.js</code>是Odoo框架中的一个核心组件，它提供了一个用户友好的图形界面，使用户能够通过可视化方式构建和编辑复杂的领域表达式（Domain Expressions）。这是Odoo中高级搜索、筛选和条件设置的基础组件。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>领域表达式是Odoo中描述数据过滤条件的Python风格列表，例如<code>[("customer", "=", true), ("state", "!=", "draft")]</code>。Domain Selector组件将这种表达式转换为可视化的树状结构，让非技术用户也能轻松构建复杂查询。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>可视化领域编辑</strong>：将文本格式的领域表达式转换为可视化的条件树</li>
+        <li><strong>动态字段选择</strong>：基于模型动态加载可用字段及其属性</li>
+        <li><strong>智能操作符选择</strong>：基于字段类型提供相应的操作符选项</li>
+        <li><strong>归档记录显示控制</strong>：集成"包含归档记录"功能</li>
+        <li><strong>调试模式支持</strong>：技术用户可以查看和编辑原始领域表达式</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>DomainSelector是一个复杂但结构清晰的组件，它基于Owl框架开发。让我们来分析它的核心部分：</p>
+    
+    <div class="code-block">
+        <pre><code>export class DomainSelector extends Component {
+    static template = "web.DomainSelector";
+    static components = { TreeEditor, CheckBox };
+    static props = {
+        domain: String,
+        resModel: String,
+        className: { type: String, optional: true },
+        defaultConnector: { type: [{ value: "&" }, { value: "|" }], optional: true },
+        isDebugMode: { type: Boolean, optional: true },
+        readonly: { type: Boolean, optional: true },
+        update: { type: Function, optional: true },
+        debugUpdate: { type: Function, optional: true },
+    };
+    static defaultProps = {
+        isDebugMode: false,
+        readonly: true,
+        update: () => {},
+    };</code></pre>
+    </div>
+    
+    <h3>组件属性详解</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>默认值</th>
+        </tr>
+        <tr>
+            <td>domain</td>
+            <td>String</td>
+            <td>领域表达式字符串</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>resModel</td>
+            <td>String</td>
+            <td>目标模型名称</td>
+            <td>必填</td>
+        </tr>
+        <tr>
+            <td>className</td>
+            <td>String</td>
+            <td>附加CSS类名</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>defaultConnector</td>
+            <td>String</td>
+            <td>默认逻辑连接符("&"或"|")</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>isDebugMode</td>
+            <td>Boolean</td>
+            <td>是否启用调试模式</td>
+            <td>false</td>
+        </tr>
+        <tr>
+            <td>readonly</td>
+            <td>Boolean</td>
+            <td>是否只读</td>
+            <td>true</td>
+        </tr>
+        <tr>
+            <td>update</td>
+            <td>Function</td>
+            <td>领域值更新时的回调函数</td>
+            <td>空函数</td>
+        </tr>
+        <tr>
+            <td>debugUpdate</td>
+            <td>Function</td>
+            <td>调试模式下更新的回调函数</td>
+            <td>可选</td>
+        </tr>
+    </table>
+    
+    <h3>核心方法解析</h3>
+    
+    <div class="method-analysis">
+        <h4>setup()</h4>
+        <p>组件初始化方法，设置服务和状态：</p>
+        <div class="code-block">
+            <pre><code>setup() {
+    this.fieldService = useService("field");
+    this.loadFieldInfo = useLoadFieldInfo(this.fieldService);
+    this.makeGetFieldDef = useMakeGetFieldDef(this.fieldService);
+
+    this.tree = null;
+    this.showArchivedCheckbox = false;
+    this.includeArchived = false;
+
+    onWillStart(() => this.onPropsUpdated(this.props));
+    onWillUpdateProps((np) => this.onPropsUpdated(np));
+}</code></pre>
+        </div>
+        <ul>
+            <li>使用<code>fieldService</code>获取字段元数据</li>
+            <li>初始化树状结构和归档控制状态</li>
+            <li>设置生命周期钩子，确保属性更新时重新处理领域</li>
+        </ul>
+    </div>
+    
+    <div class="method-analysis">
+        <h4>onPropsUpdated(p)</h4>
+        <p>处理组件属性更新的核心方法：</p>
+        <div class="code-block">
+            <pre><code>async onPropsUpdated(p) {
+    let domain;
+    let isSupported = true;
+    try {
+        domain = new Domain(p.domain);
+    } catch {
+        isSupported = false;
+    }
+    if (!isSupported) {
+        this.tree = null;
+        this.showArchivedCheckbox = false;
+        this.includeArchived = false;
+        return;
+    }
+
+    const tree = treeFromDomain(domain);
+
+    const getFieldDef = await this.makeGetFieldDef(p.resModel, tree, ["active"]);
+
+    this.tree = treeFromDomain(domain, {
+        getFieldDef,
+        distributeNot: !p.isDebugMode,
+    });
+
+    this.showArchivedCheckbox = this.getShowArchivedCheckBox(Boolean(getFieldDef("active")), p);
+    this.includeArchived = false;
+    if (this.showArchivedCheckbox) {
+        if (this.tree.value === "&") {
+            this.tree.children = this.tree.children.filter((child) => {
+                if (deepEqual(child, ARCHIVED_CONDITION)) {
+                    this.includeArchived = true;
+                    return false;
+                }
+                return true;
+            });
+            if (this.tree.children.length === 1) {
+                this.tree = this.tree.children[0];
+            }
+        } else if (deepEqual(this.tree, ARCHIVED_CONDITION)) {
+            this.includeArchived = true;
+            this.tree = treeFromDomain(`[]`);
+        }
+    }
+}</code></pre>
+        </div>
+        <ul>
+            <li>尝试将领域字符串解析为<code>Domain</code>实例</li>
+            <li>将领域转换为树状结构</li>
+            <li>加载字段元数据</li>
+            <li>处理归档条件逻辑</li>
+            <li>重构树结构以适应UI显示</li>
+        </ul>
+    </div>
+    
+    <h2>使用场景和示例</h2>
+    
+    <h3>基本使用示例</h3>
+    
+    <div class="code-block">
+        <pre><code>&lt;DomainSelector
+    domain="[('state', '=', 'done'), ('partner_id', '!=', false)]"
+    resModel="sale.order"
+    update="(newDomain) => this.updateSearchDomain(newDomain)"
+/&gt;</code></pre>
+    </div>
+    <p>这个示例创建了一个销售订单模型的领域选择器，初始条件是状态为"已完成"且有合作伙伴的订单。</p>
+    
+    <h3>高级筛选器构建</h3>
+    
+    <div class="code-block">
+        <pre><code>class AdvancedFilter extends Component {
+    setup() {
+        this.state = useState({ 
+            domain: "[]",
+            model: "product.template" 
+        });
+    }
+    
+    updateDomain(newDomain) {
+        this.state.domain = newDomain;
+        this.applyFilter();
+    }
+    
+    applyFilter() {
+        // 应用筛选逻辑
+    }
+}
+
+// 模板部分
+&lt;DomainSelector
+    domain="state.domain"
+    resModel="state.model"
+    update="(domain) => this.updateDomain(domain)"
+    readonly="false"
+    defaultConnector="|"
+/&gt;</code></pre>
+    </div>
+    <p>这个示例展示了如何在自定义组件中集成DomainSelector，创建高级筛选功能。</p>
+    
+    <h3>调试模式下的使用</h3>
+    
+    <div class="code-block">
+        <pre><code>&lt;DomainSelector
+    domain="[('amount', '>=', 1000)]"
+    resModel="account.move"
+    isDebugMode="true"
+    update="(domain) => this.updateDomain(domain)"
+    debugUpdate="(rawDomain) => this.updateRawDomain(rawDomain)"
+    readonly="false"
+/&gt;</code></pre>
+    </div>
+    <p>在调试模式下，用户可以直接编辑原始领域表达式，适合开发人员或高级用户。</p>
+    
+    <h2>与其他模块的交互</h2>
+    
+    <p><code>DomainSelector</code>组件与多个Odoo核心模块紧密集成：</p>
+    
+    <div class="module-interaction">
+        <div class="module-item">
+            <h4>TreeEditor</h4>
+            <p>DomainSelector基于TreeEditor组件构建，将领域表达式转换为树状结构来进行可视化编辑。</p>
+        </div>
+        <div class="module-item">
+            <h4>ModelFieldSelector</h4>
+            <p>用于选择模型字段路径，使用户可以构建基于任何可达字段的条件。</p>
+        </div>
+        <div class="module-item">
+            <h4>Field Service</h4>
+            <p>加载模型字段元数据，为操作符和值选择器提供信息。</p>
+        </div>
+        <div class="module-item">
+            <h4>Domain类</h4>
+            <p>处理领域表达式的解析、验证和规范化。</p>
+        </div>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    
+    <div class="warning">
+        <strong>性能考虑：</strong>在处理大型模型或复杂领域表达式时，DomainSelector需要加载完整的字段元数据，这可能导致性能开销。在高性能场景中，考虑预加载字段定义或限制字段选择范围。
+    </div>
+    
+    <ul>
+        <li><strong>始终设置正确的resModel</strong>：确保指定正确的模型名称，否则字段加载将失败</li>
+        <li><strong>处理未知字段</strong>：在处理动态或自定义领域时，要考虑字段可能不存在的情况</li>
+        <li><strong>合理使用defaultConnector</strong>：根据业务逻辑选择适当的默认连接符（"&"表示且，"|"表示或）</li>
+        <li><strong>对复杂领域使用调试模式</strong>：某些高级领域表达式在可视化编辑器中可能无法完全支持，此时应启用调试模式</li>
+        <li><strong>考虑归档记录处理</strong>：如果模型有active字段，应当考虑归档记录的显示逻辑</li>
+    </ul>
+    
+    <h2>Odoo 18中的新特性</h2>
+    <p>在Odoo 18中，DomainSelector组件有以下改进：</p>
+    <ul>
+        <li>更好的字段类型支持，包括JSON和属性字段</li>
+        <li>增强的操作符推断和显示逻辑</li>
+        <li>改进的性能和内存占用</li>
+        <li>更好的错误处理和用户反馈</li>
+        <li>与TreeEditor的深度集成，提供更一致的用户体验</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>DomainSelector是Odoo中的核心UI组件，它使得：</p>
+    <ul>
+        <li>开发者可以为最终用户提供友好的条件构建界面</li>
+        <li>非技术用户能够构建复杂的数据筛选条件</li>
+        <li>应用程序可以以一致的方式处理领域表达式</li>
+        <li>高级用户可以在视觉编辑和代码编辑之间切换</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发需要复杂筛选或条件编辑的Odoo模块时，优先考虑使用DomainSelector组件，而不是自行实现类似功能。这样可以确保与系统其他部分的一致性，并利用Odoo的内置优化。
+    </div>
+</body>
+</html> 

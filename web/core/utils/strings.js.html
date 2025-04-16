@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo字符串处理工具解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo字符串处理工具解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>strings.js</code>是Odoo 18中的核心工具模块，提供了一系列处理字符串的实用函数。这些函数被广泛应用于Odoo的前端框架中，用于文本格式化、验证、转换和国际化等场景。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>字符串处理是前端开发中的基础需求，strings.js提供了一套统一的API来处理各种常见的字符串操作，确保整个系统中字符串处理的一致性和安全性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>HTML转义</strong>：安全处理将要插入到HTML中的文本</li>
+        <li><strong>正则表达式转义</strong>：准备用于正则表达式的字符串</li>
+        <li><strong>字符串格式化</strong>：类似于其他语言中的sprintf功能</li>
+        <li><strong>字符串变形</strong>：如首字母大写等操作</li>
+        <li><strong>重音符号处理</strong>：移除字符中的重音符号</li>
+        <li><strong>字符串验证</strong>：检查是否符合特定格式，如Email</li>
+        <li><strong>字符串分隔</strong>：按指定模式在字符串中插入分隔符</li>
+    </ol>
+    
+    <h2>常量定义</h2>
+    <p>模块定义了一个特殊的常量：</p>
+    <div class="code-block">
+        <pre><code>export const nbsp = "\u00a0";</code></pre>
+    </div>
+    <p>这个常量表示不间断空格（non-breaking space），在HTML中等同于<code>&amp;nbsp;</code>，用于避免因单词间的空格导致的自动换行。</p>
+    
+    <h2>核心函数解析</h2>
+    
+    <h3>1. escape - HTML转义</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Escapes a string for HTML.
+ *
+ * @param {string | number} [str] the string to escape
+ * @returns {string} an escaped string
+ */
+export function escape(str) {
+    if (str === undefined) {
+        return "";
+    }
+    if (typeof str === "number") {
+        return String(str);
+    }
+    [
+        ["&", "&amp;"],
+        ["<", "&lt;"],
+        [">", "&gt;"],
+        ["'", "&#x27;"],
+        ['"', "&quot;"],
+        ["`", "&#x60;"],
+    ].forEach((pairs) => {
+        str = String(str).replaceAll(pairs[0], pairs[1]);
+    });
+    return str;
+}</code></pre>
+    </div>
+    
+    <p>这个函数用于将普通字符串转换为HTML安全的字符串，可以防止XSS攻击。它会将特殊字符替换为对应的HTML实体。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { escape } from "@web/core/utils/strings";
+
+// 假设用户输入了包含HTML的文本
+const userInput = "<script>alert('危险脚本')</script>";
+
+// 安全处理后再渲染
+const safeHTML = escape(userInput);
+// 结果: "&lt;script&gt;alert(&#x27;危险脚本&#x27;)&lt;/script&gt;"</code></pre>
+    </div>
+    
+    <h3>2. escapeRegExp - 正则表达式转义</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Escapes a string to use as a RegExp.
+ * @url https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions#Escaping
+ *
+ * @param {string} str
+ * @returns {string} escaped string to use as a RegExp
+ */
+export function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}</code></pre>
+    </div>
+    
+    <p>这个函数用于转义将用作正则表达式的字符串中的特殊字符，确保这些字符被解释为文字字符而不是正则表达式的元字符。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { escapeRegExp } from "@web/core/utils/strings";
+
+// 用户输入作为搜索词
+const searchTerm = "user.input+with[special](chars)";
+
+// 创建安全的正则表达式
+const safeRegExp = new RegExp(escapeRegExp(searchTerm), "g");
+// 相当于: /user\.input\+with\[special\]\(chars\)/g</code></pre>
+    </div>
+    
+    <h3>3. intersperse - 字符串分隔</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Intersperses ``separator`` in ``str`` at the positions indicated by
+ * ``indices``.
+ *
+ * ``indices`` is an array of relative offsets (from the previous insertion
+ * position, starting from the end of the string) at which to insert
+ * ``separator``.
+ *
+ * There are two special values:
+ *
+ * ``-1``
+ *   indicates the insertion should end now
+ * ``0``
+ *   indicates that the previous section pattern should be repeated (until all
+ *   of ``str`` is consumed)
+ *
+ * @param {string} str
+ * @param {number[]} indices
+ * @param {string} separator
+ * @returns {string}
+ */
+export function intersperse(str, indices, separator = "") {
+    separator = separator || "";
+    const result = [];
+    let last = str.length;
+    for (let i = 0; i < indices.length; ++i) {
+        let section = indices[i];
+        if (section === -1 || last <= 0) {
+            // Done with string, or -1 (stops formatting string)
+            break;
+        } else if (section === 0 && i === 0) {
+            // repeats previous section, which there is none => stop
+            break;
+        } else if (section === 0) {
+            // repeat previous section forever
+            //noinspection AssignmentToForLoopParameterJS
+            section = indices[--i];
+        }
+        result.push(str.substring(last - section, last));
+        last -= section;
+    }
+    const s = str.substring(0, last);
+    if (s) {
+        result.push(s);
+    }
+    return result.reverse().join(separator);
+}</code></pre>
+    </div>
+    
+    <p>这个复杂的函数用于在字符串中按照特定模式插入分隔符。它特别适用于格式化电话号码、信用卡号等需要特定分隔规则的字符串。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { intersperse } from "@web/core/utils/strings";
+
+// 格式化电话号码
+const phoneNumber = "13812345678";
+const formattedPhone = intersperse(phoneNumber, [2, 2, 2, 0], " ");
+// 结果: "138 12 34 56 78"
+
+// 格式化信用卡号
+const cardNumber = "1234567890123456";
+const formattedCard = intersperse(cardNumber, [4, 4, 4, 4], " ");
+// 结果: "1234 5678 9012 3456"</code></pre>
+    </div>
+    
+    <h3>4. sprintf - 字符串格式化</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Returns a string formatted using given values.
+ * If the value is an object, its keys will replace `%(key)s` expressions.
+ * If the values are a set of strings, they will replace `%s` expressions.
+ * If no value is given, the string will not be formatted.
+ *
+ * @param {string} s
+ * @param {any[]} values
+ * @returns {string}
+ */
+export function sprintf(s, ...values) {
+    if (values.length === 1 && Object.prototype.toString.call(values[0]) === "[object Object]") {
+        const valuesDict = values[0];
+        s = s.replace(/%\(([^)]+)\)s/g, (match, value) => valuesDict[value]);
+    } else if (values.length > 0) {
+        s = s.replace(/%s/g, () => values.shift());
+    }
+    return s;
+}</code></pre>
+    </div>
+    
+    <p>这个函数实现了类似于Python的字符串格式化功能，支持两种模式：位置替换和命名替换。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { sprintf } from "@web/core/utils/strings";
+
+// 位置替换方式
+const formatted1 = sprintf("Hello, %s! You have %s new messages.", "John", 5);
+// 结果: "Hello, John! You have 5 new messages."
+
+// 命名替换方式
+const formatted2 = sprintf("Hello, %(name)s! You have %(count)s new messages.", {
+    name: "John",
+    count: 5
+});
+// 结果: "Hello, John! You have 5 new messages."</code></pre>
+    </div>
+    
+    <h3>5. capitalize - 首字母大写</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Capitalizes a string: "abc def" => "Abc def"
+ *
+ * @param {string} s the input string
+ * @returns {string}
+ */
+export function capitalize(s) {
+    return s ? s[0].toUpperCase() + s.slice(1) : "";
+}</code></pre>
+    </div>
+    
+    <p>这个函数将字符串的第一个字母转换为大写，常用于格式化名称或标题。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { capitalize } from "@web/core/utils/strings";
+
+const name = "john doe";
+const formattedName = capitalize(name);
+// 结果: "John doe"</code></pre>
+    </div>
+    
+    <h3>6. unaccent - 移除重音符号</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Replace diacritics character with ASCII character
+ *
+ * @param {string} str diacritics string
+ * @param {boolean} caseSensitive
+ * @returns {string} ASCII string
+ */
+export function unaccent(str, caseSensitive) {
+    str = str.replace(/[^\u0000-\u007E]/g, function (accented) {
+        return diacriticsMap[accented] || accented;
+    });
+    return caseSensitive ? str : str.toLowerCase();
+}</code></pre>
+    </div>
+    
+    <p>这个函数移除字符串中的重音符号，将它们替换为标准ASCII字符。函数使用一个大型的diacriticsMap映射表（定义在代码中但此处省略）来完成转换。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { unaccent } from "@web/core/utils/strings";
+
+const text = "Résumé with Café";
+const unaccentedText = unaccent(text);
+// 结果: "resume with cafe"
+
+const unaccentedCaseSensitive = unaccent(text, true);
+// 结果: "Resume with Cafe"</code></pre>
+    </div>
+    
+    <h3>7. isEmail - 电子邮件验证</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * @param {string} value
+ * @returns boolean
+ */
+export function isEmail(value) {
+    // http://stackoverflow.com/questions/46155/validate-email-address-in-javascript
+    const re = /^(([^<>()\[\]\.,;:\s@\"]+(\.[^<>()\[\]\.,;:\s@\"]+)*)|(\".+\"))@(([^<>()[\]\.,;:\s@\"]+\.)+[^<>()[\]\.,;:\s@\"]{2,})$/i;
+    return re.test(value);
+}</code></pre>
+    </div>
+    
+    <p>这个函数用于验证字符串是否是有效的电子邮件地址格式。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { isEmail } from "@web/core/utils/strings";
+
+const email1 = "user@example.com";
+const isValid1 = isEmail(email1); // true
+
+const email2 = "invalid-email";
+const isValid2 = isEmail(email2); // false</code></pre>
+    </div>
+    
+    <h3>8. isNumeric - 数字字符串验证</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Return true if the string is composed of only digits
+ *
+ * @param {string} value
+ * @returns boolean
+ */
+export function isNumeric(value) {
+    return Boolean(value?.match(/^\d+$/));
+}</code></pre>
+    </div>
+    
+    <p>这个函数检查字符串是否只包含数字字符。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { isNumeric } from "@web/core/utils/strings";
+
+const value1 = "12345";
+const check1 = isNumeric(value1); // true
+
+const value2 = "123abc";
+const check2 = isNumeric(value2); // false
+
+const value3 = "123.45";
+const check3 = isNumeric(value3); // false (因为包含点号)</code></pre>
+    </div>
+    
+    <h3>9. exprToBoolean - 字符串转布尔值</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Parse the string to check if the value is true or false
+ * If the string is empty, 0, False or false it's considered as false
+ * The rest is considered as true
+ *
+ * @param {string} str
+ * @param {boolean} [trueIfEmpty=false]
+ * @returns {boolean}
+ */
+export function exprToBoolean(str, trueIfEmpty = false) {
+    return str ? !/^false|0$/i.test(str) : trueIfEmpty;
+}</code></pre>
+    </div>
+    
+    <p>这个函数将字符串解析为布尔值，按特定规则判断真假。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { exprToBoolean } from "@web/core/utils/strings";
+
+exprToBoolean("true");  // true
+exprToBoolean("1");     // true
+exprToBoolean("false"); // false
+exprToBoolean("0");     // false
+exprToBoolean("");      // false
+exprToBoolean("", true); // true (空字符串，但trueIfEmpty设为true)
+exprToBoolean("any other string"); // true</code></pre>
+    </div>
+    
+    <h2>diacriticsMap - 重音符号映射表</h2>
+    <p>模块中最大的部分是diacriticsMap，它是一个将带重音字符映射到不带重音的ASCII字符的对象。这个映射表支持unaccent函数的工作。</p>
+    <p>由于映射表非常大，包含几百个字符映射，这里只展示部分例子：</p>
+    
+    <div class="code-block">
+        <pre><code>const diacriticsMap = {
+    '\u0041': 'A','\u24B6': 'A','\uFF21': 'A','\u00C0': 'A','\u00C1': 'A',
+    // ... 大量字符映射 ...
+    '\u007A': 'z','\u24E9': 'z','\uFF5A': 'z','\u017A': 'z','\u1E91': 'z',
+};</code></pre>
+    </div>
+    
+    <h2>实际应用场景</h2>
+    <p>strings.js模块在Odoo前端中有广泛的应用场景：</p>
+    
+    <div class="use-cases">
+        <div class="use-case">
+            <h3>表单验证</h3>
+            <p>使用isEmail和isNumeric等函数验证用户输入：</p>
+            <pre><code>import { isEmail } from "@web/core/utils/strings";
+
+class ContactForm extends Component {
+    validateEmail() {
+        const email = this.state.email;
+        if (!isEmail(email)) {
+            this.state.errors.email = "请输入有效的电子邮件地址";
+            return false;
+        }
+        return true;
+    }
+}</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>多语言支持</h3>
+            <p>使用sprintf实现文本翻译和变量替换：</p>
+            <pre><code>import { sprintf } from "@web/core/utils/strings";
+import { _t } from "@web/core/l10n/translation";
+
+// 在翻译系统中注册的模板字符串
+const template = _t("Hello, %s! Your account balance is %s.");
+
+// 使用时填充变量
+const message = sprintf(template, userName, formatCurrency(balance));</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>格式化显示</h3>
+            <p>使用intersperse格式化数据显示：</p>
+            <pre><code>import { intersperse } from "@web/core/utils/strings";
+
+// 格式化电话号码显示
+function formatPhone(phone) {
+    // 不同国家的电话格式可能不同
+    if (phone.startsWith("+86")) { // 中国格式
+        return "+86 " + intersperse(phone.substring(3), [3, 4, 4], " ");
+    } else if (phone.startsWith("+1")) { // 美国格式
+        return "+1 " + intersperse(phone.substring(2), [3, 3, 4], "-");
+    }
+    // 默认格式
+    return intersperse(phone, [3, 2, 2, 2, 0], " ");
+}</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>安全输出</h3>
+            <p>使用escape防止XSS攻击：</p>
+            <pre><code>import { escape } from "@web/core/utils/strings";
+
+// 从不可信来源获取内容
+const userComment = await fetchUserComment(commentId);
+
+// 在模板中安全显示
+const template = `
+    <div class="comment">
+        <h3>${escape(userComment.author)}</h3>
+        <p>${escape(userComment.content)}</p>
+    </div>
+`;</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>搜索优化</h3>
+            <p>使用unaccent和escapeRegExp改进搜索功能：</p>
+            <pre><code>import { unaccent, escapeRegExp } from "@web/core/utils/strings";
+
+class ProductSearch {
+    search(query, products) {
+        // 移除重音并转换为小写以进行不区分大小写的搜索
+        const normalizedQuery = unaccent(query, false);
+        // 转义特殊字符以用于正则表达式
+        const safeQuery = escapeRegExp(normalizedQuery);
+        const regex = new RegExp(safeQuery, "i");
+        
+        return products.filter(product => {
+            // 对产品名称应用相同的标准化
+            const normalizedName = unaccent(product.name, false);
+            return regex.test(normalizedName);
+        });
+    }
+}</code></pre>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，strings.js模块包含以下改进：</p>
+    <ul>
+        <li><strong>性能优化</strong>：优化了字符串处理函数的执行效率</li>
+        <li><strong>增强的安全性</strong>：改进了escape函数以更好地防止XSS攻击</li>
+        <li><strong>更好的国际化支持</strong>：改进了unaccent函数以支持更多字符集</li>
+        <li><strong>null/undefined值处理</strong>：改进了isNumeric等函数以安全处理可能为null的值</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>使用strings.js模块时，开发者应注意以下几点：</p>
+    
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>处理用户输入时，使用escape函数防止XSS攻击</li>
+            <li>在构建正则表达式进行搜索前，使用escapeRegExp转义用户输入</li>
+            <li>使用sprintf进行字符串格式化时，确保提供足够的参数以避免格式字符串中的%s未被替换</li>
+            <li>在进行国际化时，考虑使用unaccent函数处理不同语言的特殊字符</li>
+            <li>对于表单验证，结合isEmail、isNumeric等函数与其他验证逻辑</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的集成</h2>
+    <p>strings.js模块是Odoo前端框架的基础工具，被许多其他模块使用：</p>
+    <ul>
+        <li><strong>翻译系统</strong>：使用sprintf实现变量替换</li>
+        <li><strong>表单验证</strong>：使用各种验证函数</li>
+        <li><strong>数据格式化</strong>：使用intersperse等函数格式化显示数据</li>
+        <li><strong>搜索系统</strong>：使用unaccent和escapeRegExp增强搜索功能</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>strings.js是Odoo 18前端框架中的基础工具模块，提供了：</p>
+    <ul>
+        <li>全面的字符串处理函数集合</li>
+        <li>安全的HTML输出转义功能</li>
+        <li>强大的文本格式化能力</li>
+        <li>国际化友好的字符处理</li>
+        <li>实用的字符串验证工具</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在处理用户输入、显示文本和国际化场景时，优先使用strings.js提供的函数而不是自己实现字符串处理逻辑，以确保安全性和一致性。
+    </div>
+</body>
+</html> 

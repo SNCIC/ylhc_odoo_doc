@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo前端Hooks解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo前端Hooks</h1>
+    
+    <h2>概述</h2>
+    <p>Odoo 18中的Hooks是前端开发中的重要工具，它们允许开发者以一种结构化的方式复用代码逻辑。这些Hooks基于OWL框架（Odoo Web Library），使开发者能够更高效地构建复杂的UI组件。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Hooks是一种函数，允许您在函数组件中"挂钩"React状态和生命周期功能。在Odoo中，它们遵循类似的概念，但针对OWL框架进行了定制。
+    </div>
+    
+    <h2>可用的Hooks</h2>
+    
+    <h3>useAssets</h3>
+    <h4>位置</h4>
+    <p><code>@web/core/assets</code></p>
+    
+    <h4>描述</h4>
+    <p>这个Hook用于加载和管理前端资源，如CSS和JavaScript文件。它允许开发者动态加载额外的资源，而无需在模块清单中预先声明它们。</p>
+    
+    <h3>useAutofocus</h3>
+    <h4>位置</h4>
+    <p><code>@web/core/utils/hooks</code></p>
+    
+    <h4>描述</h4>
+    <p>这个Hook用于在组件挂载后自动聚焦到一个特定的DOM元素。这对于创建表单和对话框特别有用，可以确保用户进入界面时光标已经在合适的位置。</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>useAutofocus(refName)¶
+
+参数
+* **refName** (`string()`) – 需要自动聚焦的元素的t-ref名称</code></pre>
+    </div>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { useAutofocus } from "@web/core/utils/hooks";
+import { Component, xml } from "@odoo/owl";
+
+class FormComponent extends Component {
+  static template = xml`
+    &lt;div&gt;
+      &lt;input type="text" t-ref="nameInput" /&gt;
+    &lt;/div&gt;
+  `;
+
+  setup() {
+    useAutofocus("nameInput");
+  }
+}</code></pre>
+    </div>
+    
+    <h3>useBus</h3>
+    <h4>位置</h4>
+    <p><code>@web/core/utils/hooks</code></p>
+    
+    <h4>描述</h4>
+    <p>这个Hook用于订阅事件总线上的事件。EventBus是Odoo中用于组件间通信的机制，useBus钩子简化了事件监听过程。</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>useBus(bus, eventName, callback)¶
+
+参数
+* **bus** (`EventBus()`) – 目标事件总线
+* **eventName** (`string()`) – 我们想要监听的事件名称
+* **callback** (`function()`) – 监听器回调函数</code></pre>
+    </div>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { useBus } from "@web/core/utils/hooks";
+import { EventBus } from "@odoo/owl";
+
+class NotificationComponent extends Component {
+  setup() {
+    this.bus = new EventBus();
+    
+    useBus(this.bus, "notification", (notification) => {
+      // 处理收到的通知
+      console.log(notification);
+    });
+  }
+}</code></pre>
+    </div>
+    
+    <h3>usePager</h3>
+    <h4>位置</h4>
+    <p><code>@web/search/pager_hook</code></p>
+    
+    <h4>描述</h4>
+    <p>显示视图控制面板的分页器。此Hook正确设置<code>env.config</code>以提供分页器所需的props。</p>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { usePager } from "@web/search/pager_hook";
+
+class CustomView {
+  setup() {
+    const state = owl.hooks.useState({
+      offset: 0,
+      limit: 80,
+      total: 50,
+    });
+    usePager(() => {
+      return {
+        offset: this.state.offset,
+        limit: this.state.limit,
+        total: this.state.total,
+        onUpdate: (newState) => {
+          Object.assign(this.state, newState);
+        },
+      };
+    });
+  }
+}</code></pre>
+    </div>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>usePager(getPagerProps)¶
+
+参数
+* **getPagerProps** (`function()`) – 返回分页器props的函数。</code></pre>
+    </div>
+    
+    <h3>usePosition</h3>
+    <h4>位置</h4>
+    <p><code>@web/core/position_hook</code></p>
+    
+    <h4>描述</h4>
+    <p>帮助相对于另一个HTML元素（"reference"）定位一个HTML元素（"popper"）。此Hook确保在窗口调整大小/滚动时更新定位。</p>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { usePosition } from "@web/core/position_hook";
+import { Component, xml } from "@odoo/owl";
+
+class MyPopover extends Component {
+  static template = xml`
+    &lt;div t-ref="popper"&gt;
+      我通过一个精彩的Hook定位！
+    &lt;/div&gt;
+  `;
+
+  setup() {
+    // 这里，reference是target props，它是一个HTMLElement
+    usePosition(this.props.target);
+  }
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>重要：</strong>您应该使用t-ref指令指示您的popper元素。
+    </div>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>usePosition(reference[, options])¶
+
+参数
+* **reference** (`HTMLElement or ()=>HTMLElement()`) – 要相对其定位的目标HTMLElement
+* **options** (`Options()`) – 定位选项（见下表）</code></pre>
+    </div>
+    
+    <table>
+        <tr>
+            <th>选项</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>popper</td>
+            <td>string</td>
+            <td>这是将要被定位的元素的useRef引用。默认是"popper"。</td>
+        </tr>
+        <tr>
+            <td>container</td>
+            <td>HTMLElement</td>
+            <td>预期popper不会溢出的容器。如果发生溢出，将尝试其他popper位置，直到找到不溢出的位置。（默认：&lt;html/&gt;节点）</td>
+        </tr>
+        <tr>
+            <td>margin</td>
+            <td>number</td>
+            <td>在popper和reference元素之间添加的边距（默认：0）</td>
+        </tr>
+        <tr>
+            <td>position</td>
+            <td>Direction[-Variant]</td>
+            <td>所需位置。它是由一个Direction和一个Variant通过破折号分隔组成的字符串。Direction可以是：top, bottom, right, left。Variant可以是：start, middle, end, fit。变体可以省略（默认变体是middle）。fit变体意味着popper将具有完全相同的宽度或高度，取决于所选择的方向。有效位置示例：right-end, top-start, left-middle, left, bottom-fit。（默认位置：bottom）</td>
+        </tr>
+        <tr>
+            <td>onPositioned</td>
+            <td>(el: HTMLElement, position: PositioningSolution) => void</td>
+            <td>每次进行定位时都会调用的回调（例如在组件挂载/更新时、文档滚动、窗口调整大小等）。可用于例如根据当前位置进行动态样式设置。PositioningSolution是具有以下类型的对象：{ direction: Direction, variant: Variant, top: number, left: number }。</td>
+        </tr>
+    </table>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { Component, xml, useRef } from "@odoo/owl";
+import { usePosition } from "@web/core/position_hook";
+
+class DropMenu extends Component {
+  static template = xml`
+    &lt;button t-ref="toggler"&gt;Toggle Menu&lt;/button&gt;
+    &lt;div t-ref="menu"&gt;
+      &lt;t t-slot="default"&gt;
+        这是菜单默认内容。
+      &lt;/t&gt;
+    &lt;/div&gt;
+  `;
+
+  setup() {
+    const toggler = useRef("toggler");
+    usePosition(
+      () => toggler.el,
+      {
+        popper: "menu",
+        position: "right-start",
+        onPositioned: (el, { direction, variant }) => {
+          el.classList.add(`dm-${direction}`); // -> "dm-top" "dm-right" "dm-bottom" "dm-left"
+          el.style.backgroundColor = variant === "middle" ? "red" : "blue";
+        },
+      },
+    );
+  }
+}</code></pre>
+    </div>
+    
+    <h3>useSpellCheck</h3>
+    <h4>位置</h4>
+    <p><code>@web/core/utils/hooks</code></p>
+    
+    <h4>描述</h4>
+    <p>通过在当前组件中使用<code>t-ref="spellcheck"</code>，在焦点上激活输入或文本区域的拼写检查状态。然后，这个状态在失去焦点时被移除，同时也移除红色轮廓，这提高了内容的可读性。</p>
+    
+    <p>这个钩子也可以用于具有<code>contenteditable</code>属性的任何HTML元素。要完全禁用可能被钩子启用的元素上的拼写检查，请在元素上明确将<code>spellcheck</code>属性设置为<code>false</code>。</p>
+    
+    <p>示例：</p>
+    <div class="code-block">
+        <pre><code>import { useSpellCheck } from "@web/core/utils/hooks";
+
+class Comp {
+  setup() {
+    this.simpleRef = useSpellCheck();
+    this.customRef = useSpellCheck({ refName: "custom" });
+    this.nodeRef = useSpellCheck({ refName: "container" });
+  }
+  static template = "Comp";
+}
+
+&lt;t t-name="Comp"&gt;
+  &lt;input t-ref="spellcheck" type="text"/&gt;
+  &lt;textarea t-ref="custom"/&gt;
+  &lt;div t-ref="container"&gt;
+    &lt;input type="text" spellcheck="false"/&gt;
+    &lt;div contenteditable="true"/&gt;
+  &lt;/div&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>useSpellCheck([options])¶
+
+参数
+* **options** (`Options()`) – 拼写检查选项（见下表）</code></pre>
+    </div>
+    
+    <table>
+        <tr>
+            <th>选项</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>refName</td>
+            <td>string</td>
+            <td>这是将启用拼写检查的元素的useRef引用。</td>
+        </tr>
+    </table>
+    
+    <h2>最佳实践</h2>
+    <div class="note">
+        <strong>提示：</strong>
+        <ul>
+            <li>选择合适的Hook来解决特定问题，避免重新发明轮子</li>
+            <li>避免创建过多的事件监听器，特别是在使用useBus时</li>
+            <li>确保正确清理事件监听器和其他资源以避免内存泄漏</li>
+            <li>在使用定位Hook时考虑移动设备和响应式设计</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Odoo的Hooks提供了一种强大的方式来管理组件的行为和生命周期，使前端开发更加模块化和可维护。通过适当使用这些钩子，开发者可以创建出更具响应性和用户友好的界面。</p>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发新组件时，首先考虑是否可以利用现有的Hooks来简化您的代码，而不是从头开始实现相同的功能。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Base模型扩展解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 Base模型扩展解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>models.py</code>是Odoo 18框架中的核心文件之一，它扩展了基础的<code>base</code>模型，为Odoo的ORM系统提供了丰富的Web交互功能。该文件包含了多个重要方法，使得前端界面能够有效地与后端数据交互。</p>
+    
+    <div class="note">
+        <strong>功能定位：</strong>这个文件主要关注前后端数据交互的优化，实现了高效的数据读取、搜索、分组等操作，是Odoo 18 Web客户端性能和功能的基础。
+    </div>
+    
+    <h2>模型定义与继承</h2>
+    <div class="code-block">
+        <pre><code>class Base(models.AbstractModel):
+    _inherit = 'base'</code></pre>
+    </div>
+    
+    <p>该类通过继承<code>base</code>抽象模型扩展了所有Odoo模型的功能。因为所有Odoo模型最终都继承自<code>base</code>，所以这里定义的方法将对所有模型可用。</p>
+    
+    <h2>核心方法解析</h2>
+    
+    <h3>web_search_read 方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+@api.readonly
+def web_search_read(self, domain, specification, offset=0, limit=None, order=None, count_limit=None):
+    records = self.search_fetch(domain, specification.keys(), offset=offset, limit=limit, order=order)
+    values_records = records.web_read(specification)
+    return self._format_web_search_read_results(domain, values_records, offset, limit, count_limit)</code></pre>
+    </div>
+    
+    <p>这个方法结合了搜索和读取功能，是前端视图（如列表视图）获取数据的主要入口点。它允许在一次调用中完成：</p>
+    <ol>
+        <li>基于域表达式（domain）搜索记录</li>
+        <li>只读取指定字段（specification）</li>
+        <li>处理分页（offset和limit）</li>
+        <li>对结果排序（order）</li>
+        <li>优化性能的计数限制（count_limit）</li>
+    </ol>
+    
+    <div class="workflow">
+        <h4>方法工作流程：</h4>
+        <ol>
+            <li>使用<code>search_fetch</code>基于给定条件搜索记录</li>
+            <li>使用<code>web_read</code>获取这些记录的数据</li>
+            <li>使用<code>_format_web_search_read_results</code>格式化最终结果</li>
+        </ol>
+    </div>
+    
+    <h3>_format_web_search_read_results 方法</h3>
+    <div class="code-block">
+        <pre><code>def _format_web_search_read_results(self, domain, records, offset=0, limit=None, count_limit=None):
+    if not records:
+        return {
+            'length': 0,
+            'records': [],
+        }
+    current_length = len(records) + offset
+    limit_reached = len(records) == limit
+    force_search_count = self._context.get('force_search_count')
+    count_limit_reached = count_limit and count_limit <= current_length
+    if limit and ((limit_reached and not count_limit_reached) or force_search_count):
+        length = self.search_count(domain, limit=count_limit)
+    else:
+        length = current_length
+    return {
+        'length': length,
+        'records': records,
+    }</code></pre>
+    </div>
+    
+    <p>这个方法负责格式化<code>web_search_read</code>的结果，添加了总记录数的信息。它使用了几个优化策略来避免不必要的计数操作：</p>
+    <ul>
+        <li>如果查询结果为空，直接返回0</li>
+        <li>如果结果数量小于limit，则使用当前结果数加offset作为总数</li>
+        <li>只有在必要时（如达到限制或强制要求）才执行完整计数</li>
+    </ul>
+    
+    <h3>web_save 方法</h3>
+    <div class="code-block">
+        <pre><code>def web_save(self, vals, specification: dict[str, dict], next_id=None) -> list[dict]:
+    if self:
+        self.write(vals)
+    else:
+        self = self.create(vals)
+    if next_id:
+        self = self.browse(next_id)
+    return self.with_context(bin_size=True).web_read(specification)</code></pre>
+    </div>
+    
+    <p>这个方法提供了一种统一的方式来创建或更新记录，并立即返回更新后的数据：</p>
+    <ul>
+        <li>如果当前记录集不为空，则更新现有记录</li>
+        <li>如果当前记录集为空，则创建新记录</li>
+        <li>可以可选地指定下一个要读取的记录ID</li>
+        <li>使用<code>bin_size=True</code>上下文优化二进制字段（如图像）的读取</li>
+    </ul>
+    
+    <h3>web_read 方法</h3>
+    <div class="code-block">
+        <pre><code>@api.readonly
+def web_read(self, specification: dict[str, dict]) -> list[dict]:
+    fields_to_read = list(specification) or ['id']
+
+    if fields_to_read == ['id']:
+        # 如果只请求读取ids，我们已经有它们了，可以立即构建返回字典
+        values_list = [{'id': id_} for id_ in self._ids]
+    else:
+        values_list: list[dict] = self.read(fields_to_read, load=None)
+
+    if not values_list:
+        return values_list
+
+    def cleanup(vals: dict) -> dict:
+        """ 修复新记录中vals['id']的值。 """
+        if not vals['id']:
+            vals['id'] = vals['id'].origin or False
+        return vals
+
+    for field_name, field_spec in specification.items():
+        field = self._fields.get(field_name)
+        if field is None:
+            continue
+
+        if field.type == 'many2one':
+            # 处理many2one字段...
+
+        elif field.type in ('one2many', 'many2many'):
+            # 处理o2m和m2m字段...
+
+        elif field.type in ('reference', 'many2one_reference'):
+            # 处理reference字段...
+
+    return values_list</code></pre>
+    </div>
+    
+    <p>这是Odoo 18中最关键的方法之一，它提供了一种优化的方式来读取记录字段，尤其是关系字段。主要特点：</p>
+    <ul>
+        <li>支持读取指定字段的子字段（如<code>partner_id.name</code>）</li>
+        <li>优化关系字段的加载，减少数据库查询</li>
+        <li>特殊处理不同类型的关系字段（many2one、one2many、many2many、reference）</li>
+        <li>提供了对字段访问权限的优雅处理</li>
+    </ul>
+    
+    <h3>web_read_group 方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+@api.readonly
+def web_read_group(self, domain, fields, groupby, limit=None, offset=0, orderby=False, lazy=True):
+    """
+    返回read_group的结果和匹配搜索域的总组数。
+    """
+    groups = self._web_read_group(domain, fields, groupby, limit, offset, orderby, lazy)
+
+    if not groups:
+        length = 0
+    elif limit and len(groups) == limit:
+        annotated_groupby = self._read_group_get_annotated_groupby(groupby, lazy=lazy)
+        length = limit + len(self._read_group(
+            domain,
+            groupby=annotated_groupby.values(),
+            offset=limit,
+        ))
+    else:
+        length = len(groups) + offset
+    return {
+        'groups': groups,
+        'length': length
+    }</code></pre>
+    </div>
+    
+    <p>此方法实现了高效的数据分组和聚合功能，用于透视表、图表和分组列表视图。它通过以下方式优化了性能：</p>
+    <ul>
+        <li>使用<code>_web_read_group</code>执行实际分组</li>
+        <li>只在必要时计算总组数</li>
+        <li>支持惰性加载（lazy=True）以提高大数据集的性能</li>
+    </ul>
+    
+    <h3>read_progress_bar 方法</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+@api.readonly
+def read_progress_bar(self, domain, group_by, progress_bar):
+    """
+    获取看板列进度条所需的数据。
+    这些数据与read_group操作一起获取。
+    """
+    def adapt(value):
+        if isinstance(value, tuple):
+            value = value[0]
+        return value
+
+    result = {}
+    for group in self.read_group(domain, ['__count'], [group_by, progress_bar['field']], lazy=False):
+        group_by_value = str(adapt(group[group_by]))
+        field_value = group[progress_bar['field']]
+        if group_by_value not in result:
+            result[group_by_value] = dict.fromkeys(progress_bar['colors'], 0)
+        if field_value in result[group_by_value]:
+            result[group_by_value][field_value] += group['__count']
+    return result</code></pre>
+    </div>
+    
+    <p>这个方法专为看板视图的进度条功能而设计。它获取根据指定字段分组的记录计数，使看板视图能够显示直观的进度条：</p>
+    <ul>
+        <li>使用<code>read_group</code>高效地计算每个组合的记录数</li>
+        <li>处理分组字段可能是元组的情况（如many2one字段）</li>
+        <li>根据请求的颜色配置组织结果</li>
+    </ul>
+    
+    <h3>搜索面板相关方法</h3>
+    <p>文件包含多个与"搜索面板"(Search Panel)功能相关的方法：</p>
+    <ul>
+        <li><code>_search_panel_field_image</code>: 获取字段值的图像</li>
+        <li><code>_search_panel_domain_image</code>: 获取域表达式的图像</li>
+        <li><code>_search_panel_global_counters</code>: 计算全局计数器</li>
+        <li><code>_search_panel_sanitized_parent_hierarchy</code>: 处理父级层次结构</li>
+        <li><code>_search_panel_selection_range</code>: 处理选择字段范围</li>
+        <li><code>search_panel_select_range</code>: 处理搜索面板的单选范围</li>
+        <li><code>search_panel_select_multi_range</code>: 处理搜索面板的多选范围</li>
+    </ul>
+    
+    <p>这些方法一起提供了Odoo 18搜索面板的核心功能，包括分类过滤器、层次结构导航和动态计数。</p>
+    
+    <h3>onchange 方法</h3>
+    <div class="code-block">
+        <pre><code>def onchange(self, values: dict, field_names: list[str], fields_spec: dict):
+    """
+    对给定字段执行onchange，并返回结果。
+    """
+    # 这是为使用`Form`的测试准备的
+    self.env.flush_all()
+
+    env = self.env
+    cache = env.cache
+    first_call = not field_names
+
+    if any(fname not in self._fields for fname in field_names):
+        return {}
+
+    if first_call:
+        field_names = [fname for fname in values if fname != 'id']
+        missing_names = [fname for fname in fields_spec if fname not in values]
+        defaults = self.default_get(missing_names)
+        for field_name in missing_names:
+            values[field_name] = defaults.get(field_name, False)
+            if field_name in defaults:
+                field_names.append(field_name)
+                
+    # ... [方法的其余部分处理onchange逻辑] ...
+
+    return result</code></pre>
+    </div>
+    
+    <p>这个方法实现了Odoo的onchange机制，使表单视图中的字段能够动态响应用户输入：</p>
+    <ul>
+        <li>处理首次调用时的默认值</li>
+        <li>创建字段值的快照以跟踪变化</li>
+        <li>触发和应用onchange方法</li>
+        <li>处理递归onchange效果</li>
+        <li>计算并返回变更的值和警告</li>
+    </ul>
+    
+    <h3>web_override_translations 方法</h3>
+    <div class="code-block">
+        <pre><code>def web_override_translations(self, values):
+    """
+    此方法用于使用为每个字段提供的值覆盖给定字段的所有模态翻译。
+    """
+    self.ensure_one()
+    for field_name in values:
+        field = self._fields[field_name]
+        if field.translate is True:
+            translations = {lang: False for lang, _ in self.env['res.lang'].get_installed()}
+            translations['en_US'] = values[field_name]
+            translations[self.env.lang or 'en_US'] = values[field_name]
+            self.update_field_translations(field_name, translations)</code></pre>
+    </div>
+    
+    <p>此方法提供了覆盖字段翻译的功能：</p>
+    <ul>
+        <li>仅对可翻译字段生效</li>
+        <li>为所有已安装语言设置翻译</li>
+        <li>确保英语和当前语言的值被正确设置</li>
+    </ul>
+    
+    <h2>ResCompany 类</h2>
+    <div class="code-block">
+        <pre><code>class ResCompany(models.Model):
+    _inherit = 'res.company'
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        companies = super().create(vals_list)
+        style_fields = {'external_report_layout_id', 'font', 'primary_color', 'secondary_color'}
+        if any(not style_fields.isdisjoint(values) for values in vals_list):
+            self._update_asset_style()
+        return companies
+
+    def write(self, values):
+        res = super().write(values)
+        style_fields = {'external_report_layout_id', 'font', 'primary_color', 'secondary_color'}
+        if not style_fields.isdisjoint(values):
+            self._update_asset_style()
+        return res
+
+    def _get_asset_style_b64(self):
+        # 为所有公司创建一个样式包
+        company_ids = self.sudo().search([])
+        company_styles = self.env['ir.qweb']._render('web.styles_company_report', {
+                'company_ids': company_ids,
+            }, raise_if_not_found=False)
+        return base64.b64encode(company_styles.encode())
+
+    def _update_asset_style(self):
+        asset_attachment = self.env.ref('web.asset_styles_company_report', raise_if_not_found=False)
+        if not asset_attachment:
+            return
+        asset_attachment = asset_attachment.sudo()
+        b64_val = self._get_asset_style_b64()
+        if b64_val != asset_attachment.datas:
+            asset_attachment.write({'datas': b64_val})</code></pre>
+    </div>
+    
+    <p>ResCompany类扩展了公司模型，提供了处理公司特定样式的功能：</p>
+    <ul>
+        <li>监控与样式相关的字段变更</li>
+        <li>自动更新公司报表样式</li>
+        <li>优化样式资源的生成和存储</li>
+    </ul>
+    
+    <h2>RecordSnapshot 类</h2>
+    <div class="code-block">
+        <pre><code>class RecordSnapshot(dict):
+    """ 一个包含记录值的字典，遵循前缀树结构。 """
+    __slots__ = ['record', 'fields_spec']
+
+    def __init__(self, record: BaseModel, fields_spec: dict, fetch=True):
+        # 将记录放入字典以便在比较快照时包含它
+        super().__init__()
+        self.record = record
+        self.fields_spec = fields_spec
+        if fetch:
+            for name in fields_spec:
+                self.fetch(name)
+
+    def __eq__(self, other: 'RecordSnapshot'):
+        return self.record == other.record and super().__eq__(other)
+
+    def fetch(self, field_name):
+        """ 从记录的值中设置字段'name'的值。 """
+        # ... [实现详情]
+
+    def has_changed(self, field_name) -> bool:
+        """ 返回记录上的字段是否已更改。 """
+        # ... [实现详情]
+
+    def diff(self, other: 'RecordSnapshot', force=False):
+        """ 返回在'self'中与'other'不同的值。 """
+        # ... [实现详情]</code></pre>
+    </div>
+    
+    <p>RecordSnapshot类用于跟踪记录值的变化，特别是在onchange过程中：</p>
+    <ul>
+        <li>创建记录字段值的快照</li>
+        <li>比较快照以检测变化</li>
+        <li>生成表示这些变化的命令（特别是对于x2many字段）</li>
+    </ul>
+    
+    <h2>实际应用示例</h2>
+    
+    <h3>使用 web_search_read 获取列表视图数据</h3>
+    
+    <div class="code-block">
+        <pre><code># 前端JavaScript调用示例（伪代码）
+async function loadListViewData() {
+    const result = await this.rpc({
+        model: 'product.template',
+        method: 'web_search_read',
+        args: [
+            [['sale_ok', '=', true]], // domain
+            {
+                'id': {},
+                'name': {},
+                'list_price': {},
+                'categ_id': { 'fields': { 'id':{}, 'name':{} } } 
+            }, // specification
+            0, // offset
+            10, // limit
+            'name ASC' // order
+        ]
+    });
+    
+    // result.records 包含产品数据
+    // result.length 包含匹配记录的总数
+    return result;
+}</code></pre>
+    </div>
+    
+    <h3>使用 web_save 创建和更新记录</h3>
+    
+    <div class="code-block">
+        <pre><code># 前端JavaScript调用示例（伪代码）
+// 创建新记录
+async function createProduct() {
+    const result = await this.rpc({
+        model: 'product.template',
+        method: 'web_save',
+        args: [
+            [], // 空记录集，表示创建
+            { 
+                'name': '新产品',
+                'list_price': 100.0,
+                'categ_id': 1
+            }, // vals
+            {
+                'id': {},
+                'name': {},
+                'list_price': {},
+                'categ_id': { 'fields': { 'id':{}, 'name':{} } }
+            } // specification
+        ]
+    });
+    return result[0]; // 返回创建的记录
+}
+
+// 更新现有记录
+async function updateProduct(productId) {
+    const result = await this.rpc({
+        model: 'product.template',
+        method: 'web_save',
+        args: [
+            [productId], // 记录ID
+            { 
+                'list_price': 120.0
+            }, // vals
+            {
+                'id': {},
+                'name': {},
+                'list_price': {}
+            } // specification
+        ]
+    });
+    return result[0]; // 返回更新的记录
+}</code></pre>
+    </div>
+    
+    <h3>使用 web_read_group 实现数据分组</h3>
+    
+    <div class="code-block">
+        <pre><code># 前端JavaScript调用示例（伪代码）
+async function loadGroupedData() {
+    const result = await this.rpc({
+        model: 'sale.order',
+        method: 'web_read_group',
+        args: [
+            [['state', 'in', ['draft', 'sent', 'sale']]], // domain 
+            ['amount_total:sum'], // fields to aggregate
+            ['state'], // groupby
+            5, // limit
+            0, // offset
+            '' // orderby
+        ]
+    });
+    
+    // result.groups 包含分组数据 
+    // result.length 包含分组总数
+    return result;
+}</code></pre>
+    </div>
+    
+    <h2>性能优化设计</h2>
+    <p>Odoo 18在<code>models.py</code>中实现了多种性能优化策略：</p>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>惰性加载</h4>
+            <p>只在需要时加载关系字段的数据，减少了不必要的数据库查询。</p>
+        </div>
+        <div class="class-box">
+            <h4>批量操作</h4>
+            <p>一次加载多个记录，减少了数据库往返次数。</p>
+        </div>
+        <div class="class-box">
+            <h4>智能计数</h4>
+            <p>只在必要时执行全表计数操作，使用估计和现有数据优化计数。</p>
+        </div>
+        <div class="class-box">
+            <h4>二进制数据优化</h4>
+            <p>使用<code>bin_size=True</code>避免加载大型二进制数据，只返回大小信息。</p>
+        </div>
+    </div>
+    
+    <h2>与Odoo框架的集成</h2>
+    <p><code>models.py</code>中的方法与Odoo的其他部分紧密集成：</p>
+    <ul>
+        <li><strong>视图集成</strong>：为各类视图（列表、表单、看板等）提供数据服务</li>
+        <li><strong>ORM集成</strong>：扩展基础ORM功能以优化Web用例</li>
+        <li><strong>安全集成</strong>：尊重访问权限规则</li>
+        <li><strong>国际化集成</strong>：支持翻译字段和多语言内容</li>
+    </ul>
+    
+    <h2>Odoo 18中的特点和改进</h2>
+    <p>相比之前版本，Odoo 18在<code>models.py</code>中引入了以下增强：</p>
+    <ul>
+        <li>更精细的规范（specification）系统，允许更灵活的字段读取</li>
+        <li>改进的类型注解，提高了代码可读性和IDE支持</li>
+        <li>优化的命令（Command）处理，简化了x2many字段的操作</li>
+        <li>更好的缓存利用，减少冗余计算</li>
+        <li>更强大的搜索面板功能，提升了用户体验</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>开发者注意事项：</strong>
+        <ul>
+            <li>使用<code>web_read</code>和<code>web_search_read</code>代替原始的<code>read</code>和<code>search_read</code>以获得更好的性能和功能</li>
+            <li>使用<code>web_save</code>而不是分别调用<code>create</code>和<code>write</code></li>
+            <li>为关系字段提供完整的<code>specification</code>以避免额外的RPC调用</li>
+            <li>关注onchange机制的触发条件和传播规则</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Odoo 18中的<code>models.py</code>文件为所有模型提供了丰富的Web交互功能：</p>
+    <ul>
+        <li>优化的读取和搜索方法，提高了前端性能</li>
+        <li>强大的分组和聚合功能，支持高级数据分析</li>
+        <li>智能的onchange机制，实现了动态表单响应</li>
+        <li>革新的搜索面板功能，增强了数据导航</li>
+        <li>细致的翻译管理，支持全球化应用</li>
+    </ul>
+    
+    <p>通过这些功能，Odoo 18提供了一个高效、灵活的框架，使前端界面能够顺畅地与后端数据交互，创造出卓越的用户体验。</p>
+</body>
+</html> 

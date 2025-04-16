@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 服务系统解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 服务(Services)系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>服务(Services)是Odoo 18前端框架的核心部分，提供了各种全局功能，如HTTP请求、通知、路由等。服务系统使用依赖注入模式，允许组件和其他服务以结构化方式访问这些功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>服务是一种提供特定功能的对象，可以被应用程序的其他部分调用。服务通常是单例的，并在应用程序启动时被初始化。Odoo的服务系统使用注册表机制来管理服务的注册和获取。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>集中式功能管理</strong>：提供应用程序范围内的功能，如HTTP请求、通知和用户信息</li>
+        <li><strong>依赖注入</strong>：服务可以声明对其他服务的依赖，框架会自动处理这些依赖</li>
+        <li><strong>生命周期管理</strong>：服务在应用程序启动时被初始化，并在整个应用程序生命周期内保持活跃</li>
+        <li><strong>模块化</strong>：促进应用程序代码的模块化，使功能可以被封装在独立的服务中</li>
+    </ol>
+    
+    <h2>定义服务</h2>
+    <p>在Odoo中，服务定义为具有特定接口的对象，主要包含两个关键属性：</p>
+    
+    <div class="code-block">
+        <pre><code>const myService = {
+    dependencies: ["notification", "rpc"], // 依赖的其他服务
+    start(env, { notification, rpc }) {     // 初始化函数，接收环境和依赖服务
+        // 服务实现代码
+        
+        return {
+            // 返回服务的公共API
+            doSomething() {
+                // ...
+            }
+        };
+    }
+};</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>dependencies</code>：一个字符串数组，列出此服务依赖的其他服务名称</li>
+        <li><code>start</code>：服务的初始化函数，接收两个参数：
+            <ul>
+                <li><code>env</code>：全局环境对象，包含应用级信息和工具</li>
+                <li>依赖项对象：包含所有在dependencies中声明的服务实例</li>
+            </ul>
+        </li>
+        <li><code>start</code>返回的对象：定义了服务的公共API，可以被其他服务或组件使用</li>
+    </ul>
+    
+    <h2>使用服务</h2>
+    <p>服务可以通过以下方式使用：</p>
+    
+    <h3>1. 在其他服务中使用</h3>
+    <div class="code-block">
+        <pre><code>const anotherService = {
+    dependencies: ["myService"], // 声明依赖
+    start(env, { myService }) {  // 依赖被注入
+        // 使用myService的API
+        myService.doSomething();
+        
+        return {
+            // 此服务的API
+        };
+    }
+};</code></pre>
+    </div>
+    
+    <h3>2. 在Owl组件中使用</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        // 使用useService钩子获取服务
+        this.myService = useService("myService");
+        
+        // 现在可以在组件中使用该服务
+        this.myService.doSomething();
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 注册服务</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 将服务添加到服务注册表
+registry.category("services").add("myService", myService);</code></pre>
+    </div>
+    
+    <h2>服务参考列表</h2>
+    <p>Odoo 18提供了多个核心服务，下面是详细介绍：</p>
+    
+    <h3>Cookie服务</h3>
+    <h4>概述</h4>
+    <p><code>cookie</code>服务提供了处理浏览器cookies的工具，允许读取、设置和删除cookies。</p>
+    <p>技术名称：<code>cookie</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 获取cookie值
+current(cookieName)
+
+// 设置cookie
+setCookie(cookieName, value, ttl = 31536000)
+
+// 删除cookie
+deleteCookie(cookieName)</code></pre>
+    </div>
+    
+    <h3>Effect服务</h3>
+    <h4>概述</h4>
+    <p><code>effect</code>服务用于显示视觉效果，如成功操作后的彩虹效果。</p>
+    <p>技术名称：<code>effect</code></p>
+    <p>依赖：<code>rpc</code></p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 添加一个效果
+add(effectType, options)
+
+参数：
+* effectType (string) - 效果类型名称
+* options (Object) - 效果的配置选项（取决于效果类型）</code></pre>
+    </div>
+    
+    <h4>可用效果</h4>
+    <h5>RainbowMan</h5>
+    <p>显示一个彩虹人效果，通常用于庆祝用户的成就或完成某个重要操作。</p>
+    <div class="code-block">
+        <pre><code>// RainbowMan选项
+{
+    message: string, // 显示的消息
+    imgUrl: string,  // (可选) 图片URL
+    messageIsHtml: boolean, // (可选) 消息是否包含HTML
+}</code></pre>
+    </div>
+    
+    <h4>如何添加效果</h4>
+    <p>要添加新的效果，需要将其注册到<code>effects</code>注册表中：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 定义效果
+function myEffect(env, options) {
+    // 实现效果逻辑
+    return {
+        destroy() {
+            // 清理代码
+        }
+    };
+}
+
+// 注册效果
+registry.category("effects").add("myEffect", myEffect);</code></pre>
+    </div>
+    
+    <h4>示例</h4>
+    <div class="code-block">
+        <pre><code>// 在组件中使用Effect服务
+import { useService } from "@web/core/utils/hooks";
+
+setup() {
+    const effect = useService("effect");
+    
+    function celebrate() {
+        effect.add("rainbow_man", {
+            message: "恭喜！操作成功完成！",
+            imgUrl: "/my_module/static/img/trophy.png"
+        });
+    }
+    
+    return { celebrate };
+}</code></pre>
+    </div>
+    
+    <h3>Http服务</h3>
+    <h4>概述</h4>
+    <p><code>http</code>服务提供了发送HTTP请求的方法，是<code>rpc</code>服务的底层实现。</p>
+    <p>技术名称：<code>http</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 发送GET请求
+get(route, readMethod)
+
+// 发送POST请求
+post(route, params, readMethod)
+
+// 发送通用请求
+request(params)
+
+参数：
+* route (string) - API路由
+* params (Object) - 请求参数
+* readMethod (string) - 响应读取方法，如'text'或'json'</code></pre>
+    </div>
+    
+    <h4>示例</h4>
+    <div class="code-block">
+        <pre><code>// 在服务中使用Http服务
+const myService = {
+    dependencies: ["http"],
+    start(env, { http }) {
+        async function fetchData() {
+            const result = await http.get("/my_module/api/data", "json");
+            return result;
+        }
+        
+        return { fetchData };
+    }
+};</code></pre>
+    </div>
+    
+    <h3>Notification服务</h3>
+    <h4>概述</h4>
+    <p><code>notification</code>服务用于显示通知消息，可以是临时的或需要用户操作的。</p>
+    <p>技术名称：<code>notification</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 添加通知
+add(message, options)
+
+// 添加警告通知
+warning(message, options)
+
+// 添加警报通知
+alert(message, options)
+
+// 获取所有通知
+get()
+
+参数：
+* message (string) - 通知消息
+* options (Object) - 通知选项，包括：
+  - type: 'info'(默认), 'warning', 'danger', 'success'
+  - sticky: 是否固定显示不自动消失
+  - title: 通知标题
+  - className: 自定义CSS类
+  - onClose: 关闭时的回调函数</code></pre>
+    </div>
+    
+    <h4>示例</h4>
+    <div class="code-block">
+        <pre><code>// 在组件中使用通知服务
+import { useService } from "@web/core/utils/hooks";
+
+setup() {
+    const notification = useService("notification");
+    
+    function showSuccess() {
+        notification.add("操作成功完成", {
+            type: "success",
+            title: "成功",
+            sticky: false
+        });
+    }
+    
+    function showWarning() {
+        notification.warning("请注意此警告", {
+            title: "警告",
+            sticky: true
+        });
+    }
+    
+    return { showSuccess, showWarning };
+}</code></pre>
+    </div>
+    
+    <h3>Router服务</h3>
+    <h4>概述</h4>
+    <p><code>router</code>服务管理应用的路由，处理URL的变化和导航。</p>
+    <p>技术名称：<code>router</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 当前路由信息
+current
+
+// 导航到新路由
+navigate(to)
+
+// 重定向
+redirect(to)
+
+// 获取URL路径
+absoluteUrl(path)
+
+参数：
+* to (Object) - 目标路由，包含：
+  - pathname: 路径名
+  - search: 查询参数
+  - hash: 哈希值</code></pre>
+    </div>
+    
+    <h3>RPC服务</h3>
+    <h4>概述</h4>
+    <p><code>rpc</code>服务提供了与Odoo后端API通信的方法，是使用最广泛的服务之一。</p>
+    <p>技术名称：<code>rpc</code></p>
+    <p>依赖：<code>http</code></p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 执行RPC调用
+async (route, params = {}, settings = {})
+
+参数：
+* route (string) - 目标路由
+* params (Object) - 请求参数
+* settings (Object) - 请求设置，如超时、headers等</code></pre>
+    </div>
+    
+    <h4>错误处理</h4>
+    <p>RPC调用可能因两种主要原因失败：</p>
+    <ul>
+        <li>服务器错误：Odoo服务器返回错误（HTTP代码为200，但响应包含错误信息）</li>
+        <li>网络错误：无法连接到服务器或网络问题</li>
+    </ul>
+    
+    <p>当RPC失败时：</p>
+    <ul>
+        <li>表示RPC的Promise会被拒绝</li>
+        <li>在主应用总线上触发<code>RPC_ERROR</code>事件</li>
+    </ul>
+    
+    <p>服务器错误的事件载荷包含:</p>
+    <ul>
+        <li><code>type</code>: 'server'</li>
+        <li><code>message</code>: 错误消息</li>
+        <li><code>code</code>: 错误代码</li>
+        <li><code>name</code>: (可选) 错误名称</li>
+        <li><code>subType</code>: (可选) 错误子类型</li>
+        <li><code>data</code>: (可选) 包含debug信息</li>
+    </ul>
+    
+    <p>网络错误的事件载荷简单为<code>{type: 'network'}</code>。当发生网络错误时，系统会显示一个通知，并定期尝试连接服务器，直到服务器响应。</p>
+    
+    <h3>Scroller服务</h3>
+    <h4>概述</h4>
+    <p><code>scroller</code>服务处理锚点链接的自动滚动功能。</p>
+    <p>技术名称：<code>scroller</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <p>Scroller服务主要自动运行，无需直接调用API。它在文档上监听点击事件，当用户点击锚点链接时，自动滚动到目标元素。</p>
+    
+    <p>当检测到锚点链接点击时，服务会在主应用总线上触发<code>SCROLLER:ANCHOR_LINK_CLICKED</code>事件，包含以下信息：</p>
+    <ul>
+        <li><code>element</code>: 目标元素</li>
+        <li><code>id</code>: 链接中的id</li>
+        <li><code>originalEv</code>: 原始点击事件</li>
+    </ul>
+    
+    <p>如果需要自定义滚动行为，可以监听此事件并调用<code>preventDefault()</code>来阻止默认滚动行为。</p>
+    
+    <h3>Title服务</h3>
+    <h4>概述</h4>
+    <p><code>title</code>服务提供了管理文档标题的功能。</p>
+    <p>技术名称：<code>title</code></p>
+    <p>依赖：无</p>
+    
+    <h4>API</h4>
+    <div class="code-block">
+        <pre><code>// 当前标题
+current
+
+// 获取标题部分
+getParts()
+
+// 设置标题部分
+setParts(parts)
+
+参数：
+* parts (Object) - 键值对，其中键是标题部分的标识符，值是显示文本</code></pre>
+    </div>
+    
+    <p>标题由各部分组合而成，格式为<code>value_1 - ... - value_n</code>。如果将部分的值设为<code>null</code>，则会从标题中删除该部分。</p>
+    
+    <h3>User服务</h3>
+    <h4>概述</h4>
+    <p><code>user</code>服务提供有关当前登录用户的信息和功能。</p>
+    <p>技术名称：<code>user</code></p>
+    <p>依赖：<code>rpc</code></p>
+    
+    <h4>API</h4>
+    <table>
+        <tr>
+            <th>属性/方法</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>context</td>
+            <td>Object</td>
+            <td>用户上下文</td>
+        </tr>
+        <tr>
+            <td>db</td>
+            <td>Object</td>
+            <td>数据库信息</td>
+        </tr>
+        <tr>
+            <td>home_action_id</td>
+            <td>number | false</td>
+            <td>用户主页动作ID</td>
+        </tr>
+        <tr>
+            <td>isAdmin</td>
+            <td>boolean</td>
+            <td>用户是否为管理员</td>
+        </tr>
+        <tr>
+            <td>isSystem</td>
+            <td>boolean</td>
+            <td>用户是否属于系统组</td>
+        </tr>
+        <tr>
+            <td>lang</td>
+            <td>string</td>
+            <td>用户使用的语言</td>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>string</td>
+            <td>用户名称</td>
+        </tr>
+        <tr>
+            <td>partnerId</td>
+            <td>number</td>
+            <td>用户伙伴ID</td>
+        </tr>
+        <tr>
+            <td>tz</td>
+            <td>string</td>
+            <td>用户时区</td>
+        </tr>
+        <tr>
+            <td>userId</td>
+            <td>number</td>
+            <td>用户ID</td>
+        </tr>
+        <tr>
+            <td>userName</td>
+            <td>string</td>
+            <td>用户登录名</td>
+        </tr>
+    </table>
+    
+    <div class="code-block">
+        <pre><code>// 更新用户上下文
+updateContext(update)
+
+// 从上下文中移除键
+removeFromContext(key)
+
+// 检查用户是否属于特定组
+async hasGroup(group)
+
+参数：
+* update (Object) - 要更新到上下文的对象
+* key (string) - 要从上下文中移除的键
+* group (string) - 要检查的组的XML ID</code></pre>
+    </div>
+    
+    <h2>开发者使用指南</h2>
+    <p>以下是一些使用服务的最佳实践和常见模式：</p>
+    
+    <h3>示例1：创建自定义服务</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 定义服务
+const dataService = {
+    dependencies: ["rpc"],
+    start(env, { rpc }) {
+        async function getData(modelName, domainFilter, options = {}) {
+            const result = await rpc("/web/dataset/search_read", {
+                model: modelName,
+                domain: domainFilter,
+                fields: options.fields || [],
+                limit: options.limit || 0,
+                offset: options.offset || 0,
+                sort: options.sort || []
+            });
+            return result;
+        }
+        
+        return {
+            getData,
+        };
+    }
+};
+
+// 注册服务
+registry.category("services").add("data", dataService);</code></pre>
+    </div>
+    
+    <h3>示例2：在组件中使用多个服务</h3>
+    <div class="code-block">
+        <pre><code>import { Component, onWillStart, useState } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class DataDisplay extends Component {
+    setup() {
+        // 获取所需服务
+        this.data = useService("data");
+        this.notification = useService("notification");
+        this.user = useService("user");
+        
+        // 组件状态
+        this.state = useState({
+            records: [],
+            loading: true
+        });
+        
+        onWillStart(async () => {
+            try {
+                // 检查权限
+                const hasAccess = await this.user.hasGroup("base.group_user");
+                
+                if (hasAccess) {
+                    // 获取数据
+                    const result = await this.data.getData("product.template", [
+                        ["sale_ok", "=", true]
+                    ], {
+                        fields: ["name", "list_price", "default_code"],
+                        limit: 10
+                    });
+                    
+                    this.state.records = result.records;
+                    this.state.loading = false;
+                } else {
+                    this.notification.warning("您没有访问此数据的权限");
+                }
+            } catch (error) {
+                this.notification.add("加载数据时出错", {
+                    type: "danger",
+                    sticky: true
+                });
+            }
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在使用服务时，请注意以下事项：
+        <ul>
+            <li>仅在确实需要全局状态或功能时创建服务，避免滥用</li>
+            <li>始终正确声明服务依赖，以确保它们按正确顺序初始化</li>
+            <li>在组件中，使用<code>useService</code>钩子而不是直接访问<code>env.services</code></li>
+            <li>处理服务方法抛出的错误，特别是涉及网络请求的服务</li>
+            <li>避免在服务中存储大量状态，除非设计需要</li>
+        </ul>
+    </div>
+    
+    <h2>与注册表的关系</h2>
+    <p>服务系统与注册表系统紧密集成：</p>
+    <ul>
+        <li>所有服务都通过<code>registry.category("services")</code>注册表注册</li>
+        <li>服务启动器从注册表中加载服务定义，解析依赖关系，并初始化服务</li>
+        <li>服务可以依赖和使用注册表中的其他服务</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>Odoo的服务系统提供了：</p>
+    <ul>
+        <li>组织功能的强大机制</li>
+        <li>应用程序范围内的功能访问</li>
+        <li>依赖注入的简洁实现</li>
+        <li>丰富的内置服务集合</li>
+        <li>可扩展的架构，允许添加自定义服务</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>服务是扩展Odoo前端功能的理想方式。通过创建自定义服务，可以封装业务逻辑，提高代码复用性，并简化组件实现。服务应该设计为具有单一责任，清晰的API和适当的错误处理。
+    </div>
+</body>
+</html> 

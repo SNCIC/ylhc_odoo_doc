@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Python日期时间处理模块</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Python日期时间处理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>py_date.js</code>是Odoo前端框架中的一个专门模块，它提供了Python日期和时间类型在JavaScript中的实现。该模块精确模拟了Python中的<code>datetime</code>模块行为，确保前端处理日期时间的逻辑与后端保持一致性。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>由于JavaScript和Python处理日期时间的方式存在明显差异，为了在前端准确执行包含日期时间操作的Python表达式，需要在JavaScript中实现Python的日期时间类及其所有操作特性。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>日期和时间类实现</strong>：提供等同于Python的<code>date</code>、<code>datetime</code>、<code>time</code>类</li>
+        <li><strong>时间增量处理</strong>：实现<code>timedelta</code>和<code>relativedelta</code>类</li>
+        <li><strong>日期时间运算</strong>：支持日期加减、时间差计算等操作</li>
+        <li><strong>日期时间格式化</strong>：实现<code>strftime</code>方法进行格式化输出</li>
+        <li><strong>JavaScript-Python日期转换</strong>：实现JS Date和Python日期类型的相互转换</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>py_date.js实现了完整的Python日期时间功能，包括复杂的日历计算和时间处理算法：</p>
+    
+    <h3>核心类及方法概览</h3>
+    <table>
+        <tr>
+            <th>类名</th>
+            <th>对应Python类</th>
+            <th>主要方法</th>
+            <th>功能描述</th>
+        </tr>
+        <tr>
+            <td>PyDate</td>
+            <td>datetime.date</td>
+            <td>today, add, strftime, toordinal</td>
+            <td>处理日期（年月日）</td>
+        </tr>
+        <tr>
+            <td>PyDateTime</td>
+            <td>datetime.datetime</td>
+            <td>now, combine, add, strftime</td>
+            <td>处理日期时间（年月日时分秒微秒）</td>
+        </tr>
+        <tr>
+            <td>PyTime</td>
+            <td>datetime.time</td>
+            <td>create, strftime</td>
+            <td>处理时间（时分秒）</td>
+        </tr>
+        <tr>
+            <td>PyTimeDelta</td>
+            <td>datetime.timedelta</td>
+            <td>add, substract, divide, multiply</td>
+            <td>处理时间间隔</td>
+        </tr>
+        <tr>
+            <td>PyRelativeDelta</td>
+            <td>dateutil.relativedelta</td>
+            <td>add, substract</td>
+            <td>处理相对时间间隔（月年等）</td>
+        </tr>
+    </table>
+    
+    <h3>日历计算核心代码</h3>
+    <div class="code-block">
+        <pre><code>function isLeap(year) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysBeforeYear(year) {
+    const y = year - 1;
+    return y * 365 + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400);
+}
+
+function daysBeforeMonth(year, month) {
+    const postLeapFeb = month > 2 && isLeap(year);
+    return DAYS_BEFORE_MONTH[month] + (postLeapFeb ? 1 : 0);
+}</code></pre>
+    </div>
+    
+    <h3>PyDate类实现示例</h3>
+    <div class="code-block">
+        <pre><code>export class PyDate {
+    /**
+     * Returns the current local date
+     * @returns {PyDate}
+     */
+    static today() {
+        const now = new Date();
+        return new PyDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    }
+
+    /**
+     * @param {Date} date 
+     * @returns {PyDate}
+     */
+    static convertDate(date) {
+        return new PyDate(date.getFullYear(), date.getMonth() + 1, date.getDate());
+    }
+
+    /**
+     * @param {number} year 
+     * @param {number} month 
+     * @param {number} day 
+     */
+    constructor(year, month, day) {
+        this.year = year;
+        this.month = month;
+        this.day = day;
+    }
+    
+    // 更多方法...
+}</code></pre>
+    </div>
+    
+    <h3>日期时间操作例子</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Adds a timedelta to this date
+ * @param {PyTimeDelta} timedelta 
+ * @returns {PyDate}
+ */
+add(timedelta) {
+    const days = this.toordinal() + Math.floor(timedelta.days);
+    const { year, month, day } = ord2ymd(days);
+    return new PyDate(year, month, day);
+}
+
+/**
+ * Substracts another date or a timedelta
+ * @param {PyDate|PyTimeDelta} other 
+ * @returns {PyTimeDelta|PyDate}
+ */
+substract(other) {
+    if (other instanceof PyTimeDelta) {
+        return this.add(other.negate());
+    }
+    return new PyTimeDelta(this.toordinal() - other.toordinal(), 0, 0);
+}</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>py_date.js模块的工作原理基于以下几个关键概念：</p>
+    
+    <div class="flow-diagram">
+        <ol>
+            <li><strong>日期序数表示</strong>：使用整数表示从公元1年1月1日开始的天数（ordinal date）</li>
+            <li><strong>闰年计算</strong>：实现精确的格里高利历闰年规则（4年一闰，100年不闰，400年又闰）</li>
+            <li><strong>日期计算</strong>：通过序数表示实现日期加减和间隔计算</li>
+            <li><strong>相对日期处理</strong>：支持按月、年等单位的相对时间计算，处理如"下个月同一天"这样的情况</li>
+            <li><strong>格式化输出</strong>：实现与Python兼容的日期时间格式化</li>
+        </ol>
+    </div>
+    
+    <h3>典型的日期处理流程</h3>
+    
+    <div class="image-example">
+        <div class="flow-step">
+            <div class="step">1. 创建日期</div>
+            <div>new PyDate(2023, 5, 15)</div>
+        </div>
+        <div class="flow-step">
+            <div class="step">2. 转换为序数</div>
+            <div>调用toordinal() → 738669</div>
+        </div>
+        <div class="flow-step">
+            <div class="step">3. 日期计算</div>
+            <div>序数加减运算</div>
+        </div>
+        <div class="flow-step">
+            <div class="step">4. 转回日期</div>
+            <div>ord2ymd(序数) → 年月日</div>
+        </div>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：获取当前日期并格式化</h3>
+    <div class="code-block">
+        <pre><code>import { PyDate } from "@web/core/py_js/py_date";
+
+// 获取今天的日期
+const today = PyDate.today();
+console.log(today);  // PyDate {year: 2023, month: 5, day: 15}
+
+// 格式化日期
+const formattedDate = today.strftime("%Y-%m-%d");
+console.log(formattedDate);  // "2023-05-15"
+
+// 格式化为中文日期
+const chineseDate = today.strftime("%Y年%m月%d日");
+console.log(chineseDate);  // "2023年05月15日"</code></pre>
+    </div>
+    
+    <h3>示例2：日期计算</h3>
+    <div class="code-block">
+        <pre><code>import { PyDate, PyTimeDelta } from "@web/core/py_js/py_date";
+
+// 创建日期
+const date = new PyDate(2023, 5, 15);
+
+// 创建时间增量（10天）
+const delta = new PyTimeDelta(10, 0, 0);
+
+// 计算10天后的日期
+const futureDate = date.add(delta);
+console.log(futureDate.strftime("%Y-%m-%d"));  // "2023-05-25"
+
+// 计算两个日期之间的天数
+const anotherDate = new PyDate(2023, 6, 1);
+const daysBetween = anotherDate.substract(date);
+console.log(daysBetween.days);  // 17</code></pre>
+    </div>
+    
+    <h3>示例3：使用相对日期处理</h3>
+    <div class="code-block">
+        <pre><code>import { PyDate, PyRelativeDelta } from "@web/core/py_js/py_date";
+
+// 创建日期
+const date = new PyDate(2023, 1, 31);  // 1月31日
+
+// 创建相对增量（1个月）
+const delta = new PyRelativeDelta({ months: 1 });
+
+// 计算一个月后的日期（注意处理月底情况）
+const nextMonth = PyRelativeDelta.add(date, delta);
+console.log(nextMonth.strftime("%Y-%m-%d"));  // "2023-02-28"
+
+// 计算6个月后的日期
+const sixMonthsLater = PyRelativeDelta.add(date, new PyRelativeDelta({ months: 6 }));
+console.log(sixMonthsLater.strftime("%Y-%m-%d"));  // "2023-07-31"</code></pre>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>py_date.js模块与以下模块密切相关：</p>
+    <ul>
+        <li><code>py.js</code> - 使用date模块来处理日期表达式</li>
+        <li><code>py_interpreter.js</code> - 在表达式求值过程中处理日期类型</li>
+        <li><code>py_builtin.js</code> - 提供对date模块的访问作为内置函数</li>
+    </ul>
+    
+    <div class="note">
+        <strong>集成示例：</strong>在Python表达式中使用日期操作
+        <pre><code>import { evaluateExpr } from "@web/core/py_js/py";
+
+// 使用context_today()获取当前日期
+const expr1 = "context_today().strftime('%Y-%m-%d')";
+const today = evaluateExpr(expr1);  // 返回当天日期字符串
+
+// 日期计算
+const expr2 = "context_today() + datetime.timedelta(days=30)";
+const future = evaluateExpr(expr2);  // 返回30天后的日期对象</code></pre>
+    </div>
+    
+    <h2>注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用py_date.js模块时需要注意以下几点：
+        <ul>
+            <li>日期时间操作是计算密集型的，在处理大量日期数据时应注意性能影响</li>
+            <li>所有日期操作都基于本地时间，注意时区问题</li>
+            <li>日期格式化（strftime）支持大部分但不是所有Python的格式代码</li>
+            <li>处理历史日期时要注意日历改革问题，该模块假设使用格里高利历</li>
+        </ul>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>尽量使用Odoo的标准日期字段和小部件，而不是直接操作日期对象</li>
+        <li>对于需要在前端进行的复杂日期计算，优先使用PyDate和PyDateTime类</li>
+        <li>在日期时间格式化时，优先使用Odoo的l10n格式化函数，以确保本地化正确</li>
+        <li>处理跨时区数据时，优先在服务器端完成日期计算，以避免时区复杂性</li>
+    </ul>
+    
+    <h2>相关类详解</h2>
+    
+    <h3>PyDate</h3>
+    <table class="methods-table">
+        <tr>
+            <th>方法</th>
+            <th>参数</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>today</td>
+            <td>无</td>
+            <td>返回当前本地日期的PyDate对象</td>
+        </tr>
+        <tr>
+            <td>convertDate</td>
+            <td>date (JS Date对象)</td>
+            <td>将JavaScript日期对象转换为PyDate对象</td>
+        </tr>
+        <tr>
+            <td>create</td>
+            <td>年, 月, 日 或 对象</td>
+            <td>创建新的PyDate对象的工厂方法</td>
+        </tr>
+        <tr>
+            <td>add</td>
+            <td>timedelta (PyTimeDelta对象)</td>
+            <td>将时间增量添加到日期</td>
+        </tr>
+        <tr>
+            <td>substract</td>
+            <td>other (PyDate或PyTimeDelta)</td>
+            <td>从日期中减去另一个日期或时间增量</td>
+        </tr>
+        <tr>
+            <td>strftime</td>
+            <td>format (字符串)</td>
+            <td>将日期格式化为字符串</td>
+        </tr>
+        <tr>
+            <td>toordinal</td>
+            <td>无</td>
+            <td>返回从公元1年1月1日开始的天数</td>
+        </tr>
+    </table>
+    
+    <h3>PyTimeDelta</h3>
+    <table class="methods-table">
+        <tr>
+            <th>方法</th>
+            <th>参数</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>create</td>
+            <td>days, seconds, microseconds 或 对象</td>
+            <td>创建新的PyTimeDelta对象的工厂方法</td>
+        </tr>
+        <tr>
+            <td>add</td>
+            <td>other (PyTimeDelta)</td>
+            <td>添加另一个时间增量</td>
+        </tr>
+        <tr>
+            <td>substract</td>
+            <td>other (PyTimeDelta)</td>
+            <td>减去另一个时间增量</td>
+        </tr>
+        <tr>
+            <td>multiply</td>
+            <td>n (数字)</td>
+            <td>将时间增量乘以因子</td>
+        </tr>
+        <tr>
+            <td>divide</td>
+            <td>n (数字)</td>
+            <td>将时间增量除以因子</td>
+        </tr>
+        <tr>
+            <td>negate</td>
+            <td>无</td>
+            <td>返回相反的时间增量</td>
+        </tr>
+        <tr>
+            <td>total_seconds</td>
+            <td>无</td>
+            <td>返回总秒数</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>py_date.js模块为Odoo前端提供了完整的Python日期时间处理能力：</p>
+    <ul>
+        <li>实现了与Python完全兼容的日期时间类型和操作</li>
+        <li>精确模拟了Python的日期计算行为，包括闰年和日历规则</li>
+        <li>支持复杂的日期时间运算、格式化和转换</li>
+        <li>使前端能够无缝执行包含日期时间操作的Python表达式</li>
+        <li>保证了前后端日期时间处理的一致性</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发者建议：</strong>py_date.js模块提供了强大的日期时间处理能力，是处理表单日期字段、报表日期范围、日历视图等功能的基础。在开发涉及日期时间的Odoo前端功能时，熟悉并正确使用这个模块可以大大简化开发流程并确保与后端处理的一致性。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo性能优化指南</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo性能优化（Performance in Odoo）</h1>
+    
+    <h2>概述</h2>
+    <p>性能优化是Odoo应用开发的关键方面，尤其是在处理大量数据或高并发用户时。本文档概述了Odoo性能优化的主要方面，并提供了提高应用性能的最佳实践。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Odoo的性能优化涉及多个层面，包括数据库查询优化、ORM使用技巧、前端加载优化以及服务器配置等。良好的性能优化可以显著提升用户体验和系统响应速度。
+    </div>
+    
+    <h2>性能分析工具</h2>
+    <p>在优化性能之前，首先要确定性能瓶颈在哪里。Odoo提供了几种工具来帮助分析性能问题：</p>
+    
+    <h3>SQL日志（SQL Logging）</h3>
+    <p>在Odoo的开发模式下，可以启用SQL日志来查看执行的数据库查询：</p>
+    <div class="code-block">
+        <pre><code># 在开发者模式下，通过URL参数启用SQL日志
+http://localhost:8069/web?debug=1&debug_sql=1
+
+# 也可以在配置文件或启动参数中设置
+--log-sql</code></pre>
+    </div>
+    
+    <h3>性能分析器（Profiler）</h3>
+    <p>Odoo提供了内置的性能分析器，可以详细分析代码执行时间：</p>
+    <ol>
+        <li>安装<code>web_profiler</code>模块</li>
+        <li>在开发者菜单中使用性能分析器</li>
+        <li>可以生成详细的执行时间报告</li>
+    </ol>
+    
+    <div class="code-block">
+        <pre><code># 在Python代码中使用profile装饰器
+from odoo.tools.profiler import profile
+
+@profile
+def my_expensive_method(self):
+    # 方法实现
+    pass</code></pre>
+    </div>
+    
+    <h2>数据库优化</h2>
+    <p>数据库查询通常是性能瓶颈的主要来源，以下是一些优化数据库性能的方法：</p>
+    
+    <h3>索引（Indexes）</h3>
+    <p>在频繁查询的字段上添加索引可以显著提高查询性能：</p>
+    <div class="code-block">
+        <pre><code>name = fields.Char('名称', index=True)
+partner_id = fields.Many2one('res.partner', string='客户', index=True)</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>索引使用建议：</strong>
+        <ul>
+            <li>只在频繁用于搜索、排序或关联的字段上使用索引</li>
+            <li>避免在频繁更新的字段上过度使用索引</li>
+            <li>关系字段（many2one）通常应该被索引</li>
+            <li>大型文本字段通常不应被索引</li>
+        </ul>
+    </div>
+    
+    <h3>延迟计算（Lazy Evaluation）</h3>
+    <p>使用延迟计算可以避免不必要的数据库查询：</p>
+    <div class="code-block">
+        <pre><code># 不好的实践 - 急切加载
+for partner in self.env['res.partner'].search([]):
+    if partner.name == 'Example':
+        # 处理
+
+# 更好的实践 - 延迟加载
+partner = self.env['res.partner'].search([('name', '=', 'Example')], limit=1)
+if partner:
+    # 处理</code></pre>
+    </div>
+    
+    <h2>ORM优化技巧</h2>
+    <p>Odoo的ORM层提供了强大的功能，但使用不当可能导致性能问题。以下是一些优化ORM使用的技巧：</p>
+    
+    <h3>优化search方法</h3>
+    <div class="code-block">
+        <pre><code># 低效查询 - 检索所有记录然后在Python中过滤
+records = self.env['model.name'].search([])
+filtered_records = [r for r in records if r.field_value > 10]
+
+# 高效查询 - 在数据库级别过滤
+filtered_records = self.env['model.name'].search([('field_value', '>', 10)])</code></pre>
+    </div>
+    
+    <h3>使用limit参数</h3>
+    <div class="code-block">
+        <pre><code># 低效 - 无限制搜索
+all_records = self.env['model.name'].search([])
+first_record = all_records[0] if all_records else None
+
+# 高效 - 使用limit
+first_record = self.env['model.name'].search([], limit=1)</code></pre>
+    </div>
+    
+    <h3>选择性获取字段</h3>
+    <div class="code-block">
+        <pre><code># 低效 - 获取所有字段
+records = self.env['model.name'].search([])
+
+# 高效 - 只获取需要的字段
+records = self.env['model.name'].search_read(
+    [], ['name', 'date', 'state'], limit=10)</code></pre>
+    </div>
+    
+    <h3>避免N+1查询问题</h3>
+    <div class="code-block">
+        <pre><code># 不好的实践 - 产生N+1查询
+records = self.env['model.name'].search([])
+for record in records:
+    partner_name = record.partner_id.name  # 为每个记录执行额外查询
+
+# 好的实践 - 预取关联记录
+records = self.env['model.name'].search([])
+records = records.with_context(prefetch_fields=['partner_id'])
+for record in records:
+    partner_name = record.partner_id.name  # 使用预取数据</code></pre>
+    </div>
+    
+    <h3>批量处理</h3>
+    <div class="code-block">
+        <pre><code># 低效 - 单独更新
+for record in records:
+    record.write({'state': 'done'})  # 每次写入都有一个数据库查询
+
+# 高效 - 批量更新
+records.write({'state': 'done'})  # 一次查询更新所有记录</code></pre>
+    </div>
+    
+    <h2>计算字段与存储</h2>
+    <p>计算字段是Odoo的强大功能，但不当使用可能导致性能问题：</p>
+    
+    <h3>明智选择存储策略</h3>
+    <div class="code-block">
+        <pre><code># 频繁访问但计算成本高的字段应存储
+amount_total = fields.Float(compute='_compute_amount', store=True)
+
+# 频繁变化或计算成本低的字段不需要存储
+days_since_creation = fields.Integer(compute='_compute_days')
+
+@api.depends('create_date')
+def _compute_days(self):
+    today = fields.Date.today()
+    for record in self:
+        if record.create_date:
+            delta = today - record.create_date.date()
+            record.days_since_creation = delta.days
+        else:
+            record.days_since_creation = 0</code></pre>
+    </div>
+    
+    <h3>优化依赖关系</h3>
+    <div class="code-block">
+        <pre><code># 明确指定依赖字段
+@api.depends('line_ids.price_subtotal')
+def _compute_amount(self):
+    for record in self:
+        record.amount_total = sum(record.line_ids.mapped('price_subtotal'))</code></pre>
+    </div>
+    
+    <h2>前端性能优化</h2>
+    <p>前端性能对用户体验至关重要。以下是一些优化Odoo前端性能的技巧：</p>
+    
+    <h3>资源加载优化</h3>
+    <div class="code-block">
+        <pre><code># 在__manifest__.py中明智地管理资源
+'assets': {
+    'web.assets_backend': [
+        # 只包含必要的CSS和JS
+        'my_module/static/src/scss/main.scss',
+        'my_module/static/src/js/main.js',
+    ],
+}</code></pre>
+    </div>
+    
+    <h3>延迟加载</h3>
+    <p>使用Odoo 18的延迟加载特性减少初始加载时间：</p>
+    <div class="code-block">
+        <pre><code># 在__manifest__.py中
+'assets': {
+    'web.assets_backend_lazy': [
+        # 不是立即需要的资源
+        'my_module/static/src/js/non_critical.js',
+    ],
+}</code></pre>
+    </div>
+    
+    <h2>缓存策略</h2>
+    <p>恰当的缓存策略可以显著提高性能：</p>
+    
+    <h3>ORM缓存</h3>
+    <p>Odoo的ORM自带缓存机制，但有时需要手动管理：</p>
+    <div class="code-block">
+        <pre><code># 清除特定记录的缓存
+self.env.cache.invalidate([(Model._fields['field_name'], record_id)])</code></pre>
+    </div>
+    
+    <h3>方法缓存</h3>
+    <p>使用<code>@tools.ormcache</code>装饰器缓存昂贵的计算：</p>
+    <div class="code-block">
+        <pre><code>from odoo.tools.cache import ormcache
+
+@api.model
+@tools.ormcache('self.env.uid', 'tuple(args)')
+def expensive_calculation(self, *args):
+    # 昂贵的计算
+    return result</code></pre>
+    </div>
+    
+    <h2>大数据集处理</h2>
+    <p>处理大量数据时的性能优化特别重要：</p>
+    
+    <h3>分批处理</h3>
+    <div class="code-block">
+        <pre><code>def process_large_dataset(self):
+    # 获取所有需要处理的记录ID
+    record_ids = self.search([('state', '=', 'draft')]).ids
+    # 分批处理
+    batch_size = 1000
+    for i in range(0, len(record_ids), batch_size):
+        batch_ids = record_ids[i:i+batch_size]
+        self.browse(batch_ids).process_batch()
+        self.env.cr.commit()  # 定期提交事务</code></pre>
+    </div>
+    
+    <h3>直接SQL操作</h3>
+    <p>在极端情况下，可以使用原始SQL来优化性能，但要谨慎使用：</p>
+    <div class="code-block">
+        <pre><code># 大量数据的批量更新
+query = """
+    UPDATE model_name
+    SET state = 'done'
+    WHERE id IN %s
+"""
+self.env.cr.execute(query, (tuple(record_ids),))</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>警告：</strong>使用直接SQL操作会绕过ORM的所有业务逻辑和安全检查，可能导致数据一致性问题。只有在了解其影响并且性能提升明显时才应使用。
+    </div>
+    
+    <h2>服务器配置优化</h2>
+    <p>服务器配置对Odoo性能有重大影响：</p>
+    
+    <h3>工作进程</h3>
+    <div class="code-block">
+        <pre><code># 在配置文件或启动参数中设置
+--workers=N  # N通常是CPU核心数+1
+--max-cron-threads=X  # X为定时任务线程数，通常为2</code></pre>
+    </div>
+    
+    <h3>PostgreSQL配置</h3>
+    <p>根据服务器内存优化PostgreSQL的配置：</p>
+    <div class="code-block">
+        <pre><code># postgresql.conf中的关键参数
+shared_buffers = 25% of system RAM
+effective_cache_size = 75% of system RAM
+work_mem = 4-32MB (根据查询复杂度和并发连接)
+maintenance_work_mem = 10% of system RAM up to 1GB</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的性能改进</h2>
+    <p>Odoo 18引入了多项性能改进：</p>
+    <ul>
+        <li><strong>增强的ORM缓存</strong>：改进了缓存策略，减少数据库查询</li>
+        <li><strong>优化的资源加载</strong>：更智能的前端资源加载系统</li>
+        <li><strong>改进的查询规划器提示</strong>：自动优化复杂查询</li>
+        <li><strong>更高效的记录规则评估</strong>：加速访问控制检查</li>
+    </ul>
+    
+    <h2>性能调优清单</h2>
+    <p>以下是Odoo性能优化的综合清单：</p>
+    
+    <h3>数据库优化</h3>
+    <ul>
+        <li>在频繁搜索的字段上使用索引</li>
+        <li>避免过度索引，特别是在频繁更新的字段上</li>
+        <li>优化PostgreSQL配置</li>
+    </ul>
+    
+    <h3>ORM使用</h3>
+    <ul>
+        <li>使用高效的域表达式进行搜索</li>
+        <li>适当使用<code>search_read</code>代替<code>search</code>+<code>read</code></li>
+        <li>使用<code>limit</code>参数限制结果集大小</li>
+        <li>明智选择计算字段的存储策略</li>
+        <li>明确指定<code>depends</code>依赖</li>
+        <li>避免N+1查询问题</li>
+        <li>批处理记录更新而不是单独更新</li>
+    </ul>
+    
+    <h3>前端优化</h3>
+    <ul>
+        <li>仅加载必要的资源</li>
+        <li>使用延迟加载非关键资源</li>
+        <li>最小化和压缩JS/CSS</li>
+        <li>优化视图定义，避免不必要的字段加载</li>
+    </ul>
+    
+    <h3>代码优化</h3>
+    <ul>
+        <li>使用适当的缓存策略</li>
+        <li>分批处理大数据集</li>
+        <li>避免递归计算</li>
+        <li>使用性能分析工具识别瓶颈</li>
+    </ul>
+    
+    <h3>服务器配置</h3>
+    <ul>
+        <li>根据硬件调整工作进程数</li>
+        <li>配置适当的缓存参数</li>
+        <li>使用生产环境配置（禁用调试模式）</li>
+    </ul>
+    
+    <h2>实际案例分析</h2>
+    
+    <h3>案例1：优化大型报告</h3>
+    <div class="code-block">
+        <pre><code># 原始代码 - 性能问题
+def generate_report(self):
+    result = []
+    for order in self.env['sale.order'].search([('state', '=', 'sale')]):
+        for line in order.order_line:
+            result.append({
+                'order': order.name,
+                'product': line.product_id.name,
+                'quantity': line.product_uom_qty,
+                'price': line.price_unit,
+                'subtotal': line.price_subtotal,
+            })
+    return result
+
+# 优化后的代码
+def generate_report(self):
+    # 使用read_group进行聚合操作
+    data = self.env['sale.order.line'].read_group(
+        [('order_id.state', '=', 'sale')],
+        ['order_id', 'product_id', 'product_uom_qty', 'price_unit', 'price_subtotal'],
+        ['order_id', 'product_id'], lazy=False
+    )
+    
+    # 预加载所有需要的记录，避免N+1查询
+    order_ids = [item['order_id'][0] for item in data]
+    product_ids = [item['product_id'][0] for item in data if item['product_id']]
+    orders = {o.id: o for o in self.env['sale.order'].browse(order_ids)}
+    products = {p.id: p for p in self.env['product.product'].browse(product_ids)}
+    
+    # 组装结果
+    result = []
+    for item in data:
+        order_id = item['order_id'][0]
+        product_id = item['product_id'][0] if item['product_id'] else False
+        result.append({
+            'order': orders[order_id].name,
+            'product': products[product_id].name if product_id else '',
+            'quantity': item['product_uom_qty'],
+            'price': item['price_unit'],
+            'subtotal': item['price_subtotal'],
+        })
+    return result</code></pre>
+    </div>
+    
+    <h3>案例2：优化计算字段</h3>
+    <div class="code-block">
+        <pre><code># 原始代码 - 性能问题
+total_amount = fields.Float(compute='_compute_total')
+
+def _compute_total(self):
+    for record in self:
+        # 每次计算都查询所有相关记录
+        lines = self.env['account.move.line'].search([
+            ('move_id', '=', record.id)
+        ])
+        record.total_amount = sum(lines.mapped('amount'))
+
+# 优化后的代码
+total_amount = fields.Float(compute='_compute_total', store=True)
+
+@api.depends('line_ids.amount')
+def _compute_total(self):
+    for record in self:
+        # 直接使用关联记录，不需要额外查询
+        record.total_amount = sum(record.line_ids.mapped('amount'))</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>性能优化是Odoo开发中不可忽视的重要方面。通过以下方式可以显著提高应用性能：</p>
+    <ul>
+        <li>明智地使用ORM功能，避免常见的性能陷阱</li>
+        <li>优化数据库查询和索引</li>
+        <li>合理使用计算字段和存储策略</li>
+        <li>优化资源加载和前端性能</li>
+        <li>适当配置服务器参数</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>性能优化应该是一个持续的过程。在开发过程中保持性能意识，定期使用分析工具识别瓶颈，并针对真实用户场景进行优化。记住，最佳的性能优化是解决实际问题，而不仅仅是理论上的改进。
+    </div>
+</body>
+</html> 

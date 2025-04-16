@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo - ui_service.js 解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo UI 服务 (ui_service.js) 解析</h1>
+
+    <h2>文件概述</h2>
+    <p><code>ui_service.js</code> 文件定义了 Odoo 的核心 UI 服务。这个服务就像是 Odoo 前端界面的"大管家"，它负责管理很多与用户界面相关的全局状态和行为，例如：</p>
+    <ul>
+        <li>感知浏览器窗口大小的变化，判断当前是手机、平板还是电脑屏幕。</li>
+        <li>提供统一的方法来显示或隐藏全局的加载提示（就是我们之前解析的 <code>BlockUI</code> 组件）。</li>
+        <li>管理当前界面上哪个元素或区域是"活跃"的，并处理键盘焦点（比如 Tab 键）的切换，特别是在对话框弹出时，确保焦点被限制在对话框内。</li>
+    </ul>
+    <p>这个服务通过 Odoo 的服务注册表 (`registry.category("services")`) 提供给整个应用使用，其他组件或代码可以通过 `useService("ui")` 来获取并使用它。</p>
+
+    <div class="note">
+        <strong>核心目标：</strong> 提供一个中心化的服务来管理和响应全局 UI 状态和交互。
+    </div>
+
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>屏幕尺寸检测 (Responsiveness)</strong>: 自动检测浏览器窗口大小，并提供状态（如 `ui.size`, `ui.isSmall`）供其他组件判断当前是否为小屏幕设备。</li>
+        <li><strong>界面阻塞控制 (Blocking UI)</strong>: 提供 `ui.block()` 和 `ui.unblock()` 方法，用于触发显示/隐藏全局加载提示（内部使用了 <code>BlockUI</code> 组件）。</li>
+        <li><strong>活动元素管理 (Active Element)</strong>: 跟踪当前用户交互的主要区域（例如，当一个模态对话框打开时，它就是活动元素），并提供 `ui.activeElement` 属性获取它。</li>
+        <li><strong>焦点陷阱 (Focus Trapping)</strong>: 提供 <code>useActiveElement</code> Hook，用于在特定组件（如对话框）激活时，将键盘焦点（Tab 键）限制在该组件内部，防止焦点跑到后面被遮盖的元素上。</li>
+        <li><strong>UI 事件通知</strong>: 通过内部的事件总线 (`bus`) 发送事件（如 `resize`, `active-element-changed`），允许其他部分监听 UI 状态的变化。</li>
+    </ol>
+
+    <h2>代码解析</h2>
+    <p><code>ui_service.js</code> 定义了一个服务对象，并在 Odoo 启动时运行其 `start` 方法来初始化。</p>
+
+    <h3>1. 屏幕尺寸处理 (Size Handling)</h3>
+    <div class="code-block">
+        <pre><code>import { throttleForAnimation } from "@web/core/utils/timing"; // 优化 resize 事件处理频率
+import { browser } from "@web/core/browser/browser"; // 浏览器相关工具
+import { EventBus, reactive } from "@odoo/owl"; // Owl 框架核心
+
+// 定义尺寸等级 (XS 到 XXL)
+export const SIZES = { XS: 0, VSM: 1, SM: 2, MD: 3, LG: 4, XL: 5, XXL: 6 };
+
+// 定义各个尺寸对应的媒体查询断点 (CSS 概念)
+export const MEDIAS_BREAKPOINTS = [
+    { maxWidth: 474 }, // XS
+    { minWidth: 475, maxWidth: 575 }, // VSM
+    // ... 其他尺寸
+    { minWidth: 1534 }, // XXL
+];
+
+// 根据断点创建 MediaQueryList 对象
+export function getMediaQueryLists() { /* ... */ }
+const MEDIAS = getMediaQueryLists();
+
+// 工具函数
+export const utils = {
+    getSize() { // 获取当前匹配的尺寸等级 (0-6)
+        return MEDIAS.findIndex((media) => media.matches);
+    },
+    isSmall(ui = {}) { // 判断是否为小屏幕 (<= SM)
+        return (ui.size || utils.getSize()) <= SIZES.SM;
+    },
+};
+
+// 创建内部事件总线
+const bus = new EventBus();
+
+// 监听尺寸变化的辅助函数
+export function listenSizeChange(callback) { /* ... */ }
+
+// 服务启动时的相关代码 (start 方法内)
+const ui = reactive({ // 创建响应式 UI 状态对象
+    bus, // 共享事件总线
+    size: utils.getSize(), // 初始化当前尺寸
+    // ... 其他属性
+    isSmall: utils.isSmall(), // 初始化是否小屏
+});
+
+// 监听浏览器 resize 事件
+const updateSize = () => {
+    const prevSize = ui.size;
+    ui.size = utils.getSize(); // 更新尺寸
+    if (ui.size !== prevSize) {
+        ui.isSmall = utils.isSmall(ui); // 更新 isSmall 状态
+        bus.trigger("resize"); // 触发 resize 事件
+    }
+};
+browser.addEventListener("resize", throttleForAnimation(updateSize)); // 使用节流优化性能
+
+// 将 isSmall 挂载到 env 上，方便模板中使用
+Object.defineProperty(env, "isSmall", {
+    get() { return ui.isSmall; },
+});
+</code></pre>
+    </div>
+    <ul>
+        <li><code>SIZES</code> 和 <code>MEDIAS_BREAKPOINTS</code> 定义了 Odoo 对屏幕尺寸的划分标准。</li>
+        <li><code>getMediaQueryLists</code> 和 <code>MEDIAS</code> 利用浏览器原生的 `matchMedia` API 来实时监测哪个尺寸范围当前是匹配的。</li>
+        <li><code>utils.getSize()</code> 返回当前尺寸对应的数字索引 (0-6)。</li>
+        <li><code>utils.isSmall()</code> 是一个常用判断，检查当前尺寸是否小于等于 `SM` (手机或小平板)。</li>
+        <li>服务启动时，会获取初始尺寸并存入响应式对象 `ui` 中。</li>
+        <li>通过监听 `resize` 事件 (并使用 <code>throttleForAnimation</code> 优化性能，防止过于频繁地触发)，实时更新 `ui.size` 和 `ui.isSmall`。</li>
+        <li>当尺寸变化时，会通过 `bus.trigger("resize")` 通知其他可能关心尺寸变化的部分。</li>
+        <li><code>env.isSmall</code> 使得在 Owl 模板中可以直接使用 `env.isSmall` 来判断是否小屏。</li>
+    </ul>
+
+    <h3>2. 界面阻塞控制 (Block/Unblock)</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+import { BlockUI } from "./block_ui"; // 引入我们之前解析的 BlockUI 组件
+
+// 服务启动时的相关代码 (start 方法内)
+registry.category("main_components").add("BlockUI", { Component: BlockUI, props: { bus } }); // 注册 BlockUI 为主组件，并传入 bus
+
+let blockCount = 0; // 计数器，允许多次调用 block 而只显示一个遮罩
+function block(data) {
+    blockCount++;
+    if (blockCount === 1) { // 只有第一次 block 时才真正触发显示
+        bus.trigger("BLOCK", { // 通过 bus 向 BlockUI 发送 BLOCK 事件
+            message: data?.message, // 传递自定义消息
+            delay: data?.delay,     // 传递延迟时间
+        });
+    }
+}
+function unblock() {
+    blockCount--;
+    // ... 处理 blockCount < 0 的警告 ...
+    if (blockCount === 0) { // 当所有 block 都被 unblock 后才触发隐藏
+        bus.trigger("UNBLOCK"); // 通过 bus 向 BlockUI 发送 UNBLOCK 事件
+    }
+}
+
+// 将 block/unblock 方法添加到 ui 对象上
+const ui = reactive({
+    // ... 其他属性
+    block,
+    unblock,
+    get isBlocked() { // 计算属性，方便检查当前是否阻塞
+        return blockCount > 0;
+    },
+});
+</code></pre>
+    </div>
+    <ul>
+        <li>服务启动时，将 <code>BlockUI</code> 组件注册到 `main_components`，这意味着 Odoo 应用启动时会自动渲染一个 <code>BlockUI</code> 实例。</li>
+        <li>服务内部维护一个 `blockCount` 计数器。这是为了处理嵌套调用 `block`/`unblock` 的情况，例如一个操作调用了 `block`，然后它内部调用的另一个函数又调用了 `block`。只有当 `blockCount` 从 0 变为 1 时，才会真正触发 `BLOCK` 事件显示遮罩；只有当 `blockCount` 减到 0 时，才会触发 `UNBLOCK` 事件隐藏遮罩。</li>
+        <li><code>block(data)</code> 和 <code>unblock()</code> 方法是提供给外部使用的接口，它们内部通过触发 `bus` 上的 `BLOCK` 和 `UNBLOCK` 事件来控制 <code>BlockUI</code> 组件。</li>
+        <li><code>ui.isBlocked</code> 是一个方便的只读属性，用于检查 UI 当前是否处于阻塞状态。</li>
+    </ul>
+
+    <h3>3. 活动元素与焦点陷阱 (Active Element & Focus Trap)</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { getTabableElements } from "@web/core/utils/ui"; // 获取元素内可聚焦的子元素
+import { getActiveHotkey } from "../hotkeys/hotkey_service"; // 获取当前按键（如 Tab）
+import { useEffect, useRef } from "@odoo/owl"; // Owl Hooks
+
+// 获取元素内第一个和最后一个可聚焦元素
+function getFirstAndLastTabableElements(el) { /* ... */ }
+
+// useActiveElement Hook (给组件使用的钩子函数)
+export function useActiveElement(refName) {
+    const uiService = useService("ui");
+    const ref = useRef(refName); // 获取组件模板中对应 t-ref 的元素
+
+    // 焦点陷阱逻辑
+    function trapFocus(e) {
+        const hotkey = getActiveHotkey(e);
+        if (!["tab", "shift+tab"].includes(hotkey)) return; // 只处理 Tab 和 Shift+Tab
+        const el = e.currentTarget;
+        const [firstTabableEl, lastTabableEl] = getFirstAndLastTabableElements(el);
+        // 如果在最后一个元素按 Tab，跳到第一个
+        if (hotkey === "tab" && document.activeElement === lastTabableEl) {
+            firstTabableEl.focus();
+            e.preventDefault(); // 阻止默认行为
+        }
+        // 如果在第一个元素按 Shift+Tab，跳到最后一个
+        if (hotkey === "shift+tab" && document.activeElement === firstTabableEl) {
+            lastTabableEl.focus();
+            e.preventDefault();
+        }
+    }
+
+    useEffect(
+        (el) => { // 当 ref 对应的元素挂载或更新时执行
+            if (el && getFirstAndLastTabableElements(el)[0]) { // 确保元素存在且内部有可聚焦项
+                const oldActiveElement = document.activeElement; // 保存之前的焦点元素
+                uiService.activateElement(el); // 通知 uiService 此元素变为活动元素
+                el.addEventListener("keydown", trapFocus); // 监听键盘事件以实现焦点陷阱
+                // 如果当前焦点不在 el 内部，则聚焦到第一个可聚焦元素
+                if (!el.contains(document.activeElement)) {
+                    getFirstAndLastTabableElements(el)[0].focus();
+                }
+                return async () => { // 清理函数 (组件卸载时执行)
+                    await Promise.resolve(); // 微任务延迟，确保子组件事件处理完成
+                    uiService.deactivateElement(el); // 通知 uiService 此元素不再活动
+                    el.removeEventListener("keydown", trapFocus); // 移除监听器
+                    // 尝试恢复之前的焦点
+                    if (el.contains(document.activeElement) || document.activeElement === document.body) {
+                        oldActiveElement.focus();
+                    }
+                };
+            }
+        },
+        () => [ref.el] // 依赖项：仅当 ref.el 变化时重新运行 effect
+    );
+}
+
+// 服务启动时的相关代码 (start 方法内)
+let activeElems = [document]; // 活动元素栈，document 是最底层的
+
+function activateElement(el) {
+    activeElems.push(el);
+    bus.trigger("active-element-changed", el); // 通知活动元素变化
+}
+function deactivateElement(el) {
+    activeElems = activeElems.filter((x) => x !== el);
+    bus.trigger("active-element-changed", ui.activeElement); // 通知活动元素变化
+}
+// 获取某个元素所属的活动元素（主要用于判断事件是否应在当前活动层处理）
+function getActiveElementOf(el) { /* ... */ }
+
+const ui = reactive({
+    // ... 其他属性
+    get activeElement() { // 计算属性，返回栈顶的活动元素
+        return activeElems[activeElems.length - 1];
+    },
+    activateElement,
+    deactivateElement,
+    getActiveElementOf,
+});
+</code></pre>
+    </div>
+    <ul>
+        <li><code>uiService</code> 内部维护一个 <code>activeElems</code> 栈，用来记录当前活跃的 UI 区域。初始时只有 `document`。当一个对话框打开时，它会调用 <code>activateElement</code> 将自己推入栈顶；关闭时调用 <code>deactivateElement</code> 将自己移出。</li>
+        <li><code>ui.activeElement</code> 始终返回栈顶的元素，即当前最上层的活动区域。</li>
+        <li><code>useActiveElement(refName)</code> 是一个给 Owl 组件使用的 Hook。组件（比如一个对话框）在模板中给它的根元素添加 `t-ref="myDialog"`，然后在 `setup` 中调用 `useActiveElement('myDialog')`。</li>
+        <li>当该组件挂载时，<code>useEffect</code> 会执行：
+            <ul>
+                <li>调用 <code>uiService.activateElement(el)</code> 将该组件的 DOM 元素标记为活动元素。</li>
+                <li>添加 `keydown` 事件监听器，调用 <code>trapFocus</code> 函数。</li>
+                <li><code>trapFocus</code> 确保当用户按 Tab 或 Shift+Tab 时，焦点在组件内部的可聚焦元素之间循环，不会跑到组件外面去。</li>
+                <li>如果需要，会自动将焦点设置到组件内的第一个可聚焦元素上。</li>
+            </ul>
+        </li>
+        <li>当该组件卸载时，<code>useEffect</code> 的清理函数会执行：
+            <ul>
+                <li>调用 <code>uiService.deactivateElement(el)</code> 移除活动元素标记。</li>
+                <li>移除 `keydown` 监听器。</li>
+                <li>尝试将焦点恢复到该组件打开之前的元素上。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>工作流程</h2>
+    <div class="flow-diagram">
+        <h3>响应式布局</h3>
+        <ol>
+            <li>浏览器窗口大小改变。</li>
+            <li>`resize` 事件被触发 (经过节流处理)。</li>
+            <li>`updateSize` 函数运行，调用 `utils.getSize()` 获取新尺寸。</li>
+            <li>更新 `ui.size` 和 `ui.isSmall` 状态。</li>
+            <li>如果尺寸等级变化，触发 `bus` 上的 `resize` 事件。</li>
+            <li>依赖 `ui.size` 或 `ui.isSmall` 的组件或模板会自动更新。</li>
+        </ol>
+        <h3>界面阻塞</h3>
+        <ol>
+            <li>代码调用 `ui.block({ delay: 100, message: '处理中...' })`。</li>
+            <li>`block()` 方法增加 `blockCount` 到 1。</li>
+            <li>触发 `bus` 上的 `BLOCK` 事件，并传递参数。</li>
+            <li><code>BlockUI</code> 组件接收到事件，调用自己的 `block()` 方法，设置延迟和消息，进入 `BLOCKED` 状态。</li>
+            <li>100ms 后，<code>BlockUI</code> 状态变为 `VISIBLY_BLOCKED`，显示遮罩。</li>
+            <li>操作完成，代码调用 `ui.unblock()`。</li>
+            <li>`unblock()` 方法减少 `blockCount` 到 0。</li>
+            <li>触发 `bus` 上的 `UNBLOCK` 事件。</li>
+            <li><code>BlockUI</code> 组件接收到事件，调用 `unblock()`，隐藏遮罩。</li>
+        </ol>
+        <h3>焦点陷阱 (以对话框为例)</h3>
+        <ol>
+            <li>对话框组件挂载。</li>
+            <li>组件 `setup` 中的 `useActiveElement('dialogRoot')` 执行。</li>
+            <li>`useEffect` 回调执行，获取对话框根元素 `el`。</li>
+            <li>调用 `ui.activateElement(el)`，`el` 成为 `ui.activeElement`。</li>
+            <li>为 `el` 添加 `keydown` 监听器 (`trapFocus`)。</li>
+            <li>焦点被设置到对话框内的第一个可聚焦元素。</li>
+            <li>用户按 Tab/Shift+Tab，`trapFocus` 拦截事件，确保焦点在 `el` 内部循环。</li>
+            <li>对话框组件卸载。</li>
+            <li>`useEffect` 清理函数执行。</li>
+            <li>调用 `ui.deactivateElement(el)`。</li>
+            <li>移除 `keydown` 监听器。</li>
+            <li>焦点恢复到打开对话框之前的元素。</li>
+        </ol>
+    </div>
+
+    <h2>使用实例</h2>
+    <div class="code-block">
+        <pre><code>import { Component, xml } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+import { uiService, useActiveElement } from "@web/core/ui/ui_service";
+
+class MyComponent extends Component {
+    static template = xml\`
+        &lt;div class="my-component"&gt;
+            &lt;h2&gt;UI 服务示例&lt;/h2&gt;
+            &lt;p&gt;当前屏幕尺寸: {{ ui.size }} ({{ ui.isSmall ? '小屏' : '大屏' }})&lt;/p&gt;
+            &lt;button t-on-click="performAction"&gt;执行耗时操作&lt;/button&gt;
+            &lt;button t-on-click="openDialog"&gt;打开对话框&lt;/button&gt;
+
+            &lt;t t-if="state.showDialog"&gt;
+                &lt;MyDialog t-ref="dialog" onClose="() => state.showDialog = false"/&gt;
+            &lt;/t&gt;
+        &lt;/div&gt;
+    \`;
+
+    setup() {
+        this.ui = useService("ui");
+        this.state = useState({ showDialog: false });
+    }
+
+    async performAction() {
+        this.ui.block({ message: "正在加载数据..." }); // 显示加载提示
+        try {
+            await this.env.services.rpc("/my/data/route");
+            // ... 处理数据
+        } finally {
+            this.ui.unblock(); // 隐藏加载提示
+        }
+    }
+
+    openDialog() {
+        this.state.showDialog = true;
+    }
+}
+
+class MyDialog extends Component {
+    static template = xml\`
+        &lt;div class="o_dialog_container"&gt;
+             &lt;div class="o_dialog modal-content" t-ref="dialogRoot" role="dialog"&gt;
+                 &lt;header class="modal-header"&gt;...&lt;/header&gt;
+                 &lt;main class="modal-body"&gt;
+                     &lt;input type="text" placeholder="输入框1"/&gt;
+                     &lt;button&gt;按钮1&lt;/button&gt;
+                 &lt;/main&gt;
+                 &lt;footer class="modal-footer"&gt;
+                    &lt;button class="btn btn-primary" t-on-click="() => props.onClose()"&gt;关闭&lt;/button&gt;
+                 &lt;/footer&gt;
+             &lt;/div&gt;
+        &lt;/div&gt;
+    \`;
+
+    setup() {
+        useActiveElement("dialogRoot"); // 启用焦点陷阱
+    }
+}
+</code></pre>
+    </div>
+    <ul>
+        <li>在 `MyComponent` 中，通过 `useService("ui")` 获取 `ui` 服务实例。</li>
+        <li>可以在模板中直接访问 `ui.size` 和 `ui.isSmall` 来展示屏幕信息。</li>
+        <li>在 `performAction` 方法中，使用 `ui.block()` 和 `ui.unblock()` 来控制加载提示。</li>
+        <li>在 `MyDialog` 组件中，通过 `t-ref="dialogRoot"` 标记对话框根元素，并在 `setup` 中调用 `useActiveElement("dialogRoot")` 来激活焦点陷阱。当对话框显示时，Tab 键将只在对话框内的输入框和按钮之间循环。</li>
+    </ul>
+
+    <h2>小结</h2>
+    <p><code>ui_service.js</code> 是 Odoo 前端 UI 框架的核心部分，它提供了：</p>
+    <ul>
+        <li><strong>中心化管理</strong>：将屏幕尺寸、阻塞状态、活动元素等全局 UI 状态集中管理。</li>
+        <li><strong>标准化接口</strong>：提供了简单一致的方法 (`block`, `unblock`, `useActiveElement`) 来处理常见的 UI 需求。</li>
+        <li><strong>响应式设计基础</strong>：通过 `ui.size` 和 `ui.isSmall` 支持构建适应不同屏幕的界面。</li>
+        <li><strong>提升可访问性 (Accessibility)</strong>：`useActiveElement` 的焦点陷阱功能对于键盘用户和辅助技术用户至关重要。</li>
+        <li><strong>解耦与可维护性</strong>：将 UI 逻辑从具体业务组件中分离出来，使代码更清晰。</li>
+    </ul>
+
+    <div class="note">
+        <strong>最佳实践：</strong> 在你的 Odoo 前端开发中，当你需要处理屏幕尺寸、显示加载提示或管理复杂交互（如对话框）中的焦点时，都应该优先考虑使用 `ui` 服务提供的功能。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo翻译系统解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo翻译系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>translation.js</code>是Odoo前端框架中的核心翻译模块，它提供了用于国际化(i18n)的关键功能，使应用能够支持多语言。该模块的主要作用是存储和检索翻译字符串，并提供一种机制来确保翻译数据在使用前已加载。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>翻译模块是Odoo国际化系统的核心部分，它提供了_t()函数，这是Odoo前端代码中最常用的翻译函数。该模块支持延迟加载翻译，确保即使在翻译数据尚未完全加载时，UI也能够正确显示。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>文本翻译</strong>：通过_t()函数提供字符串翻译功能</li>
+        <li><strong>延迟翻译</strong>：支持在翻译数据加载完成前创建延迟翻译字符串</li>
+        <li><strong>字符串格式化</strong>：结合sprintf功能进行参数替换</li>
+        <li><strong>语言加载</strong>：提供加载已安装语言列表的功能</li>
+        <li><strong>翻译状态管理</strong>：维护翻译加载状态并提供就绪通知机制</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>translation.js的核心功能围绕_t()函数和翻译数据管理展开：</p>
+    
+    <div class="code-block">
+        <pre><code>import { Deferred } from "@web/core/utils/concurrency";
+import { sprintf } from "@web/core/utils/strings";
+
+export const translationLoaded = Symbol("translationLoaded");
+export const translatedTerms = {
+    [translationLoaded]: false,
+};
+export const translationIsReady = new Deferred();
+
+/**
+ * Translate a term, or return the term if no translation can be found.
+ *
+ * @param {string} term
+ * @returns {string|LazyTranslatedString}
+ */
+export function _t(term, ...values) {
+    if (translatedTerms[translationLoaded]) {
+        const translation = translatedTerms[term] ?? term;
+        if (values.length === 0) {
+            return translation;
+        }
+        return sprintf(translation, ...values);
+    } else {
+        return new LazyTranslatedString(term, ...values);
+    }
+}</code></pre>
+    </div>
+    
+    <h3>核心组件解释</h3>
+    
+    <h4>1. 全局变量</h4>
+    <table>
+        <tr>
+            <th>变量名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>translationLoaded</td>
+            <td>Symbol</td>
+            <td>用作标识翻译是否已加载的特殊键</td>
+        </tr>
+        <tr>
+            <td>translatedTerms</td>
+            <td>Object</td>
+            <td>存储所有翻译术语的对象，键为原文，值为翻译后的文本</td>
+        </tr>
+        <tr>
+            <td>translationIsReady</td>
+            <td>Deferred</td>
+            <td>延迟对象，当翻译完全加载后解析为true</td>
+        </tr>
+    </table>
+    
+    <h4>2. 核心函数</h4>
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>参数</th>
+            <th>返回值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>_t</td>
+            <td>term: string, ...values: any[]</td>
+            <td>string | LazyTranslatedString</td>
+            <td>主要翻译函数，翻译指定的term，并可选地执行格式化</td>
+        </tr>
+        <tr>
+            <td>loadLanguages</td>
+            <td>orm: Object</td>
+            <td>Promise&lt;Array&gt;</td>
+            <td>加载系统安装的语言列表</td>
+        </tr>
+    </table>
+    
+    <h3>LazyTranslatedString类</h3>
+    <p>这是一个扩展自String的特殊类，用于处理翻译数据尚未加载时的延迟翻译：</p>
+    
+    <div class="code-block">
+        <pre><code>class LazyTranslatedString extends String {
+    constructor(term, ...values) {
+        super(term);
+        this.values = values;
+    }
+    valueOf() {
+        const term = super.valueOf();
+        if (translatedTerms[translationLoaded]) {
+            const translation = translatedTerms[term] ?? term;
+            if (this.values.length === 0) {
+                return translation;
+            }
+            return sprintf(translation, ...this.values);
+        } else {
+            throw new Error(`translation error`);
+        }
+    }
+    toString() {
+        return this.valueOf();
+    }
+}</code></pre>
+    </div>
+    
+    <p>这个类的核心功能：</p>
+    <ol>
+        <li>保存原始文本和格式化参数，但不立即翻译</li>
+        <li>当转换为字符串或使用valueOf()时，检查翻译是否已加载</li>
+        <li>如果翻译已加载，则返回翻译后的文本（如需要则进行格式化）</li>
+        <li>如果翻译尚未加载，则抛出错误</li>
+    </ol>
+    
+    <h3>预定义翻译</h3>
+    <p>模块中预定义了一系列时间相关的翻译文本，用于timeago库：</p>
+    
+    <div class="code-block">
+        <pre><code>/*
+ * Setup jQuery timeago:
+ * Strings in timeago are "composed" with prefixes, words and suffixes. This
+ * makes their detection by our translating system impossible. Use all literal
+ * strings we're using with a translation mark here so the extractor can do its
+ * job.
+ */
+_t("less than a minute ago");
+_t("about a minute ago");
+_t("%d minutes ago");
+_t("about an hour ago");
+_t("%d hours ago");
+_t("a day ago");
+_t("%d days ago");
+_t("about a month ago");
+_t("%d months ago");
+_t("about a year ago");
+_t("%d years ago");</code></pre>
+    </div>
+    
+    <h3>语言加载功能</h3>
+    <p>loadLanguages函数用于加载系统中已安装的语言列表：</p>
+    
+    <div class="code-block">
+        <pre><code>/**
+ * Load the installed languages long names and code
+ *
+ * The result of the call is put in cache.
+ * If any new language is installed, a full page refresh will happen,
+ * so there is no need invalidate it.
+ */
+export async function loadLanguages(orm) {
+    if (!loadLanguages.installedLanguages) {
+        loadLanguages.installedLanguages = await orm.call("res.lang", "get_installed");
+    }
+    return loadLanguages.installedLanguages;
+}</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>translation模块的工作流程可以概括为以下几个步骤：</p>
+    
+    <div class="flow-diagram">
+        <h3>翻译系统工作流程</h3>
+        <ol>
+            <li>应用初始化时，translatedTerms对象为空，translationLoaded标志为false</li>
+            <li>localization_service加载翻译数据，填充translatedTerms并设置translationLoaded为true</li>
+            <li>在翻译数据加载前，_t()返回LazyTranslatedString实例</li>
+            <li>翻译数据加载后，_t()直接返回翻译后的字符串</li>
+            <li>LazyTranslatedString实例在需要显示时转换为实际翻译文本</li>
+        </ol>
+    </div>
+    
+    <h3>延迟翻译机制</h3>
+    <p>Odoo的延迟翻译机制非常巧妙，它解决了翻译数据异步加载的问题：</p>
+    <ul>
+        <li>当UI组件初始化时，翻译数据可能尚未加载完成</li>
+        <li>此时_t()返回LazyTranslatedString实例，而不是直接返回未翻译的原文</li>
+        <li>这些LazyTranslatedString实例在真正需要渲染时才会转换为字符串</li>
+        <li>如果此时翻译数据已加载，则显示正确的翻译；否则引发错误</li>
+        <li>正常情况下，翻译数据会在首次渲染前加载完成，确保UI显示正确的翻译</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    <p>下面是几个使用翻译模块的实际场景：</p>
+    
+    <h3>示例1：基础文本翻译</h3>
+    <div class="code-block">
+        <pre><code>import { _t } from "@web/core/l10n/translation";
+
+// 基本用法
+const message = _t("Hello, welcome to Odoo");
+
+// 在类中使用
+class MyComponent extends Component {
+    setup() {
+        this.welcomeMessage = _t("Welcome to the dashboard");
+        this.errorMessage = _t("An error occurred");
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：带参数的翻译</h3>
+    <div class="code-block">
+        <pre><code>import { _t } from "@web/core/l10n/translation";
+
+// 单个参数替换
+const message = _t("Hello, %s", username);
+
+// 多个参数替换
+const notification = _t("User %s has completed %s tasks", userName, taskCount);
+
+// 命名参数替换
+const warning = _t("Operation %(name)s failed with code %(code)s", {
+    name: operationName,
+    code: errorCode
+});</code></pre>
+    </div>
+    
+    <h3>示例3：加载语言列表</h3>
+    <div class="code-block">
+        <pre><code>import { loadLanguages } from "@web/core/l10n/translation";
+import { useService } from "@web/core/utils/hooks";
+
+class LanguageSelector extends Component {
+    setup() {
+        this.orm = useService("orm");
+        this.state = useState({
+            languages: [],
+            loading: true,
+        });
+        
+        this.loadAvailableLanguages();
+    }
+    
+    async loadAvailableLanguages() {
+        try {
+            this.state.languages = await loadLanguages(this.orm);
+        } catch (error) {
+            console.error("Failed to load languages:", error);
+        } finally {
+            this.state.loading = false;
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h2>与localization_service的关系</h2>
+    <p>translation模块和localization_service密切相关但职责不同：</p>
+    <ul>
+        <li><strong>translation模块</strong>提供翻译函数和数据结构，定义翻译的API和存储机制</li>
+        <li><strong>localization_service</strong>负责从服务器加载翻译数据并填充translation模块中的翻译表</li>
+        <li>两者协同工作，确保应用能够正确显示翻译后的文本</li>
+        <li>localization_service完成初始化后，会将translationLoaded设为true，激活直接翻译模式</li>
+    </ul>
+    
+    <h2>翻译如何在Odoo系统中传播</h2>
+    <div class="flow-diagram">
+        <h3>翻译数据流</h3>
+        <ol>
+            <li>Python代码中使用_()标记需要翻译的字符串</li>
+            <li>翻译提取工具提取这些字符串并存储在.pot文件中</li>
+            <li>翻译人员为每种语言创建.po文件，提供翻译</li>
+            <li>Odoo在启动时加载这些翻译到数据库</li>
+            <li>前端通过localization_service从服务器获取翻译数据</li>
+            <li>translation模块提供_t()函数使这些翻译在JS代码中可用</li>
+            <li>UI组件使用_t()显示翻译后的文本</li>
+        </ol>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>重要提示：</strong>
+        <ul>
+            <li>始终使用_t()函数包装所有用户可见的字符串，即使当前只支持一种语言</li>
+            <li>避免在字符串连接中使用_t()，应将整个句子作为一个单元进行翻译</li>
+            <li>使用参数替换（%s, %(name)s等）而不是字符串拼接，以保持翻译的完整性</li>
+            <li>记住不同语言可能有不同的语法结构和词序，参数替换让翻译更灵活</li>
+            <li>翻译键以原文为基础，因此保持原文的一致性非常重要</li>
+        </ul>
+    </div>
+    
+    <h3>正确与错误的翻译用法</h3>
+    <div class="code-block">
+        <pre><code>// 正确做法：整句翻译
+_t("You have %s unread messages", count);
+
+// 错误做法：分段翻译
+_t("You have ") + count + _t(" unread messages");
+
+// 正确做法：使用命名参数
+_t("User %(name)s completed task %(task)s", { name: userName, task: taskName });
+
+// 错误做法：硬编码顺序（在某些语言中可能不适用）
+_t("%s completed %s", userName, taskName);</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的翻译系统改进</h2>
+    <p>Odoo 18对翻译系统进行了一些优化和改进：</p>
+    <ul>
+        <li>更高效的翻译加载机制，减少初始加载时间</li>
+        <li>更好的缓存控制，通过translationsHash提高翻译数据的缓存效率</li>
+        <li>改进的延迟翻译系统，防止UI闪烁和未翻译文本的显示</li>
+        <li>通过LazyTranslatedString类提供更一致的翻译体验</li>
+        <li>统一的Promise接口（translationIsReady）让组件可以等待翻译完成</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>translation模块是Odoo前端国际化系统的核心，它：</p>
+    <ul>
+        <li>提供了简单而强大的翻译API（_t函数）</li>
+        <li>实现了延迟翻译机制，处理翻译数据异步加载的问题</li>
+        <li>支持字符串格式化和参数替换</li>
+        <li>提供语言加载功能</li>
+        <li>与localization_service协同工作，为整个应用提供一致的翻译体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，应始终使用_t()函数包装所有用户可见的字符串，并遵循翻译最佳实践，以确保应用能够轻松适应多语言环境。
+    </div>
+</body>
+</html> 

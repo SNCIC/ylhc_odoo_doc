@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 数据文件文档</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 数据文件文档</h1>
+    
+    <h2>概述</h2>
+    <p>数据文件是Odoo模块的重要组成部分，用于在模块安装或更新时初始化或更新数据库中的记录。Odoo支持两种格式的数据文件：XML和CSV。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>数据文件允许在模块安装时预先加载数据，包括菜单项、视图、配置参数等。它们是声明式的，描述了要创建的记录，而不是如何创建它们。
+    </div>
+    
+    <h2>数据文件</h2>
+    
+    <h3>结构</h3>
+    <p>XML数据文件通常遵循以下结构：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;odoo&gt;
+    &lt;data&gt;
+        &lt;!-- 创建或更新记录 --&gt;
+        &lt;record id="模型外部ID" model="模型.名称"&gt;
+            &lt;field name="字段名"&gt;值&lt;/field&gt;
+            &lt;!-- 更多字段... --&gt;
+        &lt;/record&gt;
+        
+        &lt;!-- 更多记录... --&gt;
+    &lt;/data&gt;
+&lt;/odoo&gt;</code></pre>
+    </div>
+    
+    <p>也可以指定数据仅在模块安装时加载，而不在更新时加载：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;odoo&gt;
+    &lt;data noupdate="1"&gt;
+        &lt;!-- 这些记录只在模块首次安装时创建，更新时不会修改 --&gt;
+        &lt;record id="demo_record" model="demo.model"&gt;
+            &lt;field name="name"&gt;演示记录&lt;/field&gt;
+        &lt;/record&gt;
+    &lt;/data&gt;
+&lt;/odoo&gt;</code></pre>
+    </div>
+    
+    <h3>核心操作</h3>
+    
+    <h4>record</h4>
+    <p>record标签用于创建或更新数据库中的记录。它有两个必要的属性：</p>
+    
+    <ul>
+        <li><code>id</code>：记录的外部ID，用于在数据文件和代码中引用该记录</li>
+        <li><code>model</code>：记录所属的模型</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="view_partner_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;res.partner.form&lt;/field&gt;
+    &lt;field name="model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;field name="name"/&gt;
+            &lt;field name="email"/&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h4>field</h4>
+    <p>field标签用于设置记录的字段值。每个field标签代表一个字段，有以下属性：</p>
+    
+    <ul>
+        <li><code>name</code>：字段名称</li>
+        <li><code>eval</code>（可选）：Python表达式，用于计算字段值</li>
+        <li><code>ref</code>（可选）：引用另一条记录的外部ID</li>
+        <li><code>search</code>（可选）：搜索表达式，用于查找记录</li>
+        <li><code>model</code>（可选）：字段值的模型（对于关系字段）</li>
+        <li><code>type</code>（可选）：字段内容的类型</li>
+        <li><code>file</code>（可选）：文件路径（对于文件类型的字段）</li>
+    </ul>
+    
+    <p>示例：使用eval属性</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="sequence" eval="10"/&gt;</code></pre>
+    </div>
+    
+    <p>示例：使用ref属性引用其他记录</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="company_id" ref="base.main_company"/&gt;</code></pre>
+    </div>
+    
+    <p>示例：使用search属性</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="partner_id" search="[('name','=','伙伴名称')]"/&gt;</code></pre>
+    </div>
+    
+    <h5>字段类型</h5>
+    <p>通过type属性，可以指定字段内容的特殊处理方式：</p>
+    
+    <table>
+        <tr>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>xml, html</td>
+            <td>提取字段的子元素作为单个文档，计算任何使用%(external_id)s形式指定的外部ID。%%可用于输出实际的%符号。</td>
+        </tr>
+        <tr>
+            <td>file</td>
+            <td>确保字段内容是当前模型中的有效文件路径，将模块,路径对保存为字段值</td>
+        </tr>
+        <tr>
+            <td>char</td>
+            <td>直接将字段内容设置为字段值，不进行更改</td>
+        </tr>
+        <tr>
+            <td>base64</td>
+            <td>对字段内容进行base64编码，与file属性结合使用时很有用，例如将图像数据加载到附件中</td>
+        </tr>
+        <tr>
+            <td>int</td>
+            <td>将字段内容转换为整数并设置为字段值</td>
+        </tr>
+        <tr>
+            <td>float</td>
+            <td>将字段内容转换为浮点数并设置为字段值</td>
+        </tr>
+        <tr>
+            <td>list, tuple</td>
+            <td>应包含任意数量的value元素，每个元素解析为生成的元组或列表的项，生成的集合设置为字段值</td>
+        </tr>
+        <tr>
+            <td>eval</td>
+            <td>对于前面方法不适用的情况，eval属性简单地评估提供的Python表达式并将结果设置为字段值</td>
+        </tr>
+    </table>
+    
+    <h4>delete</h4>
+    <p>delete标签可以删除之前定义的任意数量的记录。它有以下属性：</p>
+    
+    <ul>
+        <li><code>model</code>（必需）：要删除记录的模型</li>
+        <li><code>id</code>：要删除的记录的外部ID</li>
+        <li><code>search</code>：用于查找要删除的记录的域</li>
+    </ul>
+    
+    <p>注意：<code>id</code>和<code>search</code>是互斥的</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;delete model="res.partner" id="base.res_partner_1"/&gt;
+&lt;delete model="res.partner" search="[('name','=','已删除的合作伙伴')]"/&gt;</code></pre>
+    </div>
+    
+    <h4>function</h4>
+    <p>function标签在模型上调用方法，并提供参数。它有两个必须的参数<code>model</code>和<code>name</code>，分别指定要调用的模型和方法名称。</p>
+    
+    <p>参数可以使用<code>eval</code>（应评估为调用方法的参数序列）或<code>value</code>元素（参见list值）提供。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;odoo&gt;
+    &lt;data noupdate="1"&gt;
+        &lt;record id="partner_1" model="res.partner"&gt;
+            &lt;field name="name"&gt;Odude&lt;/field&gt;
+        &lt;/record&gt;
+
+        &lt;function model="res.partner" name="send_inscription_notice"
+            eval="[[ref('partner_1'), ref('partner_2')]]"/&gt;
+
+        &lt;function model="res.users" name="send_vip_inscription_notice"&gt;
+            &lt;function eval="[[('vip','=',True)]]" model="res.partner" name="search"/&gt;
+        &lt;/function&gt;
+    &lt;/data&gt;
+
+    &lt;record id="model_form_view" model="ir.ui.view"&gt;
+        ...
+    &lt;/record&gt;
+&lt;/odoo&gt;</code></pre>
+    </div>
+    
+    <h3>快捷方式</h3>
+    <p>因为Odoo的一些重要结构模型比较复杂，数据文件提供了一些更简短的替代方法来定义它们，而不是使用record标签：</p>
+    
+    <h4>menuitem</h4>
+    <p>定义一个<code>ir.ui.menu</code>记录，提供一些默认值和回退选项：</p>
+    
+    <ul>
+        <li><code>parent</code>：
+            <ul>
+                <li>如果设置了parent属性，它应该是另一个菜单项的外部ID，用作新项目的父级</li>
+                <li>如果没有提供parent，尝试将name属性解释为由/分隔的菜单名称序列，并在菜单层次结构中找到位置。在该解释中，自动创建中间菜单</li>
+                <li>否则，菜单被定义为"顶级"菜单项（不是没有父级的菜单）</li>
+            </ul>
+        </li>
+        <li><code>name</code>：如果没有指定name属性，尝试从链接的action（如果有）获取菜单名称。否则使用记录的id</li>
+        <li><code>groups</code>：groups属性被解释为用逗号分隔的res.groups模型的外部标识符序列。如果外部标识符前面有减号（-），则从菜单的组中删除该组</li>
+        <li><code>action</code>：如果指定，action属性应该是打开菜单时要执行的操作的外部ID</li>
+        <li><code>id</code>：菜单项的外部ID</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>&lt;menuitem id="menu_custom" name="自定义菜单" action="action_custom"/&gt;
+&lt;menuitem id="menu_sub_custom" name="子菜单" parent="menu_custom"/&gt;</code></pre>
+    </div>
+    
+    <h4>template</h4>
+    <p>创建一个QWeb视图，只需要视图的arch部分，并允许一些可选属性：</p>
+    
+    <ul>
+        <li><code>id</code>：视图的外部标识符</li>
+        <li><code>name</code>, <code>inherit_id</code>, <code>priority</code>：与ir.ui.view上的相应字段相同（注意：inherit_id应该是外部标识符）</li>
+        <li><code>primary</code>：如果设置为True并与inherit_id结合使用，将视图定义为主视图</li>
+        <li><code>groups</code>：组外部标识符的逗号分隔列表</li>
+        <li><code>page</code>：如果设置为"True"，模板是一个网站页面（可链接，可删除）</li>
+        <li><code>optional</code>：enabled或disabled，视图是否可以被禁用（在网站界面中）及其默认状态。如果未设置，视图始终启用。</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>&lt;template id="my_template" name="我的模板"&gt;
+    &lt;div&gt;
+        &lt;h1&gt;Hello, &lt;t t-esc="name"/&gt;!&lt;/h1&gt;
+    &lt;/div&gt;
+&lt;/template&gt;</code></pre>
+    </div>
+    
+    <h3>CSV数据文件</h3>
+    <p>XML数据文件灵活且自描述，但在批量创建同一模型的简单记录时非常冗长。</p>
+    
+    <p>对于这种情况，数据文件也可以使用csv格式，这通常用于访问权限：</p>
+    
+    <ul>
+        <li>文件名是<code>_模型名_.csv</code></li>
+        <li>第一行列出要写入的字段，特殊字段<code>id</code>用于外部标识符（用于创建或更新）</li>
+        <li>之后的每一行创建一个新记录</li>
+    </ul>
+    
+    <p>这是定义国家州的数据文件<code>res.country.state.csv</code>的前几行：</p>
+    
+    <div class="code-block">
+        <pre><code>"id","country_id:id","name","code"
+state_au_1,au,"Australian Capital Territory","ACT"
+state_au_2,au,"New South Wales","NSW"
+state_au_3,au,"Northern Territory","NT"
+state_au_4,au,"Queensland","QLD"
+state_au_5,au,"South Australia","SA"
+state_au_6,au,"Tasmania","TAS"
+state_au_7,au,"Victoria","VIC"
+state_au_8,au,"Western Australia","WA"
+state_us_1,us,"Alabama","AL"
+state_us_2,us,"Alaska","AK"
+state_us_3,us,"Arizona","AZ"
+state_us_4,us,"Arkansas","AR"
+state_us_5,us,"California","CA"
+state_us_6,us,"Colorado","CO"</code></pre>
+    </div>
+    
+    <p>以更易读的格式呈现：</p>
+    
+    <table>
+        <tr>
+            <th>id</th>
+            <th>country_id:id</th>
+            <th>name</th>
+            <th>code</th>
+        </tr>
+        <tr>
+            <td>state_au_1</td>
+            <td>au</td>
+            <td>Australian Capital Territory</td>
+            <td>ACT</td>
+        </tr>
+        <tr>
+            <td>state_au_2</td>
+            <td>au</td>
+            <td>New South Wales</td>
+            <td>NSW</td>
+        </tr>
+        <tr>
+            <td>state_au_3</td>
+            <td>au</td>
+            <td>Northern Territory</td>
+            <td>NT</td>
+        </tr>
+        <tr>
+            <td>state_au_4</td>
+            <td>au</td>
+            <td>Queensland</td>
+            <td>QLD</td>
+        </tr>
+        <tr>
+            <td>state_au_5</td>
+            <td>au</td>
+            <td>South Australia</td>
+            <td>SA</td>
+        </tr>
+        <tr>
+            <td>state_au_6</td>
+            <td>au</td>
+            <td>Tasmania</td>
+            <td>TAS</td>
+        </tr>
+        <tr>
+            <td>state_au_7</td>
+            <td>au</td>
+            <td>Victoria</td>
+            <td>VIC</td>
+        </tr>
+        <tr>
+            <td>state_au_8</td>
+            <td>au</td>
+            <td>Western Australia</td>
+            <td>WA</td>
+        </tr>
+        <tr>
+            <td>state_us_1</td>
+            <td>us</td>
+            <td>Alabama</td>
+            <td>AL</td>
+        </tr>
+        <tr>
+            <td>state_us_2</td>
+            <td>us</td>
+            <td>Alaska</td>
+            <td>AK</td>
+        </tr>
+        <tr>
+            <td>state_us_3</td>
+            <td>us</td>
+            <td>Arizona</td>
+            <td>AZ</td>
+        </tr>
+        <tr>
+            <td>state_us_4</td>
+            <td>us</td>
+            <td>Arkansas</td>
+            <td>AR</td>
+        </tr>
+        <tr>
+            <td>state_us_5</td>
+            <td>us</td>
+            <td>California</td>
+            <td>CA</td>
+        </tr>
+        <tr>
+            <td>state_us_6</td>
+            <td>us</td>
+            <td>Colorado</td>
+            <td>CO</td>
+        </tr>
+    </table>
+    
+    <p>对于每一行（记录）：</p>
+    
+    <ul>
+        <li>第一列是要创建或更新的记录的外部ID</li>
+        <li>第二列是要链接的国家对象的外部ID（国家对象必须事先定义）</li>
+        <li>第三列是<code>res.country.state</code>的<code>name</code>字段</li>
+        <li>第四列是<code>res.country.state</code>的<code>code</code>字段</li>
+    </ul>
+</body>
+</html> 

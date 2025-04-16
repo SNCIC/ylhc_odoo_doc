@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo确认对话框组件解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 确认对话框组件解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>confirmation_dialog.js</code>是Odoo框架中提供预定义确认对话框的实用组件。它基于基础Dialog组件构建，专门用于处理用户确认操作的场景，如确认删除、保存更改等。该组件提供了标准化的确认流程，包括确认和取消操作，以及统一的视觉样式。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>确认对话框(Confirmation Dialog)是一种特殊类型的对话框，用于在执行重要或不可逆操作前请求用户确认。Odoo的确认对话框组件将这种常见交互模式标准化，使开发者可以轻松地在应用中添加一致且用户友好的确认流程。
+    </div>
+    
+    <h2>核心功能</h2>
+    <ol>
+        <li><strong>操作确认</strong>：提供标准化的用户操作确认机制</li>
+        <li><strong>可自定义文本</strong>：支持自定义标题、内容和按钮文本</li>
+        <li><strong>确认回调</strong>：支持确认和取消操作的回调函数</li>
+        <li><strong>按钮状态管理</strong>：防止重复点击和处理异步操作</li>
+        <li><strong>键盘快捷键</strong>：支持Esc取消和Ctrl+Enter确认</li>
+        <li><strong>两种变体</strong>：标准确认对话框和警告对话框</li>
+    </ol>
+    
+    <h2>组件结构</h2>
+    <p>确认对话框模块提供了两个主要组件：</p>
+    <ul>
+        <li><code>ConfirmationDialog</code>：标准确认对话框，提供确认和取消按钮</li>
+        <li><code>AlertDialog</code>：警告对话框，只提供确认按钮</li>
+    </ul>
+    
+    <h2>ConfirmationDialog组件API详解</h2>
+    
+    <div class="code-block">
+        <pre><code>export class ConfirmationDialog extends Component {
+    static template = "web.ConfirmationDialog";
+    static components = { Dialog };
+    static props = {
+        close: Function,
+        title: {
+            validate: (m) => {
+                return (
+                    typeof m === "string" ||
+                    (typeof m === "object" && typeof m.toString === "function")
+                );
+            },
+            optional: true,
+        },
+        body: { type: String, optional: true },
+        confirm: { type: Function, optional: true },
+        confirmLabel: { type: String, optional: true },
+        confirmClass: { type: String, optional: true },
+        cancel: { type: Function, optional: true },
+        cancelLabel: { type: String, optional: true },
+        dismiss: { type: Function, optional: true },
+    };
+    static defaultProps = {
+        confirmLabel: _t("Ok"),
+        cancelLabel: _t("Cancel"),
+        confirmClass: "btn-primary",
+        title: _t("Confirmation"),
+    };
+
+    // ... 组件方法
+}</code></pre>
+    </div>
+    
+    <h3>Props详解</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>close</td>
+            <td>Function</td>
+            <td>-</td>
+            <td>关闭对话框的函数（由dialogService提供）</td>
+        </tr>
+        <tr>
+            <td>title</td>
+            <td>String/Object</td>
+            <td>"Confirmation"</td>
+            <td>对话框标题</td>
+        </tr>
+        <tr>
+            <td>body</td>
+            <td>String</td>
+            <td>-</td>
+            <td>对话框正文内容</td>
+        </tr>
+        <tr>
+            <td>confirm</td>
+            <td>Function</td>
+            <td>-</td>
+            <td>点击确认按钮时执行的回调函数</td>
+        </tr>
+        <tr>
+            <td>confirmLabel</td>
+            <td>String</td>
+            <td>"Ok"</td>
+            <td>确认按钮的文本</td>
+        </tr>
+        <tr>
+            <td>confirmClass</td>
+            <td>String</td>
+            <td>"btn-primary"</td>
+            <td>确认按钮的CSS类</td>
+        </tr>
+        <tr>
+            <td>cancel</td>
+            <td>Function</td>
+            <td>-</td>
+            <td>点击取消按钮时执行的回调函数</td>
+        </tr>
+        <tr>
+            <td>cancelLabel</td>
+            <td>String</td>
+            <td>"Cancel"</td>
+            <td>取消按钮的文本</td>
+        </tr>
+        <tr>
+            <td>dismiss</td>
+            <td>Function</td>
+            <td>-</td>
+            <td>关闭对话框时执行的回调函数（如按Esc键）</td>
+        </tr>
+    </table>
+    
+    <h3>主要方法</h3>
+    <table>
+        <tr>
+            <th>方法</th>
+            <th>参数</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td>setup()</td>
+            <td>-</td>
+            <td>初始化组件，设置环境和状态</td>
+        </tr>
+        <tr>
+            <td>_cancel()</td>
+            <td>-</td>
+            <td>处理取消操作</td>
+        </tr>
+        <tr>
+            <td>_confirm()</td>
+            <td>-</td>
+            <td>处理确认操作</td>
+        </tr>
+        <tr>
+            <td>_dismiss()</td>
+            <td>-</td>
+            <td>处理关闭操作（如按Esc键）</td>
+        </tr>
+        <tr>
+            <td>setButtonsDisabled()</td>
+            <td>disabled: Boolean</td>
+            <td>设置按钮的禁用状态，防止重复点击</td>
+        </tr>
+        <tr>
+            <td>execButton()</td>
+            <td>callback: Function</td>
+            <td>执行按钮回调，处理异步操作和按钮状态</td>
+        </tr>
+    </table>
+    
+    <h2>AlertDialog组件</h2>
+    <p>AlertDialog是ConfirmationDialog的变体，专用于显示警告或提示信息：</p>
+    
+    <div class="code-block">
+        <pre><code>export class AlertDialog extends ConfirmationDialog {
+    static template = "web.AlertDialog";
+    static props = {
+        ...ConfirmationDialog.props,
+        contentClass: { type: String, optional: true },
+    };
+    static defaultProps = {
+        ...ConfirmationDialog.defaultProps,
+        title: _t("Alert"),
+    };
+}</code></pre>
+    </div>
+    
+    <p>主要区别：</p>
+    <ul>
+        <li>使用不同的模板，只显示确认按钮，没有取消按钮</li>
+        <li>默认标题为"Alert"而不是"Confirmation"</li>
+        <li>增加了contentClass属性，用于自定义内容区域的样式</li>
+    </ul>
+    
+    <h2>预定义的确认消息</h2>
+    <p>该模块还提供了一些预定义的确认消息，如删除确认：</p>
+    
+    <div class="code-block">
+        <pre><code>export const deleteConfirmationMessage = _t(
+    `Ready to make your record disappear into thin air? Are you sure?
+It will be gone forever!
+
+Think twice before you click that 'Delete' button!`
+);</code></pre>
+    </div>
+    
+    <h2>按钮处理机制</h2>
+    <p>ConfirmationDialog实现了一个精细的按钮处理机制，特别适合处理可能耗时的操作：</p>
+    
+    <div class="code-block">
+        <pre><code>setButtonsDisabled(disabled) {
+    this.isProcess = disabled;
+    if (!this.modalRef.el) {
+        return; // safety belt for stable versions
+    }
+    for (const button of [...this.modalRef.el.querySelectorAll(".modal-footer button")]) {
+        button.disabled = disabled;
+    }
+}
+
+async execButton(callback) {
+    if (this.isProcess) {
+        return;
+    }
+    this.setButtonsDisabled(true);
+    if (callback) {
+        let shouldClose;
+        try {
+            shouldClose = await callback();
+        } catch (e) {
+            this.props.close();
+            throw e;
+        }
+        if (shouldClose === false) {
+            this.setButtonsDisabled(false);
+            return;
+        }
+    }
+    this.props.close();
+}</code></pre>
+    </div>
+    
+    <p>这种机制提供了以下特性：</p>
+    <ul>
+        <li>防止按钮重复点击（点击后按钮会被禁用）</li>
+        <li>支持异步操作（如网络请求）</li>
+        <li>允许回调阻止对话框关闭（返回false）</li>
+        <li>在操作完成后自动关闭对话框</li>
+        <li>优雅地处理错误，确保对话框关闭</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本使用 - 删除确认</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { ConfirmationDialog, deleteConfirmationMessage } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Component } from "@odoo/owl";
+
+class MyComponent extends Component {
+    setup() {
+        this.dialog = useService("dialog");
+        this.orm = useService("orm");
+    }
+    
+    deleteRecord(id) {
+        this.dialog.add(ConfirmationDialog, {
+            title: "删除记录",
+            body: deleteConfirmationMessage,
+            confirm: async () => {
+                await this.orm.unlink("my.model", [id]);
+                this.notification.add("记录已删除", { type: "success" });
+                return true; // 允许对话框关闭
+            },
+            cancel: () => {
+                console.log("删除操作已取消");
+            },
+            confirmLabel: "删除",
+            confirmClass: "btn-danger",
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 阻止关闭 - 表单验证</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Component } from "@odoo/owl";
+
+class MyComponent extends Component {
+    setup() {
+        this.dialog = useService("dialog");
+        this.hasUnsavedChanges = true;
+    }
+    
+    navigateAway() {
+        if (this.hasUnsavedChanges) {
+            this.dialog.add(ConfirmationDialog, {
+                title: "未保存的更改",
+                body: "您有未保存的更改，确定要离开吗？",
+                confirm: () => {
+                    return this.validateForm().then(isValid => {
+                        if (!isValid) {
+                            alert("请先修复表单中的错误");
+                            return false; // 阻止对话框关闭
+                        }
+                        return true; // 允许对话框关闭
+                    });
+                }
+            });
+        } else {
+            this.doNavigate();
+        }
+    }
+    
+    async validateForm() {
+        // 表单验证逻辑
+        return true;
+    }
+    
+    doNavigate() {
+        // 导航逻辑
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 使用AlertDialog</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Component } from "@odoo/owl";
+
+class MyComponent extends Component {
+    setup() {
+        this.dialog = useService("dialog");
+    }
+    
+    showConnectionError() {
+        this.dialog.add(AlertDialog, {
+            title: "连接错误",
+            body: "无法连接到服务器，请检查您的网络连接并重试。",
+            contentClass: "text-danger",
+            confirm: () => this.retryConnection()
+        });
+    }
+    
+    retryConnection() {
+        console.log("重试连接...");
+    }
+}</code></pre>
+    </div>
+    
+    <h3>4. 自定义按钮样式</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Component } from "@odoo/owl";
+
+class MyComponent extends Component {
+    setup() {
+        this.dialog = useService("dialog");
+    }
+    
+    archiveRecord(id) {
+        this.dialog.add(ConfirmationDialog, {
+            title: "归档记录",
+            body: "您确定要归档这条记录吗？归档后可以在归档列表中找到。",
+            confirm: () => this.doArchive(id),
+            confirmLabel: "归档",
+            confirmClass: "btn-warning", // 使用警告样式
+            cancelLabel: "保留",
+        });
+    }
+    
+    doArchive(id) {
+        console.log("归档记录", id);
+    }
+}</code></pre>
+    </div>
+    
+    <h2>模板结构</h2>
+    <p>确认对话框使用两个主要模板：</p>
+    
+    <h3>1. ConfirmationDialog模板</h3>
+    <div class="code-block">
+        <pre><code>&lt;t t-name="web.ConfirmationDialog">
+    &lt;Dialog title="props.title">
+        &lt;main class="o_dialog_confirmation_main" t-if="props.body">
+            &lt;t t-out="props.body" />
+        &lt;/main>
+        &lt;t t-set-slot="footer">
+            &lt;button class="btn btn-secondary" t-on-click="_cancel">
+                &lt;t t-esc="props.cancelLabel" />
+            &lt;/button>
+            &lt;button t-attf-class="btn {{props.confirmClass}}" t-on-click="_confirm">
+                &lt;t t-esc="props.confirmLabel" />
+            &lt;/button>
+        &lt;/t>
+    &lt;/Dialog>
+&lt;/t></code></pre>
+    </div>
+    
+    <h3>2. AlertDialog模板</h3>
+    <div class="code-block">
+        <pre><code>&lt;t t-name="web.AlertDialog">
+    &lt;Dialog title="props.title">
+        &lt;main t-att-class="props.contentClass" t-if="props.body">
+            &lt;t t-out="props.body" />
+        &lt;/main>
+        &lt;t t-set-slot="footer">
+            &lt;button t-attf-class="btn {{props.confirmClass}}" t-on-click="_confirm">
+                &lt;t t-esc="props.confirmLabel" />
+            &lt;/button>
+        &lt;/t>
+    &lt;/Dialog>
+&lt;/t></code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>使用确认对话框时，请注意以下几点：
+        <ul>
+            <li>只在用户执行重要或不可逆操作前使用确认对话框</li>
+            <li>提供清晰的对话框标题和正文，说明操作的后果</li>
+            <li>按钮文本应明确描述操作（如"删除"而不是"确定"）</li>
+            <li>危险操作应使用btn-danger类样式（如删除操作）</li>
+            <li>异步操作应在完成前禁用按钮，防止重复点击</li>
+            <li>避免在短时间内显示多个确认对话框，可能导致用户疲劳</li>
+        </ul>
+    </div>
+    
+    <h3>对话框文本建议</h3>
+    <table>
+        <tr>
+            <th>操作类型</th>
+            <th>标题示例</th>
+            <th>文本示例</th>
+            <th>按钮示例</th>
+        </tr>
+        <tr>
+            <td>删除操作</td>
+            <td>删除记录</td>
+            <td>您确定要删除此记录吗？此操作无法撤销。</td>
+            <td>取消 / 删除 (btn-danger)</td>
+        </tr>
+        <tr>
+            <td>放弃更改</td>
+            <td>未保存的更改</td>
+            <td>您有未保存的更改，确定要离开吗？</td>
+            <td>取消 / 离开 (btn-warning)</td>
+        </tr>
+        <tr>
+            <td>归档操作</td>
+            <td>归档记录</td>
+            <td>您确定要归档此记录吗？它将不再显示在主视图中。</td>
+            <td>取消 / 归档 (btn-warning)</td>
+        </tr>
+        <tr>
+            <td>批量操作</td>
+            <td>批量处理</td>
+            <td>您将对 X 条记录执行此操作，确定继续吗？</td>
+            <td>取消 / 继续 (btn-primary)</td>
+        </tr>
+    </table>
+    
+    <h3>错误处理</h3>
+    <p>在确认回调中，应正确处理可能的错误：</p>
+    
+    <div class="code-block">
+        <pre><code>confirm: async () => {
+    try {
+        await this.performAction();
+        this.notification.add("操作成功完成", { type: "success" });
+        return true;
+    } catch (error) {
+        this.notification.add("操作失败: " + error.message, { type: "danger" });
+        // 根据错误类型决定是否关闭对话框
+        if (error.name === "NetworkError") {
+            return false; // 保持对话框打开，允许用户重试
+        }
+        return true; // 关闭对话框
+    }
+}</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>确认对话框在设计上应简洁明了。如果需要用户输入大量信息或者进行复杂交互，应考虑使用表单对话框或专门的视图，而不是扩展确认对话框的功能。
+    </div>
+    
+    <h2>相关组件和服务</h2>
+    <table>
+        <tr>
+            <th>名称</th>
+            <th>类型</th>
+            <th>关系</th>
+        </tr>
+        <tr>
+            <td>Dialog</td>
+            <td>组件</td>
+            <td>确认对话框的基础组件</td>
+        </tr>
+        <tr>
+            <td>dialogService</td>
+            <td>服务</td>
+            <td>用于创建和管理确认对话框</td>
+        </tr>
+        <tr>
+            <td>notification</td>
+            <td>服务</td>
+            <td>通常与确认对话框结合使用，提供操作反馈</td>
+        </tr>
+    </table>
+</body>
+</html> 

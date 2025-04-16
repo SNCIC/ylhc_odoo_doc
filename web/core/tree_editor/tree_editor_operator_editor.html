@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo树编辑器操作符编辑器解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo树编辑器操作符编辑器解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>tree_editor_operator_editor.js</code>是Odoo 18中tree_editor模块的重要组件，负责处理条件树中操作符的显示和编辑。该文件定义了操作符的描述、标签生成以及编辑器配置，使用户能够直观地选择和理解各种比较操作符。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>操作符编辑器是条件树编辑器的关键部分，它提供了一个统一的界面来选择适合特定字段类型的操作符，并为这些操作符提供人类友好的标签和描述。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>操作符描述定义</strong>：为各种操作符提供人类可读的描述</li>
+        <li><strong>操作符标签生成</strong>：根据操作符和字段类型生成合适的显示标签</li>
+        <li><strong>取反处理</strong>：处理操作符的取反逻辑（如 "=" 取反为 "!="）</li>
+        <li><strong>编辑器配置生成</strong>：为操作符选择器提供配置信息</li>
+        <li><strong>操作符国际化</strong>：支持操作符描述的多语言翻译</li>
+        <li><strong>字段类型相关操作符</strong>：根据字段类型提供适当的操作符选项</li>
+    </ol>
+    
+    <h2>操作符描述映射</h2>
+    <p>tree_editor_operator_editor.js定义了一个全面的操作符描述映射表：</p>
+    
+    <div class="code-block">
+        <pre><code>const OPERATOR_DESCRIPTIONS = {
+    // 有效的操作符（参见expression.py中的TERM_OPERATORS）
+    "=": "=",
+    "!=": "!=",
+    "<=": "<=",
+    "<": "<",
+    ">": ">",
+    ">=": ">=",
+    "=?": "=?",
+    "=like": _t("=like"),
+    "=ilike": _t("=ilike"),
+    like: _t("like"),
+    "not like": _t("not like"),
+    ilike: _t("contains"),
+    "not ilike": _t("does not contain"),
+    in: _t("is in"),
+    "not in": _t("is not in"),
+    child_of: _t("child of"),
+    parent_of: _t("parent of"),
+
+    // 虚拟操作符（在某些情况下替换=和!=）
+    is: _t("is"),
+    is_not: _t("is not"),
+    set: _t("is set"),
+    not_set: _t("is not set"),
+
+    starts_with: _t("starts with"),
+    ends_with: _t("ends with"),
+
+    // 虚拟操作符（等价于一对(>=,<=)）
+    between: _t("is between"),
+    within: _t("is within"),
+
+    any: (fieldDefType) => {
+        switch (fieldDefType) {
+            case "many2one":
+                return _t("matches");
+            default:
+                return _t("match");
+        }
+    },
+    "not any": (fieldDefType) => {
+        switch (fieldDefType) {
+            case "many2one":
+                return _t("matches none of");
+            default:
+                return _t("match none of");
+        }
+    },
+};</code></pre>
+    </div>
+    
+    <p>这个映射表为各种操作符提供了描述文本，包括标准SQL操作符、虚拟操作符和特殊操作符。对于某些操作符，描述是基于字段类型的函数，以提供更精确的描述。</p>
+    
+    <h2>核心函数解析</h2>
+    <p>tree_editor_operator_editor.js包含几个关键函数，下面详细分析：</p>
+    
+    <h3>操作符标签获取函数</h3>
+    <div class="code-block">
+        <pre><code>export function getOperatorLabel(operator, fieldDefType, negate = false) {
+    let label;
+    if (typeof operator === "string" && operator in OPERATOR_DESCRIPTIONS) {
+        if (negate && operator in TERM_OPERATORS_NEGATION) {
+            return getOperatorDescription(TERM_OPERATORS_NEGATION[operator], fieldDefType);
+        }
+        label = getOperatorDescription(operator, fieldDefType);
+    } else {
+        label = formatValue(operator);
+    }
+    if (negate) {
+        return sprintf(`not %s`, label);
+    }
+    return label;
+}</code></pre>
+    </div>
+    <p>getOperatorLabel函数根据操作符、字段类型和negate标志生成人类可读的操作符标签。它处理取反逻辑，对于被取反的操作符，会查找其反义操作符或在前面添加"not"。</p>
+    
+    <h3>操作符描述获取函数</h3>
+    <div class="code-block">
+        <pre><code>function getOperatorDescription(operator, fieldDefType) {
+    const description = OPERATOR_DESCRIPTIONS[operator];
+    if (
+        typeof description === "function" &&
+        description.constructor?.name !== "LazyTranslatedString"
+    ) {
+        return description(fieldDefType);
+    }
+    return description;
+}</code></pre>
+    </div>
+    <p>getOperatorDescription函数从OPERATOR_DESCRIPTIONS映射表中获取操作符的描述。如果描述是一个函数（且不是翻译字符串），则调用该函数并传入字段类型，以获取上下文相关的描述。</p>
+    
+    <h3>操作符编辑器信息获取函数</h3>
+    <div class="code-block">
+        <pre><code>export function getOperatorEditorInfo(operators, fieldDef) {
+    const defaultOperator = operators[0];
+    const operatorsInfo = operators.map((operator) => getOperatorInfo(operator, fieldDef?.type));
+    return {
+        component: Select,
+        extractProps: ({ update, value: [operator, negate] }) => {
+            const [operatorKey, operatorLabel] = getOperatorInfo(operator, fieldDef?.type, negate);
+            const options = [...operatorsInfo];
+            if (!options.some(([key]) => key === operatorKey)) {
+                options.push([operatorKey, operatorLabel]);
+            }
+            return {
+                value: operatorKey,
+                update: (operatorKey) => update(...toOperator(operatorKey)),
+                options,
+            };
+        },
+        defaultValue: () => defaultOperator,
+        isSupported: ([operator]) =>
+            typeof operator === "string" && operator in OPERATOR_DESCRIPTIONS,
+        message: _t("Operator not supported"),
+        stringify: ([operator, negate]) => getOperatorLabel(operator, negate),
+    };
+}</code></pre>
+    </div>
+    <p>getOperatorEditorInfo函数为操作符选择器提供配置信息。它生成一个描述对象，包含使用的组件、属性提取函数、默认值、支持检查等，使树编辑器能够正确渲染和处理操作符选择。</p>
+    
+    <h3>操作符信息获取函数</h3>
+    <div class="code-block">
+        <pre><code>function getOperatorInfo(operator, fieldDefType, negate = false) {
+    const key = toKey(operator, negate);
+    const label = getOperatorLabel(operator, fieldDefType, negate);
+    return [key, label];
+}</code></pre>
+    </div>
+    <p>getOperatorInfo函数生成操作符的键和标签。键是用于在Select组件中唯一标识操作符的值，标签是显示给用户的文本。</p>
+    
+    <h3>操作符键生成和解析函数</h3>
+    <div class="code-block">
+        <pre><code>function toKey(operator, negate = false) {
+    if (!negate && typeof operator === "string" && operator in OPERATOR_DESCRIPTIONS) {
+        // 主要情况，保持简单
+        return operator;
+    }
+    return JSON.stringify([formatValue(operator), negate]);
+}
+
+function toOperator(key) {
+    if (!key.includes("[")) {
+        return [key, false];
+    }
+    const [expr, negate] = JSON.parse(key);
+    return [toValue(parseExpr(expr)), negate];
+}</code></pre>
+    </div>
+    <p>toKey函数将操作符和negate标志转换为Select组件使用的键。对于简单情况，直接使用操作符字符串；对于复杂情况，使用JSON编码。toOperator函数执行相反的操作，将键解析回操作符和negate标志。</p>
+    
+    <h2>操作符取反映射</h2>
+    <p>tree_editor_operator_editor.js使用来自condition_tree.js的TERM_OPERATORS_NEGATION映射表来处理操作符的取反：</p>
+    
+    <div class="code-block">
+        <pre><code>export const TERM_OPERATORS_NEGATION = {
+    "<": ">=",
+    ">": "<=",
+    "<=": ">",
+    ">=": "<",
+    "=": "!=",
+    "!=": "=",
+    in: "not in",
+    like: "not like",
+    ilike: "not ilike",
+    "not in": "in",
+    "not like": "like",
+    "not ilike": "ilike",
+};</code></pre>
+    </div>
+    
+    <p>这个映射表定义了各种操作符的反义操作符，使系统能够正确处理条件的取反。</p>
+    
+    <h2>工作原理</h2>
+    <p>tree_editor_operator_editor.js的工作原理可以概括为以下流程：</p>
+    
+    <div class="flow-diagram">
+        <h3>操作符编辑器工作流程</h3>
+        <ol>
+            <li>树编辑器需要渲染操作符选择器时，调用getOperatorEditorInfo获取编辑器信息</li>
+            <li>getOperatorEditorInfo为每个可选操作符生成信息（键和标签）</li>
+            <li>Select组件使用这些信息渲染操作符选项</li>
+            <li>用户选择操作符时，通过update回调传递操作符键</li>
+            <li>toOperator函数解析键，提取操作符和negate标志</li>
+            <li>树编辑器更新条件节点的operator和negate属性</li>
+        </ol>
+    </div>
+    
+    <h2>操作符类型</h2>
+    <p>tree_editor_operator_editor.js处理多种类型的操作符：</p>
+    
+    <table>
+        <tr>
+            <th>类型</th>
+            <th>操作符示例</th>
+            <th>描述</th>
+            <th>适用字段类型</th>
+        </tr>
+        <tr>
+            <td>比较操作符</td>
+            <td>=, !=, <, >, <=, >=</td>
+            <td>基本比较</td>
+            <td>几乎所有类型</td>
+        </tr>
+        <tr>
+            <td>字符串操作符</td>
+            <td>like, ilike, =like, =ilike</td>
+            <td>字符串模式匹配</td>
+            <td>char, text</td>
+        </tr>
+        <tr>
+            <td>集合操作符</td>
+            <td>in, not in</td>
+            <td>集合成员检查</td>
+            <td>所有类型，特别是关联字段</td>
+        </tr>
+        <tr>
+            <td>树操作符</td>
+            <td>child_of, parent_of</td>
+            <td>层级关系检查</td>
+            <td>many2one（带parent_id）</td>
+        </tr>
+        <tr>
+            <td>存在性操作符</td>
+            <td>set, not_set</td>
+            <td>检查字段是否有值</td>
+            <td>所有类型</td>
+        </tr>
+        <tr>
+            <td>虚拟范围操作符</td>
+            <td>between, within</td>
+            <td>范围检查</td>
+            <td>数字, 日期, 时间</td>
+        </tr>
+        <tr>
+            <td>匹配操作符</td>
+            <td>any, not any</td>
+            <td>复杂匹配</td>
+            <td>关联字段</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    <p>下面是一些tree_editor_operator_editor.js中功能的使用示例：</p>
+    
+    <div class="usage-examples">
+        <div class="example">
+            <h3>获取操作符标签</h3>
+            <div class="code-block">
+                <pre><code>import { getOperatorLabel } from "@web/core/tree_editor/tree_editor_operator_editor";
+
+// 基本操作符标签
+console.log(getOperatorLabel("=", "integer")); // "="
+console.log(getOperatorLabel("!=", "integer")); // "!="
+
+// 字符串操作符标签
+console.log(getOperatorLabel("ilike", "char")); // "contains"
+console.log(getOperatorLabel("not ilike", "char")); // "does not contain"
+
+// 带取反的标签
+console.log(getOperatorLabel("=", "integer", true)); // "!="
+console.log(getOperatorLabel("in", "many2one", true)); // "is not in"
+
+// 不同字段类型的操作符标签
+console.log(getOperatorLabel("any", "many2one")); // "matches"
+console.log(getOperatorLabel("any", "many2many")); // "match"</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>使用操作符编辑器信息</h3>
+            <div class="code-block">
+                <pre><code>import { getOperatorEditorInfo } from "@web/core/tree_editor/tree_editor_operator_editor";
+import { Component } from "@odoo/owl";
+
+export class OperatorSelector extends Component {
+    static template = "my_module.OperatorSelector";
+    
+    setup() {
+        // 定义可用的操作符
+        this.operators = ["=", "!=", "<", ">", "<=", ">="];
+        
+        // 获取编辑器信息
+        this.editorInfo = getOperatorEditorInfo(this.operators, this.props.fieldDef);
+        
+        // 提取编辑器组件的属性
+        this.editorProps = this.editorInfo.extractProps({
+            value: [this.props.operator, this.props.negate],
+            update: this.updateOperator.bind(this)
+        });
+    }
+    
+    updateOperator(operator, negate) {
+        this.props.onOperatorChange(operator, negate);
+    }
+}</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>根据字段类型提供不同操作符</h3>
+            <div class="code-block">
+                <pre><code>import { getOperatorEditorInfo } from "@web/core/tree_editor/tree_editor_operator_editor";
+
+function getOperatorsForFieldType(fieldDef) {
+    const type = fieldDef?.type;
+    switch (type) {
+        case "char":
+        case "text":
+            return ["=", "!=", "ilike", "not ilike", "set", "not_set"];
+        case "integer":
+        case "float":
+        case "monetary":
+            return ["=", "!=", "<", ">", "<=", ">=", "between", "set", "not_set"];
+        case "boolean":
+            return ["=", "!="];
+        case "date":
+        case "datetime":
+            return ["=", "!=", "<", ">", "<=", ">=", "between", "within", "set", "not_set"];
+        case "many2one":
+            return ["=", "!=", "in", "not in", "set", "not_set"];
+        case "many2many":
+        case "one2many":
+            return ["in", "not in", "set", "not_set"];
+        case "selection":
+            return ["=", "!=", "in", "not in", "set", "not_set"];
+        default:
+            return ["=", "!=", "set", "not_set"];
+    }
+}
+
+// 使用示例
+const charFieldDef = { type: "char", string: "名称" };
+const operators = getOperatorsForFieldType(charFieldDef);
+const editorInfo = getOperatorEditorInfo(operators, charFieldDef);</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>tree_editor_operator_editor.js与多个模块有交互：</p>
+    <ul>
+        <li><strong>condition_tree.js</strong>：使用TERM_OPERATORS_NEGATION、formatValue和toValue函数</li>
+        <li><strong>tree_editor_components.js</strong>：使用Select组件实现操作符选择器</li>
+        <li><strong>py_js</strong>：使用parseExpr处理Python表达式</li>
+        <li><strong>l10n</strong>：使用_t和sprintf函数进行国际化</li>
+        <li><strong>utils/strings</strong>：使用字符串处理函数</li>
+    </ul>
+    
+    <h2>国际化支持</h2>
+    <p>tree_editor_operator_editor.js使用Odoo的翻译系统为操作符描述提供多语言支持：</p>
+    
+    <div class="code-block">
+        <pre><code>import { _t } from "@web/core/l10n/translation";
+
+// 定义可翻译的操作符描述
+"=like": _t("=like"),
+"=ilike": _t("=ilike"),
+like: _t("like"),
+"not like": _t("not like"),
+ilike: _t("contains"),
+"not ilike": _t("does not contain"),
+in: _t("is in"),
+"not in": _t("is not in"),
+// ...</code></pre>
+    </div>
+    
+    <p>通过使用_t函数包装描述文本，操作符标签可以被翻译成Odoo支持的任何语言。</p>
+    
+    <h2>最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>在使用tree_editor_operator_editor.js时，请注意以下几点：
+        <ul>
+            <li>使用getOperatorEditorInfo函数获取编辑器信息，而不是直接创建操作符选择器</li>
+            <li>根据字段类型提供适当的操作符列表，避免提供不适用的操作符</li>
+            <li>处理negate标志时，理解它与操作符取反的区别</li>
+            <li>记得处理不在OPERATOR_DESCRIPTIONS中的自定义操作符</li>
+            <li>在拓展操作符系统时，确保添加相应的描述和取反映射</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，tree_editor_operator_editor.js有以下改进：</p>
+    <ul>
+        <li>更完善的虚拟操作符支持，包括between、within等</li>
+        <li>改进的操作符描述系统，支持基于字段类型的动态描述</li>
+        <li>更好的国际化支持，使操作符标签更符合各种语言的表达习惯</li>
+        <li>更灵活的操作符处理，支持复杂的操作符表达式</li>
+        <li>更好的Select组件集成，提供更好的用户体验</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中使用或扩展操作符编辑器？下面是一个示例：</p>
+    
+    <div class="code-block">
+        <pre><code>import { 
+    getOperatorLabel, 
+    getOperatorEditorInfo 
+} from "@web/core/tree_editor/tree_editor_operator_editor";
+import { Component, useState } from "@odoo/owl";
+import { patch } from "@web/core/utils/patch";
+import { registry } from "@web/core/registry";
+
+// 1. 创建一个使用操作符编辑器的组件
+export class CustomOperatorSelector extends Component {
+    static template = "my_module.CustomOperatorSelector";
+    
+    setup() {
+        this.state = useState({
+            operator: this.props.initialOperator || "=",
+            negate: this.props.initialNegate || false
+        });
+        
+        // 根据字段类型确定可用的操作符
+        this.availableOperators = this.getAvailableOperators(this.props.fieldDef);
+        
+        // 获取编辑器信息
+        this.editorInfo = getOperatorEditorInfo(this.availableOperators, this.props.fieldDef);
+    }
+    
+    getAvailableOperators(fieldDef) {
+        // 根据字段类型返回适当的操作符列表
+        const type = fieldDef?.type;
+        switch (type) {
+            case "char":
+                return ["=", "!=", "ilike", "not ilike", "set", "not_set"];
+            case "integer":
+                return ["=", "!=", "<", ">", "<=", ">=", "between", "set", "not_set"];
+            // ... 其他类型 ...
+            default:
+                return ["=", "!=", "set", "not_set"];
+        }
+    }
+    
+    get editorProps() {
+        return this.editorInfo.extractProps({
+            value: [this.state.operator, this.state.negate],
+            update: this.updateOperator.bind(this)
+        });
+    }
+    
+    updateOperator(operator, negate) {
+        this.state.operator = operator;
+        this.state.negate = negate;
+        this.props.onChange(operator, negate);
+    }
+}
+
+// 2. 扩展操作符描述系统
+// 注意：这应该在模块加载时执行
+function setupCustomOperators() {
+    // 添加自定义操作符描述
+    const operatorDescriptions = registry.category("operator_descriptions");
+    
+    operatorDescriptions.add("custom_op1", "自定义操作符1");
+    operatorDescriptions.add("custom_op2", (fieldDefType) => {
+        return fieldDefType === "many2one" ? "自定义关联操作符" : "自定义普通操作符";
+    });
+    
+    // 添加自定义操作符取反映射
+    patch(getOperatorLabel, "custom_operators", function (originalFn, operator, fieldDefType, negate) {
+        if (operator === "custom_op1") {
+            return negate ? "不是自定义操作符1" : "自定义操作符1";
+        }
+        
+        return originalFn(operator, fieldDefType, negate);
+    });
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;templates&gt;
+    &lt;t t-name="my_module.CustomOperatorSelector"&gt;
+        &lt;div class="custom-operator-selector"&gt;
+            &lt;t t-if="editorInfo.component"&gt;
+                &lt;t t-component="editorInfo.component" t-props="editorProps"/&gt;
+            &lt;/t&gt;
+            &lt;div class="mt-2 small text-muted"&gt;
+                当前操作符: &lt;span t-esc="getOperatorLabel(state.operator, props.fieldDef?.type, state.negate)"/&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/templates&gt;</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>tree_editor_operator_editor.js是tree_editor模块中处理操作符编辑的关键组件，它：</p>
+    <ul>
+        <li>提供了操作符的描述和标签生成系统</li>
+        <li>处理操作符取反和复杂操作符表达式</li>
+        <li>为操作符选择器提供配置信息</li>
+        <li>支持多语言翻译和国际化</li>
+        <li>与条件树系统紧密集成，提供完整的操作符编辑体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>操作符编辑器系统设计灵活，可以处理各种复杂的操作符需求。在开发自定义模块时，可以利用这一系统为特定用例提供定制的操作符体验，同时保持与Odoo标准界面的一致性。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 - 名称服务(Name Service)模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>名称服务(Name Service)模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>name_service.js</code>是Odoo 18框架中的一个专用服务模块，它提供了一个高效的系统来加载和缓存记录的显示名称(display names)。这个服务主要用于UI中显示关联记录的名称，而无需加载完整记录数据，从而显著提高性能和用户体验。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>名称服务是一个专门用于管理记录显示名称的服务，它优化了名称加载过程，实现批量请求、智能缓存和错误处理，特别适用于列表、下拉菜单和关联字段等需要显示大量记录名称的场景。
+    </div>
+    
+    <h2>文件源码</h2>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+import { unique, zip } from "@web/core/utils/arrays";
+import { Deferred } from "@web/core/utils/concurrency";
+
+export const ERROR_INACCESSIBLE_OR_MISSING = Symbol("INACCESSIBLE OR MISSING RECORD ID");
+
+function isId(val) {
+    return Number.isInteger(val) && val >= 1;
+}
+
+/**
+ * @typedef {Record<string, (string|ERROR_INACCESSIBLE_OR_MISSING)>} DisplayNames
+ */
+
+export const nameService = {
+    dependencies: ["orm"],
+    async: ["loadDisplayNames"],
+    start(env, { orm }) {
+        let cache = {};
+        const batches = {};
+
+        function clearCache() {
+            cache = {};
+        }
+
+        env.bus.addEventListener("ACTION_MANAGER:UPDATE", clearCache);
+
+        function getMapping(resModel) {
+            if (!cache[resModel]) {
+                cache[resModel] = {};
+            }
+            return cache[resModel];
+        }
+
+        /**
+         * @param {string} resModel valid resModel name
+         * @param {DisplayNames} displayNames
+         */
+        function addDisplayNames(resModel, displayNames) {
+            const mapping = getMapping(resModel);
+            for (const resId in displayNames) {
+                mapping[resId] = new Deferred();
+                mapping[resId].resolve(displayNames[resId]);
+            }
+        }
+
+        /**
+         * @param {string} resModel valid resModel name
+         * @param {number[]} resIds valid ids
+         * @returns {Promise<DisplayNames>}
+         */
+        async function loadDisplayNames(resModel, resIds) {
+            const mapping = getMapping(resModel);
+            const proms = [];
+            const resIdsToFetch = [];
+            for (const resId of unique(resIds)) {
+                if (!isId(resId)) {
+                    throw new Error(`Invalid ID: ${resId}`);
+                }
+                if (!(resId in mapping)) {
+                    mapping[resId] = new Deferred();
+                    resIdsToFetch.push(resId);
+                }
+                proms.push(mapping[resId]);
+            }
+            if (resIdsToFetch.length) {
+                if (batches[resModel]) {
+                    batches[resModel].push(...resIdsToFetch);
+                } else {
+                    batches[resModel] = resIdsToFetch;
+                    await Promise.resolve();
+                    const idsInBatch = unique(batches[resModel]);
+                    delete batches[resModel];
+
+                    const specification = { display_name: {} };
+                    orm.silent
+                        .webSearchRead(resModel, [["id", "in", idsInBatch]], { specification })
+                        .then(({ records }) => {
+                            const displayNames = Object.fromEntries(
+                                records.map((rec) => [rec.id, rec.display_name])
+                            );
+                            for (const resId of idsInBatch) {
+                                mapping[resId].resolve(
+                                    resId in displayNames
+                                        ? displayNames[resId]
+                                        : ERROR_INACCESSIBLE_OR_MISSING
+                                );
+                            }
+                        });
+                }
+            }
+            const names = await Promise.all(proms);
+            return Object.fromEntries(zip(resIds, names));
+        }
+
+        return { addDisplayNames, clearCache, loadDisplayNames };
+    },
+};
+
+registry.category("services").add("name", nameService);</code></pre>
+    </div>
+    
+    <h2>核心功能解析</h2>
+    
+    <h3>1. 错误标识与ID验证</h3>
+    <p>定义了一个特殊的符号常量来表示无法访问或不存在的记录ID，并实现ID验证函数：</p>
+    <div class="code-block">
+        <pre><code>export const ERROR_INACCESSIBLE_OR_MISSING = Symbol("INACCESSIBLE OR MISSING RECORD ID");
+
+function isId(val) {
+    return Number.isInteger(val) && val >= 1;
+}</code></pre>
+    </div>
+    <p>这些工具：</p>
+    <ul>
+        <li>提供了一种明确区分正常名称和错误状态的方式</li>
+        <li>确保传入的ID是有效的正整数</li>
+    </ul>
+    
+    <h3>2. 缓存管理系统</h3>
+    <p>实现了一个模型级别的缓存系统，用于存储已加载的显示名称：</p>
+    <div class="code-block">
+        <pre><code>let cache = {};
+const batches = {};
+
+function clearCache() {
+    cache = {};
+}
+
+env.bus.addEventListener("ACTION_MANAGER:UPDATE", clearCache);
+
+function getMapping(resModel) {
+    if (!cache[resModel]) {
+        cache[resModel] = {};
+    }
+    return cache[resModel];
+}</code></pre>
+    </div>
+    <p>缓存系统具有以下特性：</p>
+    <ul>
+        <li>按模型分类存储记录名称</li>
+        <li>在应用切换操作时自动清除缓存</li>
+        <li>延迟初始化模型缓存，仅在需要时创建</li>
+        <li>使用批处理队列优化请求</li>
+    </ul>
+    
+    <h3>3. 显示名称添加</h3>
+    <p>提供显式添加名称的API，用于外部注入已知的显示名称：</p>
+    <div class="code-block">
+        <pre><code>function addDisplayNames(resModel, displayNames) {
+    const mapping = getMapping(resModel);
+    for (const resId in displayNames) {
+        mapping[resId] = new Deferred();
+        mapping[resId].resolve(displayNames[resId]);
+    }
+}</code></pre>
+    </div>
+    <p>这个函数允许：</p>
+    <ul>
+        <li>手动填充缓存，避免不必要的服务器请求</li>
+        <li>将已从其他来源获取的名称添加到缓存中</li>
+        <li>每个记录ID使用Deferred对象，便于异步处理</li>
+    </ul>
+    
+    <h3>4. 显示名称加载</h3>
+    <p>核心功能，实现了高效的名称批量加载机制：</p>
+    <div class="code-block">
+        <pre><code>async function loadDisplayNames(resModel, resIds) {
+    const mapping = getMapping(resModel);
+    const proms = [];
+    const resIdsToFetch = [];
+    for (const resId of unique(resIds)) {
+        if (!isId(resId)) {
+            throw new Error(`Invalid ID: ${resId}`);
+        }
+        if (!(resId in mapping)) {
+            mapping[resId] = new Deferred();
+            resIdsToFetch.push(resId);
+        }
+        proms.push(mapping[resId]);
+    }
+    if (resIdsToFetch.length) {
+        if (batches[resModel]) {
+            batches[resModel].push(...resIdsToFetch);
+        } else {
+            batches[resModel] = resIdsToFetch;
+            await Promise.resolve();
+            const idsInBatch = unique(batches[resModel]);
+            delete batches[resModel];
+
+            const specification = { display_name: {} };
+            orm.silent
+                .webSearchRead(resModel, [["id", "in", idsInBatch]], { specification })
+                .then(({ records }) => {
+                    const displayNames = Object.fromEntries(
+                        records.map((rec) => [rec.id, rec.display_name])
+                    );
+                    for (const resId of idsInBatch) {
+                        mapping[resId].resolve(
+                            resId in displayNames
+                                ? displayNames[resId]
+                                : ERROR_INACCESSIBLE_OR_MISSING
+                        );
+                    }
+                });
+        }
+    }
+    const names = await Promise.all(proms);
+    return Object.fromEntries(zip(resIds, names));
+}</code></pre>
+    </div>
+    <p>这个函数具有多项优化特性：</p>
+    <ul>
+        <li><strong>缓存重用</strong>：已加载的名称直接从缓存返回</li>
+        <li><strong>请求合并</strong>：多个连续的请求合并为一个批量请求</li>
+        <li><strong>微任务延迟</strong>：使用<code>Promise.resolve()</code>延迟请求，收集更多ID</li>
+        <li><strong>重复ID去除</strong>：确保每个ID只请求一次</li>
+        <li><strong>静默请求</strong>：使用<code>orm.silent</code>防止网络错误显示</li>
+        <li><strong>错误处理</strong>：对不存在的记录使用特殊标志</li>
+        <li><strong>Promise结构</strong>：使用<code>Deferred</code>对象实现高效的异步解析</li>
+    </ul>
+    
+    <h2>工作原理</h2>
+    <div class="workflow">
+        <h3>名称加载流程</h3>
+        <ol>
+            <li><strong>请求接收</strong>: 接收模型名称和记录ID列表</li>
+            <li><strong>缓存检查</strong>: 检查哪些ID已在缓存中</li>
+            <li><strong>批处理排队</strong>: 将未缓存的ID添加到批处理队列</li>
+            <li><strong>延迟执行</strong>: 通过微任务延迟实际请求</li>
+            <li><strong>批量请求</strong>: 一次性请求所有排队的ID</li>
+            <li><strong>结果处理</strong>: 将结果存入缓存并解析等待的Promise</li>
+            <li><strong>返回结果</strong>: 为原始请求中的所有ID返回对应名称</li>
+        </ol>
+    </div>
+    
+    <div class="workflow">
+        <h3>缓存管理流程</h3>
+        <ol>
+            <li><strong>按模型分组</strong>: 每个模型有自己的缓存映射</li>
+            <li><strong>延迟初始化</strong>: 仅在需要时创建模型缓存</li>
+            <li><strong>Promise缓存</strong>: 每个ID对应一个Deferred对象</li>
+            <li><strong>动作更新清除</strong>: 在应用切换时清除缓存</li>
+            <li><strong>手动添加支持</strong>: 可以手动插入已知名称</li>
+        </ol>
+    </div>
+    
+    <h2>实际使用场景</h2>
+    
+    <h3>1. 多记录列表视图</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class PartnersList extends Component {
+    setup() {
+        this.nameService = useService("name");
+        this.state = useState({
+            partners: [],
+            names: {},
+        });
+        
+        this.loadPartners();
+    }
+    
+    async loadPartners() {
+        // 加载合作伙伴ID列表
+        const result = await this.env.services.orm.searchRead(
+            "res.partner", 
+            [["is_company", "=", true]], 
+            ["id", "email"]
+        );
+        
+        this.state.partners = result;
+        
+        // 批量加载所有合作伙伴的显示名称
+        const partnerIds = result.map(partner => partner.id);
+        this.state.names = await this.nameService.loadDisplayNames("res.partner", partnerIds);
+    }
+    
+    getPartnerName(partnerId) {
+        const name = this.state.names[partnerId];
+        // 处理无法访问或丢失的记录
+        if (name === this.nameService.ERROR_INACCESSIBLE_OR_MISSING) {
+            return "无法访问";
+        }
+        return name;
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 表单中的相关记录</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class SalesOrderForm extends Component {
+    setup() {
+        this.nameService = useService("name");
+        this.state = useState({
+            order: null,
+            customerName: "",
+            lineProductNames: {},
+        });
+        
+        this.loadOrder(this.props.orderId);
+    }
+    
+    async loadOrder(orderId) {
+        // 加载订单数据
+        const order = await this.env.services.orm.read(
+            "sale.order", 
+            [orderId], 
+            ["partner_id", "order_line"]
+        );
+        this.state.order = order[0];
+        
+        // 加载客户名称
+        if (this.state.order.partner_id) {
+            const names = await this.nameService.loadDisplayNames(
+                "res.partner", 
+                [this.state.order.partner_id[0]]
+            );
+            this.state.customerName = names[this.state.order.partner_id[0]];
+        }
+        
+        // 加载订单行中所有产品的名称
+        const lines = await this.env.services.orm.read(
+            "sale.order.line", 
+            this.state.order.order_line, 
+            ["product_id"]
+        );
+        
+        const productIds = lines
+            .map(line => line.product_id && line.product_id[0])
+            .filter(id => id);
+            
+        this.state.lineProductNames = await this.nameService.loadDisplayNames(
+            "product.product", 
+            productIds
+        );
+    }
+}</code></pre>
+    </div>
+    
+    <h3>3. 下拉选择组件</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class ModelSelector extends Component {
+    static template = xml`
+        &lt;div class="model-selector"&gt;
+            &lt;select t-on-change="onModelSelected"&gt;
+                &lt;option value=""&gt;-- 请选择 --&lt;/option&gt;
+                &lt;t t-foreach="models" t-as="model" t-key="model.id"&gt;
+                    &lt;option t-att-value="model.id"&gt;
+                        &lt;t t-esc="getModelName(model.id)" /&gt;
+                    &lt;/option&gt;
+                &lt;/t&gt;
+            &lt;/select&gt;
+        &lt;/div&gt;
+    `;
+    
+    setup() {
+        this.nameService = useService("name");
+        this.state = useState({
+            models: [],
+            modelNames: {},
+        });
+        
+        this.loadModels();
+    }
+    
+    async loadModels() {
+        // 加载所有可见模型
+        const models = await this.env.services.orm.searchRead(
+            "ir.model", 
+            [["transient", "=", false]], 
+            ["id"]
+        );
+        
+        this.state.models = models;
+        
+        // 预加载所有模型名称
+        if (models.length) {
+            const modelIds = models.map(m => m.id);
+            this.state.modelNames = await this.nameService.loadDisplayNames("ir.model", modelIds);
+        }
+    }
+    
+    getModelName(modelId) {
+        return this.state.modelNames[modelId] || `模型 #${modelId}`;
+    }
+    
+    onModelSelected(ev) {
+        const modelId = parseInt(ev.target.value, 10);
+        this.props.onModelSelected(modelId, this.state.modelNames[modelId]);
+    }
+}</code></pre>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>名称服务在Odoo 18中具有以下特点和改进：</p>
+    <ul>
+        <li><strong>批处理优化</strong>：使用微任务和批处理队列合并多个请求</li>
+        <li><strong>符号错误标记</strong>：使用Symbol类型标记不可访问记录，避免与正常字符串混淆</li>
+        <li><strong>Promise缓存结构</strong>：每个ID使用Deferred对象，支持并发请求</li>
+        <li><strong>缓存管理与清除</strong>：响应应用程序状态变化自动清除缓存</li>
+        <li><strong>类型安全</strong>：使用JSDoc和类型定义提高代码质量</li>
+    </ul>
+    
+    <h2>开发者注意事项</h2>
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>获取名称时注意处理<code>ERROR_INACCESSIBLE_OR_MISSING</code>错误符号</li>
+            <li>服务返回的是显示名称(display_name)，不是技术名称或ID</li>
+            <li>避免在循环中多次调用loadDisplayNames，应收集ID后一次性请求</li>
+            <li>对于已知会显示的记录，可以使用addDisplayNames提前填充缓存</li>
+            <li>当处理大量记录时，可能需要分批加载以避免请求URL过长</li>
+        </ul>
+    </div>
+    
+    <h2>与其他服务的集成</h2>
+    <p>名称服务与其他Odoo服务的集成：</p>
+    <ul>
+        <li><strong>ORM服务</strong>：使用ORM服务的webSearchRead方法获取记录名称</li>
+        <li><strong>事件总线</strong>：监听ACTION_MANAGER:UPDATE事件清除缓存</li>
+        <li><strong>视图组件</strong>：为表单、列表、看板等视图组件提供名称数据</li>
+        <li><strong>字段组件</strong>：为Many2one和关联字段提供名称显示</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>名称服务(nameService)是Odoo 18中的一个重要优化服务，它提供了：</p>
+    <ul>
+        <li>高效的记录名称加载和缓存机制</li>
+        <li>批量请求优化，减少服务器请求数量</li>
+        <li>优雅的错误处理，区分不可访问的记录</li>
+        <li>与Odoo核心框架的紧密集成</li>
+        <li>提高大量关联记录场景的性能</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在需要显示大量记录名称的场景中（如列表视图、下拉选择器），应优先使用名称服务而非直接加载完整记录数据。这可以显著减少数据传输量和服务器负载，提高用户界面响应速度。
+    </div>
+</body>
+</html> 

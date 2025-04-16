@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo时序控制工具解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo时序控制工具解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>timing.js</code>是Odoo 18中的一个核心工具模块，它提供了一系列用于控制函数执行时序的工具函数。这些函数可以帮助开发者更好地处理异步操作、性能优化和用户界面交互。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>时序控制工具是现代前端应用中不可或缺的一部分，它们帮助解决事件触发过于频繁、异步操作管理复杂等问题，提高应用的响应性和性能。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>批处理</strong>：将短时间内的多次调用合并为一次执行</li>
+        <li><strong>防抖</strong>：延迟函数执行直到一段时间内没有新的调用</li>
+        <li><strong>节流</strong>：限制函数在一定时间内的执行频率</li>
+        <li><strong>递归动画帧</strong>：创建连续的动画循环</li>
+        <li><strong>OWL钩子集成</strong>：提供与OWL组件生命周期集成的钩子函数</li>
+    </ol>
+    
+    <h2>核心函数解析</h2>
+    
+    <h3>1. batched - 批处理函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Creates a batched version of a callback so that all calls to it in the same
+ * time frame will only call the original callback once.
+ * @param callback the callback to batch
+ * @param synchronize this function decides the granularity of the batch (a microtick by default)
+ * @returns a batched version of the original callback
+ */
+export function batched(callback, synchronize = () => Promise.resolve()) {
+    let scheduled = false;
+    return async (...args) => {
+        if (!scheduled) {
+            scheduled = true;
+            await synchronize();
+            scheduled = false;
+            callback(...args);
+        }
+    };
+}</code></pre>
+    </div>
+    
+    <p>这个函数创建一个批处理版本的回调函数。所有在同一个微任务循环（microtask）中对这个函数的调用都会被合并，最终只执行一次原始回调函数。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { batched } from "@web/core/utils/timing";
+
+// 原始的更新UI函数，可能被频繁调用
+function updateUI(data) {
+    console.log("Updating UI with", data);
+    // 复杂且昂贵的DOM操作
+}
+
+// 创建批处理版本
+const batchedUpdateUI = batched(updateUI);
+
+// 在一个事件处理函数中
+async function onDataChange(newData) {
+    // 这可能在短时间内被调用多次
+    await batchedUpdateUI(newData);
+    // 但实际上updateUI只会被执行一次
+}</code></pre>
+    </div>
+    
+    <h3>2. debounce - 防抖函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Creates and returns a new debounced version of the passed function (func)
+ * which will postpone its execution until after 'delay' milliseconds
+ * have elapsed since the last time it was invoked. The debounced function
+ * will return a Promise that will be resolved when the function (func)
+ * has been fully executed.
+ *
+ * If both `options.trailing` and `options.leading` are true, the function
+ * will only be invoked at the trailing edge if the debounced function was
+ * called at least once more during the wait time.
+ *
+ * @template {Function} T the return type of the original function
+ * @param {T} func the function to debounce
+ * @param {number | "animationFrame"} delay how long should elapse before the function
+ *      is called. If 'animationFrame' is given instead of a number, 'requestAnimationFrame'
+ *      will be used instead of 'setTimeout'.
+ * @param {boolean} [options] if true, equivalent to exclusive leading. If false, equivalent to exclusive trailing.
+ * @param {object} [options]
+ * @param {boolean} [options.leading=false] whether the function should be invoked at the leading edge of the timeout
+ * @param {boolean} [options.trailing=true] whether the function should be invoked at the trailing edge of the timeout
+ * @returns {T & { cancel: () => void }} the debounced function
+ */
+export function debounce(func, delay, options) {
+    let handle;
+    const funcName = func.name ? func.name + " (debounce)" : "debounce";
+    const useAnimationFrame = delay === "animationFrame";
+    const setFnName = useAnimationFrame ? "requestAnimationFrame" : "setTimeout";
+    const clearFnName = useAnimationFrame ? "cancelAnimationFrame" : "clearTimeout";
+    let lastArgs;
+    let leading = false;
+    let trailing = true;
+    if (typeof options === "boolean") {
+        leading = options;
+        trailing = !options;
+    } else if (options) {
+        leading = options.leading ?? leading;
+        trailing = options.trailing ?? trailing;
+    }
+
+    return Object.assign(
+        {
+            /** @type {any} */
+            [funcName](...args) {
+                return new Promise((resolve) => {
+                    if (leading && !handle) {
+                        Promise.resolve(func.apply(this, args)).then(resolve);
+                    } else {
+                        lastArgs = args;
+                    }
+                    browser[clearFnName](handle);
+                    handle = browser[setFnName](() => {
+                        handle = null;
+                        if (trailing && lastArgs) {
+                            Promise.resolve(func.apply(this, lastArgs)).then(resolve);
+                            lastArgs = null;
+                        }
+                    }, delay);
+                });
+            },
+        }[funcName],
+        {
+            cancel(execNow = false) {
+                browser[clearFnName](handle);
+                if (execNow && lastArgs) {
+                    func.apply(this, lastArgs);
+                }
+            },
+        }
+    );
+}</code></pre>
+    </div>
+    
+    <p>这个函数创建一个防抖版本的函数，在指定延迟时间内没有新的调用才会执行。它支持前缘触发(leading)、后缘触发(trailing)或两者都有的模式，并且返回一个Promise，可以与async/await一起使用。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { debounce } from "@web/core/utils/timing";
+
+// 基本使用方式
+const debouncedSearch = debounce(async (query) => {
+    // 发送搜索请求到服务器
+    const results = await searchAPI(query);
+    displayResults(results);
+}, 300); // 300毫秒延迟
+
+// 在输入框的事件处理函数中
+function onInputChange(e) {
+    const query = e.target.value;
+    debouncedSearch(query);
+}
+
+// 使用前缘触发模式（立即执行，然后忽略一段时间内的调用）
+const saveImmediately = debounce(saveData, 2000, { leading: true, trailing: false });
+
+// 使用动画帧作为延迟单位
+const updateOnNextFrame = debounce(updateView, "animationFrame");</code></pre>
+    </div>
+    
+    <h3>3. setRecurringAnimationFrame - 递归动画帧</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Function that calls recursively a request to an animation frame.
+ * Useful to call a function repetitively, until asked to stop, that needs constant rerendering.
+ * The provided callback gets as argument the time the last frame took.
+ * @param {(deltaTime: number) => void} callback
+ * @returns {() => void} stop function
+ */
+export function setRecurringAnimationFrame(callback) {
+    const handler = (timestamp) => {
+        callback(timestamp - lastTimestamp);
+        lastTimestamp = timestamp;
+        handle = browser.requestAnimationFrame(handler);
+    };
+
+    const stop = () => {
+        browser.cancelAnimationFrame(handle);
+    };
+
+    let lastTimestamp = browser.performance.now();
+    let handle = browser.requestAnimationFrame(handler);
+
+    return stop;
+}</code></pre>
+    </div>
+    
+    <p>这个函数创建一个递归的动画帧循环，非常适合实现动画效果或需要持续更新的UI。它会在每一帧执行提供的回调函数，并传入自上一帧以来经过的时间。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { setRecurringAnimationFrame } from "@web/core/utils/timing";
+
+// 创建一个简单的动画
+function startAnimation() {
+    let position = 0;
+    const element = document.getElementById("animated-element");
+    
+    // 开始动画循环
+    const stopAnimation = setRecurringAnimationFrame((deltaTime) => {
+        // deltaTime是上一帧到这一帧的毫秒数
+        position += 0.1 * deltaTime; // 基于帧率的平滑移动
+        element.style.transform = `translateX(${position}px)`;
+        
+        // 可以在内部决定何时停止
+        if (position > 500) {
+            stopAnimation();
+        }
+    });
+    
+    // 也可以从外部停止
+    setTimeout(() => {
+        stopAnimation();
+    }, 5000); // 5秒后停止
+}</code></pre>
+    </div>
+    
+    <h3>4. throttleForAnimation - 动画节流函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Creates a version of the function where only the last call between two
+ * animation frames is executed before the browser's next repaint. This
+ * effectively throttles the function to the display's refresh rate.
+ * Note that the throttled function can be any callback. It is not
+ * specifically an event handler, no assumption is made about its
+ * signature.
+ * NB: The first call is always called immediately (leading edge).
+ *
+ * @template {Function} T
+ * @param {T} func the function to throttle
+ * @returns {T & { cancel: () => void }} the throttled function
+ */
+export function throttleForAnimation(func) {
+    let handle = null;
+    const calls = new Set();
+    const funcName = func.name ? `${func.name} (throttleForAnimation)` : "throttleForAnimation";
+    const pending = () => {
+        if (calls.size) {
+            handle = browser.requestAnimationFrame(pending);
+            const { args, resolve } = [...calls].pop();
+            calls.clear();
+            Promise.resolve(func.apply(this, args)).then(resolve);
+        } else {
+            handle = null;
+        }
+    };
+    return Object.assign(
+        {
+            /** @type {any} */
+            [funcName](...args) {
+                return new Promise((resolve) => {
+                    const isNew = handle === null;
+                    if (isNew) {
+                        handle = browser.requestAnimationFrame(pending);
+                        Promise.resolve(func.apply(this, args)).then(resolve);
+                    } else {
+                        calls.add({ args, resolve });
+                    }
+                });
+            },
+        }[funcName],
+        {
+            cancel() {
+                browser.cancelAnimationFrame(handle);
+                calls.clear();
+                handle = null;
+            },
+        }
+    );
+}</code></pre>
+    </div>
+    
+    <p>这个函数创建一个特殊的节流版本函数，它将函数的调用限制为浏览器的刷新率（通常是每秒60次）。在两个动画帧之间，只有最后一次调用会被执行。这对于处理快速连续的UI更新非常有用。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { throttleForAnimation } from "@web/core/utils/timing";
+
+// 原始的更新UI函数
+function updateDOMPosition(x, y) {
+    // 昂贵的DOM操作，比如拖拽元素
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+}
+
+// 创建节流版本
+const throttledUpdatePosition = throttleForAnimation(updateDOMPosition);
+
+// 在鼠标移动事件中使用
+function onMouseMove(e) {
+    // 即使鼠标移动事件每秒触发数百次
+    // throttledUpdatePosition只会在每个动画帧执行一次
+    throttledUpdatePosition(e.clientX, e.clientY);
+}</code></pre>
+    </div>
+    
+    <h2>OWL钩子函数</h2>
+    <p>timing.js还提供了与OWL框架集成的钩子函数，它们在组件生命周期结束时会自动清理，防止内存泄漏。</p>
+    
+    <h3>1. useDebounced - 防抖钩子</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Hook that returns a debounced version of the given function, and cancels
+ * the potential pending execution on willUnmount.
+ * @see debounce
+ * @template {Function} T
+ * @param {T} callback
+ * @param {number | "animationFrame"} delay
+ * @param {Object} [options]
+ * @param {string} [options.execBeforeUnmount=false] executes the callback if the debounced function
+ *      has been called and not resolved before destroying the component.
+ * @param {boolean} [options.immediate=false] whether the function should be called on
+ *      the leading edge instead of the trailing edge.
+ * @returns {T & { cancel: () => void }}
+ */
+export function useDebounced(
+    callback,
+    delay,
+    { execBeforeUnmount = false, immediate = false } = {}
+) {
+    const component = useComponent();
+    const debounced = debounce(callback.bind(component), delay, immediate);
+    onWillUnmount(() => debounced.cancel(execBeforeUnmount));
+    return debounced;
+}</code></pre>
+    </div>
+    
+    <p>这个钩子函数是对debounce的封装，它自动将回调函数绑定到当前组件上，并在组件卸载时自动取消待执行的函数。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { Component, useState } from "@odoo/owl";
+import { useDebounced } from "@web/core/utils/timing";
+
+class SearchComponent extends Component {
+    setup() {
+        this.state = useState({ query: "", results: [] });
+        
+        // 创建一个防抖搜索函数，组件卸载时会自动取消
+        this.debouncedSearch = useDebounced(this.performSearch, 300);
+    }
+    
+    async performSearch(query) {
+        // 这里的this已经绑定到组件实例
+        const results = await this.props.searchService.search(query);
+        this.state.results = results;
+    }
+    
+    onInput(e) {
+        this.state.query = e.target.value;
+        this.debouncedSearch(this.state.query);
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. useThrottleForAnimation - 动画节流钩子</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Hook that returns a throttled for animation version of the given function,
+ * and cancels the potential pending execution on willUnmount.
+ * @see throttleForAnimation
+ * @template {Function} T
+ * @param {T} func the function to throttle
+ * @returns {T & { cancel: () => void }} the throttled function
+ */
+export function useThrottleForAnimation(func) {
+    const component = useComponent();
+    const throttledForAnimation = throttleForAnimation(func.bind(component));
+    onWillUnmount(() => throttledForAnimation.cancel());
+    return throttledForAnimation;
+}</code></pre>
+    </div>
+    
+    <p>这个钩子函数是对throttleForAnimation的封装，它自动将函数绑定到当前组件上，并在组件卸载时自动取消待执行的函数。</p>
+    
+    <div class="example">
+        <h4>使用示例：</h4>
+        <pre><code>import { Component } from "@odoo/owl";
+import { useThrottleForAnimation } from "@web/core/utils/timing";
+
+class DragComponent extends Component {
+    setup() {
+        this.position = { x: 0, y: 0 };
+        
+        // 创建一个节流更新函数，组件卸载时会自动取消
+        this.updatePosition = useThrottleForAnimation(this.renderPosition);
+    }
+    
+    renderPosition(x, y) {
+        // 这里的this已经绑定到组件实例
+        const element = this.el;
+        element.style.transform = `translate(${x}px, ${y}px)`;
+    }
+    
+    onDrag(e) {
+        this.position.x += e.movementX;
+        this.position.y += e.movementY;
+        this.updatePosition(this.position.x, this.position.y);
+    }
+}</code></pre>
+    </div>
+    
+    <h2>实际应用场景</h2>
+    <p>timing.js模块在Odoo前端中有广泛的应用场景：</p>
+    
+    <div class="use-cases">
+        <div class="use-case">
+            <h3>用户输入处理</h3>
+            <p>使用debounce处理搜索输入：</p>
+            <pre><code>import { useDebounced } from "@web/core/utils/timing";
+
+class SearchBar extends Component {
+    setup() {
+        this.search = useDebounced(async (query) => {
+            this.state.isLoading = true;
+            try {
+                this.state.results = await this.env.services.rpc({
+                    model: "product.product",
+                    method: "search_read",
+                    args: [[["name", "ilike", query]]],
+                });
+            } finally {
+                this.state.isLoading = false;
+            }
+        }, 500);
+    }
+    
+    onInput(ev) {
+        this.search(ev.target.value);
+    }
+}</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>窗口调整处理</h3>
+            <p>使用throttleForAnimation处理窗口大小变化：</p>
+            <pre><code>import { throttleForAnimation } from "@web/core/utils/timing";
+
+// 在窗口大小变化时重新布局，但限制为每帧最多一次
+const throttledResize = throttleForAnimation(() => {
+    recalculateLayout();
+    updateVisibleItems();
+});
+
+window.addEventListener("resize", throttledResize);</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>拖拽和手势</h3>
+            <p>使用setRecurringAnimationFrame实现平滑动画：</p>
+            <pre><code>import { setRecurringAnimationFrame } from "@web/core/utils/timing";
+
+class DragController {
+    startDrag(element, targetPosition) {
+        const startPosition = {
+            x: parseFloat(element.style.left) || 0,
+            y: parseFloat(element.style.top) || 0
+        };
+        const distance = {
+            x: targetPosition.x - startPosition.x,
+            y: targetPosition.y - startPosition.y
+        };
+        let progress = 0;
+        
+        // 创建平滑的动画
+        const stopAnimation = setRecurringAnimationFrame((deltaTime) => {
+            progress += deltaTime / 300; // 300ms完成动画
+            if (progress >= 1) {
+                element.style.left = `${targetPosition.x}px`;
+                element.style.top = `${targetPosition.y}px`;
+                stopAnimation();
+                return;
+            }
+            
+            // 使用缓动函数使动画更平滑
+            const easeProgress = this.easeOutCubic(progress);
+            element.style.left = `${startPosition.x + distance.x * easeProgress}px`;
+            element.style.top = `${startPosition.y + distance.y * easeProgress}px`;
+        });
+    }
+    
+    easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
+    }
+}</code></pre>
+        </div>
+        
+        <div class="use-case">
+            <h3>批量更新</h3>
+            <p>使用batched合并多个更新：</p>
+            <pre><code>import { batched } from "@web/core/utils/timing";
+
+class DataGrid {
+    setup() {
+        // 创建一个批处理版本的渲染函数
+        this.batchedRender = batched(() => {
+            // 复杂的网格重新渲染
+            this.renderGridData();
+        });
+    }
+    
+    updateCell(row, col, value) {
+        this.data[row][col] = value;
+        // 即使短时间内更新多个单元格，也只会触发一次渲染
+        this.batchedRender();
+    }
+    
+    updateRow(row, values) {
+        this.data[row] = values;
+        this.batchedRender();
+    }
+}</code></pre>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，timing.js模块包含以下特性和改进：</p>
+    <ul>
+        <li><strong>Promise集成</strong>：所有时序控制函数现在都返回Promise，支持async/await</li>
+        <li><strong>动画帧支持</strong>：支持使用requestAnimationFrame作为计时器</li>
+        <li><strong>OWL 2集成</strong>：提供专门为OWL 2组件设计的钩子函数</li>
+        <li><strong>取消功能</strong>：所有函数都提供取消机制，防止内存泄漏</li>
+        <li><strong>性能优化</strong>：特别为高频UI更新场景优化</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>使用timing.js模块时，开发者应注意以下几点：</p>
+    
+    <div class="warning">
+        <strong>提示：</strong>
+        <ul>
+            <li>为了避免内存泄漏，总是在组件卸载时取消未完成的异步操作，最简单的方法是使用提供的OWL钩子</li>
+            <li>对于UI更新，尤其是拖拽和调整大小等操作，使用throttleForAnimation而不是debounce，以保持流畅的用户体验</li>
+            <li>对于搜索和自动完成等功能，使用debounce以减少不必要的服务器请求</li>
+            <li>当需要进行多次DOM更新时，考虑使用batched将它们合并为一次操作</li>
+            <li>处理动画时，使用setRecurringAnimationFrame并基于deltaTime计算变化，以确保不同刷新率下的平滑表现</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的集成</h2>
+    <p>timing.js模块与Odoo前端框架的其他部分紧密集成：</p>
+    <ul>
+        <li><strong>OWL框架</strong>：通过hooks与组件生命周期集成</li>
+        <li><strong>事件系统</strong>：优化事件处理以提高性能</li>
+        <li><strong>UI组件</strong>：为各种UI组件提供流畅的交互体验</li>
+        <li><strong>数据加载</strong>：优化数据请求以减少服务器负载</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>timing.js是Odoo 18前端框架中的重要工具模块，它提供了：</p>
+    <ul>
+        <li>全面的时序控制工具集</li>
+        <li>性能优化的异步操作管理</li>
+        <li>流畅的动画和UI交互支持</li>
+        <li>与OWL组件系统的深度集成</li>
+        <li>防止内存泄漏的安全机制</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在处理事件频繁触发、动画效果或需要优化性能的场景时，优先考虑使用timing.js提供的工具，而不是直接使用原生setTimeout或requestAnimationFrame。
+    </div>
+</body>
+</html> 

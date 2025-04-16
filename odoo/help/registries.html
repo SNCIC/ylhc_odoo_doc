@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 注册表机制解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 注册表(Registries)机制解析</h1>
+    
+    <h2>文件概述</h2>
+    <p>注册表(Registries)是Odoo 18前端框架中的核心机制，为组件、服务、格式化程序等提供中央存储和访问点。它使得应用程序的各个部分可以动态注册和检索功能，从而实现模块化和可扩展的架构。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>注册表是一种维护键值映射的机制，支持添加、获取和删除条目。在Odoo的前端框架中，注册表用于管理服务、组件、格式化程序等各种功能模块。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>集中式组件和服务管理</strong>：提供一个中央位置来注册和访问系统中的各种组件</li>
+        <li><strong>事件触发机制</strong>：注册表是一个事件总线，可以在变更时通知监听器</li>
+        <li><strong>有序集合</strong>：注册表中的条目可以设置序列号，以控制其返回顺序</li>
+        <li><strong>分类管理</strong>：通过子类别机制，将不同类型的功能组织在各自的注册表中</li>
+    </ol>
+    
+    <h2>基本用法</h2>
+    <p>Odoo的注册表通过<code>@web/core/registry</code>模块暴露，并提供了一种创建和访问各种类别注册表的方式：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 访问特定类别的注册表
+const mainComponentRegistry = registry.category("main_components");
+const serviceRegistry = registry.category("services");
+const effectRegistry = registry.category("effects");
+const formatterRegistry = registry.category("formatters");
+const parserRegistry = registry.category("parsers");
+const fieldRegistry = registry.category("fields");
+const viewRegistry = registry.category("views");</code></pre>
+    </div>
+    
+    <h2>Registry API</h2>
+    <p>注册表提供了一套简单而强大的API，用于管理其中的条目：</p>
+    
+    <h3>创建注册表</h3>
+    <div class="code-block">
+        <pre><code>class Registry() {
+    // 创建一个新的注册表
+    // 注意：注册表同时也是一个事件总线，可以监听UPDATE事件
+    // 注册表是有序的：getAll方法返回根据序列号排序的值列表
+}</code></pre>
+    </div>
+    
+    <h3>添加条目</h3>
+    <div class="code-block">
+        <pre><code>Registry.add(key, value[, options])
+
+参数：
+* key (string) - 新条目的键
+* value (any) - 新条目的值
+* options (Object) - 选项
+* [options.force] (boolean) - 如果为true，当键已存在时不抛出错误
+* [options.sequence] (number) - 序列号（用于排序条目）
+
+返回：
+Registry - 返回注册表本身，以便链式调用
+
+描述：
+在指定的键位置插入一个值。如果键已被使用，此方法会抛出错误（除非options.force设为true）。
+options.sequence选项用于在特定位置插入值。此方法还会触发UPDATE事件。
+返回相同的注册表，因此可以链式调用add方法。</code></pre>
+    </div>
+    
+    <h3>获取条目</h3>
+    <div class="code-block">
+        <pre><code>Registry.get(key[, defaultValue])
+
+参数：
+* key (string) - 条目的键
+* defaultValue (any) - 如果键不存在时的返回值
+
+描述：
+返回与key参数对应的值。如果注册表不包含该键，此方法返回defaultValue（如果提供），否则抛出错误。</code></pre>
+    </div>
+    
+    <h3>检查条目是否存在</h3>
+    <div class="code-block">
+        <pre><code>Registry.contains(key)
+
+参数：
+* key (string) - 条目的键
+
+返回：
+boolean - 如果键存在则返回true，否则返回false
+
+描述：
+检查注册表中是否存在指定的键。</code></pre>
+    </div>
+    
+    <h3>获取所有条目</h3>
+    <div class="code-block">
+        <pre><code>Registry.getAll()
+
+返回：
+any[] - 注册表中所有元素的列表
+
+描述：
+返回注册表中的所有元素列表。列表按照序列号排序。</code></pre>
+    </div>
+    
+    <h3>移除条目</h3>
+    <div class="code-block">
+        <pre><code>Registry.remove(key)
+
+参数：
+* key (string) - 要移除的条目的键
+
+描述：
+从注册表中移除键值对。此操作会触发UPDATE事件。</code></pre>
+    </div>
+    
+    <h3>获取子类别</h3>
+    <div class="code-block">
+        <pre><code>Registry.category(subcategory)
+
+参数：
+* subcategory (string) - 子类别的名称
+
+返回：
+Registry - 与subcategory关联的子注册表
+
+描述：
+返回与subcategory关联的子注册表。如果它尚不存在，则动态创建子注册表。</code></pre>
+    </div>
+    
+    <h2>注册表类别参考</h2>
+    <p>Odoo前端框架中定义了多个标准注册表类别，每个类别都有特定的用途：</p>
+    
+    <table>
+        <tr>
+            <th>类别</th>
+            <th>内容</th>
+        </tr>
+        <tr>
+            <td>effects</td>
+            <td>所有可用效果的实现</td>
+        </tr>
+        <tr>
+            <td>formatters</td>
+            <td>格式化值的实用函数（主要用于字段值）</td>
+        </tr>
+        <tr>
+            <td>main_components</td>
+            <td>顶级组件</td>
+        </tr>
+        <tr>
+            <td>parsers</td>
+            <td>解析值的实用函数（主要用于字段值）</td>
+        </tr>
+        <tr>
+            <td>services</td>
+            <td>应该被激活的所有服务</td>
+        </tr>
+        <tr>
+            <td>systray</td>
+            <td>在导航栏的系统托盘区域中显示的组件</td>
+        </tr>
+        <tr>
+            <td>user_menuitems</td>
+            <td>在用户菜单中显示的菜单项（导航栏右上角）</td>
+        </tr>
+    </table>
+    
+    <h3>Effect registry</h3>
+    <p><code>effects</code>注册表包含所有可用效果的实现。有关更多详细信息，请参阅效果服务部分。</p>
+    
+    <h3>Formatter registry</h3>
+    <p><code>formatters</code>注册表包含用于格式化值的函数。每个格式化程序都具有以下API：</p>
+    
+    <div class="code-block">
+        <pre><code>format(value[, options])
+
+参数：
+* value (T | false) - 特定类型的值，如果没有给定值则为false
+* options (Object) - 各种选项
+
+返回：
+string - 格式化后的字符串
+
+描述：
+格式化一个值并返回一个字符串</code></pre>
+    </div>
+    
+    <p>参见：Parsers registry</p>
+    
+    <h3>Main components registry</h3>
+    <p>主组件注册表（<code>main_components</code>）用于在Web客户端中添加顶级组件。Web客户端有一个<code>MainComponentsContainer</code>作为直接子组件。该组件基本上是主组件注册表中注册的组件的有序列表的实时表示。</p>
+    
+    <p><strong>API</strong></p>
+    <div class="code-block">
+        <pre><code>interface {
+    Component: Owl Component class
+    props?: any
+}</code></pre>
+    </div>
+    
+    <p>例如，<code>LoadingIndicator</code>组件可以这样添加到注册表中：</p>
+    
+    <div class="code-block">
+        <pre><code>registry.category("main_components").add("LoadingIndicator", {
+  Component: LoadingIndicator,
+});</code></pre>
+    </div>
+    
+    <h3>Parser registry</h3>
+    <p><code>parsers</code>注册表包含用于解析值的函数。每个解析器具有以下API：</p>
+    
+    <div class="code-block">
+        <pre><code>parse(value[, options])
+
+参数：
+* value (string) - 表示值的字符串
+* options (Object) - 各种选项（解析器特定）
+
+返回：
+T - 一个有效值
+
+描述：
+解析字符串并返回一个值。如果字符串不表示有效值，解析器可能会失败并抛出错误。</code></pre>
+    </div>
+    
+    <p>参见：Formatters registry</p>
+    
+    <h3>Service registry</h3>
+    <p>服务注册表（类别：<code>services</code>）包含应该由Odoo框架激活的所有服务。</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+const myService = {
+    dependencies: [...],
+    start(env, deps) {
+        // 这里是服务代码
+    }
+};
+
+registry.category("services").add("myService", myService);</code></pre>
+    </div>
+    
+    <h3>Systray registry</h3>
+    <p>系统托盘是导航栏右侧的区域，包含各种小组件，通常显示某种信息（如未读消息数）、通知和/或让用户与之交互。</p>
+    <p><code>systray</code>注册表包含这些系统托盘项的描述，作为具有以下三个键的对象：</p>
+    <ul>
+        <li><code>Component</code>：表示该项的组件类。其根元素应该是<code>&lt;li&gt;</code>标签，否则样式可能不正确。</li>
+        <li><code>props</code>（可选）：应该传递给组件的props</li>
+        <li><code>isDisplayed</code>（可选）：一个接收env并返回布尔值的函数。如果为true，则显示系统托盘项。否则将其移除。</li>
+    </ul>
+    
+    <p>例如：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+class MySystrayItem extends Component {
+    // 一些组件代码...
+}
+
+registry.category("systray").add("myAddon.myItem", {
+    Component: MySystrayItem,
+});</code></pre>
+    </div>
+    
+    <p>系统托盘注册表是一个有序注册表（带有<code>sequence</code>数字）：</p>
+    
+    <div class="code-block">
+        <pre><code>const item = {
+    Component: MySystrayItem
+};
+registry.category("systray").add("myaddon.some_description", item, { sequence: 43 });</code></pre>
+    </div>
+    
+    <p>序列号默认为50。如果提供，此数字将用于对项目进行排序。在系统托盘菜单中，最低序列在右侧，最高序列在左侧。</p>
+    
+    <h3>Usermenu registry</h3>
+    <p>用户菜单注册表（类别：<code>user_menuitems</code>）包含打开用户菜单（导航栏右上角带有用户名的元素）时显示的所有菜单项。</p>
+    <p>用户菜单项由一个接收env并返回一个普通对象的函数定义，该对象包含以下信息：</p>
+    <ul>
+        <li><code>description</code>：菜单项文本</li>
+        <li><code>href</code>：（可选）如果提供（且为真），则将项目文本放在具有给定属性href的<code>a</code>标签中</li>
+        <li><code>callback</code>：选择项目时要调用的回调</li>
+        <li><code>hide</code>：（可选）指示是否应隐藏项目（默认：<code>false</code>）</li>
+        <li><code>sequence</code>：（可选）确定项目在其他下拉项目中的排名（默认：100）</li>
+    </ul>
+    
+    <p>用户菜单在每次打开时都会调用所有定义项目的函数。</p>
+    
+    <p>示例：</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+registry.category("user_menuitems").add("my item", (env) => {
+    return {
+        description: env._t("Technical Settings"),
+        callback: () => { env.services.action_manager.doAction(3); },
+        hide: (Math.random() < 0.5),
+    };
+});</code></pre>
+    </div>
+    
+    <h2>使用案例</h2>
+    
+    <h3>注册一个新服务</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+const myCustomService = {
+    dependencies: ["notification"],
+    start(env, { notification }) {
+        function showWelcome() {
+            notification.add("欢迎使用我的自定义服务", {
+                type: "success",
+            });
+        }
+        
+        return {
+            showWelcome,
+        };
+    }
+};
+
+registry.category("services").add("myCustomService", myCustomService);</code></pre>
+    </div>
+    
+    <h3>添加系统托盘项</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+import { Component, useState } from "@odoo/owl";
+
+class NotificationCounter extends Component {
+    setup() {
+        this.state = useState({
+            count: 0,
+        });
+    }
+    
+    increment() {
+        this.state.count++;
+    }
+}
+NotificationCounter.template = "my_module.NotificationCounter";
+
+registry.category("systray").add("my_module.notification_counter", {
+    Component: NotificationCounter,
+}, { sequence: 25 });</code></pre>
+    </div>
+    
+    <h3>添加用户菜单项</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+registry.category("user_menuitems").add("my_module.debug_database", (env) => {
+    // 只在开发模式下显示
+    if (!env.debug) {
+        return { hide: true };
+    }
+    
+    return {
+        description: env._t("数据库调试"),
+        callback: () => {
+            window.open("/web/database/manager", "_blank");
+        },
+        sequence: 110,
+    };
+});</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li><strong>使用有意义的键</strong>：为注册表条目使用描述性且唯一的键，通常包含模块名称作为前缀。</li>
+        <li><strong>考虑序列</strong>：适当设置序列号，以确保组件按所需顺序显示。</li>
+        <li><strong>谨慎覆盖</strong>：覆盖现有条目时要小心，使用<code>force: true</code>选项并确保您提供了完全兼容的实现。</li>
+        <li><strong>记住事件总线</strong>：如果需要，可以监听注册表的<code>UPDATE</code>事件，以便在添加或删除条目时做出反应。</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>注册表是Odoo前端架构中的基础构建块。熟悉它们的使用方式对于有效地扩展和自定义Odoo界面至关重要。
+    </div>
+</body>
+</html> 

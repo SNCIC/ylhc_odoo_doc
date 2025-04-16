@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 前端资源管理</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>资源管理</h1>
+    
+    <h2>简介</h2>
+    <p>在Odoo Web客户端中，资源（assets）是指所有需要加载到浏览器的静态文件，如JavaScript、CSS、图像等。Odoo使用称为"资源包"的特殊概念来管理这些资源，它提供了一种灵活的方式来组织和加载这些文件。</p>
+    
+    <div class="note">
+        <strong>说明：</strong>本文档描述了Odoo 18中的资源管理系统，它使用了称为AssetBundle的新系统。这个系统与Odoo的早期版本有所不同。
+    </div>
+    
+    <h2>资源包</h2>
+    <p>资源包（asset bundle）是一组将被合并和提供给Web客户端的资产（CSS和JavaScript文件）。在Odoo中，资源包定义在XML记录中，通常位于模块的数据文件中。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="web.assets_backend" model="ir.asset"&gt;
+    &lt;field name="name"&gt;web backend assets&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;web/static/src/**/*&lt;/field&gt;
+    &lt;field name="active" eval="True"/&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h3>资源包的字段</h3>
+    <table>
+        <tr>
+            <th>字段</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>资源包的名称（仅用于显示）</td>
+        </tr>
+        <tr>
+            <td>bundle</td>
+            <td>资源包的技术名称</td>
+        </tr>
+        <tr>
+            <td>path</td>
+            <td>要包含的文件路径（支持通配符）</td>
+        </tr>
+        <tr>
+            <td>directive</td>
+            <td>包含或排除此路径（默认为"include"）</td>
+        </tr>
+        <tr>
+            <td>target</td>
+            <td>要修改的目标包名称（用于继承）</td>
+        </tr>
+        <tr>
+            <td>active</td>
+            <td>是否激活此资源包记录</td>
+        </tr>
+    </table>
+    
+    <h2>主要资源包</h2>
+    <p>Odoo定义了几个主要的资源包，每个包用于特定的目的：</p>
+    
+    <h3>web.assets_backend</h3>
+    <p>这是后端UI的主要资源包。它包含大部分的JavaScript和CSS文件，用于构建管理界面。</p>
+    
+    <h3>web.assets_frontend</h3>
+    <p>这个包包含用于前端（公共网站）的资源。这些文件通常用于网站访问者可见的页面。</p>
+    
+    <h3>web.assets_common</h3>
+    <p>这个包包含前端和后端共享的资源。</p>
+    
+    <h3>web.assets_web</h3>
+    <p>这个包包含Owl框架和一些核心库。</p>
+    
+    <h2>自定义资源包</h2>
+    <p>当开发Odoo模块时，你通常需要将自己的JavaScript和CSS文件添加到现有的资源包中。这可以通过创建新的<code>ir.asset</code>记录来实现：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_module.assets" model="ir.asset"&gt;
+    &lt;field name="name"&gt;My module assets&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;my_module/static/src/js/**/*&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>上面的示例将<code>my_module/static/src/js/</code>目录中的所有JavaScript文件添加到<code>web.assets_backend</code>包中。</p>
+    
+    <h2>排除资源</h2>
+    <p>有时你可能需要从包中排除某些文件。这可以通过设置<code>directive</code>字段为"remove"来实现：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_module.remove_file" model="ir.asset"&gt;
+    &lt;field name="name"&gt;Remove unwanted file&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;web/static/src/legacy/legacy_widget.js&lt;/field&gt;
+    &lt;field name="directive"&gt;remove&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h2>资源加载顺序</h2>
+    <p>资源的加载顺序可能会影响应用的行为。Odoo通过<code>ir.asset</code>记录的顺序确定加载顺序，您可以使用<code>sequence</code>字段来控制这一点。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_module.load_first" model="ir.asset"&gt;
+    &lt;field name="name"&gt;Load this first&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;my_module/static/src/js/core.js&lt;/field&gt;
+    &lt;field name="sequence"&gt;10&lt;/field&gt;
+&lt;/record&gt;
+
+&lt;record id="my_module.load_second" model="ir.asset"&gt;
+    &lt;field name="name"&gt;Load this second&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;my_module/static/src/js/extension.js&lt;/field&gt;
+    &lt;field name="sequence"&gt;20&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>注意：</strong>较低的<code>sequence</code>值会先加载。如果未指定<code>sequence</code>，则默认值为<code>16</code>。
+    </div>
+    
+    <h2>资源优化</h2>
+    <p>在生产环境中，Odoo会优化资源包以提高性能：</p>
+    <ul>
+        <li><strong>合并</strong>：将同一类型的多个文件合并成一个文件，减少HTTP请求</li>
+        <li><strong>压缩</strong>：删除不必要的空格和注释，缩短变量名等</li>
+        <li><strong>缓存</strong>：使用长期缓存头，允许浏览器长时间缓存资源</li>
+    </ul>
+    
+    <p>在开发模式下，特别是启用了<code>debug=assets</code>时，这些优化会被禁用，使调试更加容易。</p>
+    
+    <h2>扩展已有资源包</h2>
+    <p>有时，您可能需要在另一个模块的资源包之后添加资源。您可以使用<code>target</code>字段来实现这一点：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_module.extend_existing" model="ir.asset"&gt;
+    &lt;field name="name"&gt;Extend existing bundle&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="target"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;my_module/static/src/js/extensions/**/*&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <h2>动态资源包</h2>
+    <p>Odoo支持根据上下文动态生成资源包。这通常用于根据用户的语言、设备类型或其他因素加载不同的资源。要实现这一点，你需要实现<code>ir.http</code>的自定义类：</p>
+    
+    <div class="code-block">
+        <pre><code>class MyCustomHttp(models.AbstractModel):
+    _inherit = 'ir.http'
+
+    def _get_asset_urls(self):
+        urls = super()._get_asset_urls()
+        if self.env.user.has_group('base.group_user'):
+            urls.append('/my_module/static/src/js/advanced_features.js')
+        return urls</code></pre>
+    </div>
+    
+    <h2>QWeb模板中的资源</h2>
+    <p>在QWeb模板中，您可以使用<code>t-call-assets</code>指令来加载资源包：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-call-assets="web.assets_backend" t-js="false"/&gt;
+&lt;t t-call-assets="web.assets_backend" t-css="false"/&gt;</code></pre>
+    </div>
+    
+    <p>上面的示例分别仅加载<code>web.assets_backend</code>包中的CSS和JavaScript资源。</p>
+    
+    <h2>资产CDN支持</h2>
+    <p>Odoo支持通过内容分发网络（CDN）提供资产。这可以在系统参数中配置：</p>
+    
+    <div class="code-block">
+        <pre><code># 在系统参数中设置
+web.base.url.cdn = https://cdn.example.com</code></pre>
+    </div>
+    
+    <p>设置后，所有资产URL将使用CDN URL而不是本地URL。</p>
+    
+    <h2>懒加载资源</h2>
+    <p>为了提高性能，Odoo允许延迟加载某些资源，直到实际需要它们。这通常用于大型功能或不常用的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>// 在JavaScript中懒加载资源
+odoo.define('my_module.LazyFeature', function (require) {
+    "use strict";
+    
+    var ajax = require('web.ajax');
+    
+    return {
+        loadFeature: function () {
+            return ajax.loadJS('/my_module/static/src/js/big_feature.js');
+        }
+    };
+});</code></pre>
+    </div>
+    
+    <h2>调试资源问题</h2>
+    <p>当遇到资源相关的问题时，以下技巧可能会有所帮助：</p>
+    
+    <h3>使用调试模式</h3>
+    <p>启用<code>debug=assets</code>模式，它将：</p>
+    <ul>
+        <li>禁用资源合并和压缩</li>
+        <li>生成源映射以便更容易调试</li>
+        <li>每次刷新时重新加载资源（禁用缓存）</li>
+    </ul>
+    
+    <h3>检查控制台错误</h3>
+    <p>在浏览器的开发者工具中查看JavaScript错误，这通常可以指出问题所在。</p>
+    
+    <h3>验证资源注册</h3>
+    <p>确保你的<code>ir.asset</code>记录正确创建，并且路径正确指向你的文件。</p>
+    
+    <h3>清除缓存</h3>
+    <p>有时，您可能需要手动清除Odoo的资源缓存：</p>
+    <ul>
+        <li>在开发者工具中，选择"应用程序"选项卡，然后清除网站数据</li>
+        <li>使用后台菜单中的"清除缓存"选项</li>
+        <li>重启Odoo服务器，它会重新生成所有资源</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    
+    <h3>使用模块化结构</h3>
+    <p>使用AMD风格的模块化结构来组织您的JavaScript代码：</p>
+    
+    <div class="code-block">
+        <pre><code>odoo.define('my_module.MyFeature', function (require) {
+    "use strict";
+    
+    var core = require('web.core');
+    
+    var MyFeature = ...
+    
+    return MyFeature;
+});</code></pre>
+    </div>
+    
+    <h3>优化资源大小</h3>
+    <p>尽量减小资源文件的大小：</p>
+    <ul>
+        <li>只包含必要的代码和依赖</li>
+        <li>考虑对大型特性使用懒加载</li>
+        <li>使用图像优化工具压缩图像</li>
+        <li>避免在资源中包含大型库的完整版本</li>
+    </ul>
+    
+    <h3>合理组织CSS</h3>
+    <p>正确组织CSS可以提高可维护性和性能：</p>
+    <ul>
+        <li>使用一致的命名约定（如BEM）</li>
+        <li>将相关样式分组到单独的文件中</li>
+        <li>避免过度嵌套的选择器，它们会降低性能</li>
+        <li>使用CSS变量来保持一致性</li>
+    </ul>
+    
+    <h3>支持多样化设备</h3>
+    <p>确保您的资源适用于各种设备和屏幕尺寸：</p>
+    <ul>
+        <li>使用响应式设计原则</li>
+        <li>为移动设备优化资源</li>
+        <li>测试在各种设备和浏览器上的性能</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>在开发过程中，使用<code>debug=assets</code>模式可以简化调试过程，但在测试性能时，应该在没有调试的情况下进行测试，以获得更真实的用户体验度量。
+    </div>
+</body>
+</html> 

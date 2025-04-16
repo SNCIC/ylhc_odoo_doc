@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo ORM API文档</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo ORM API文档</h1>
+    
+    <h2>概述</h2>
+    <p>ORM（对象关系映射）是Odoo框架的核心部分，它提供了对数据库操作的抽象层，允许开发者使用Python对象而不是直接的SQL语句来操作数据库。</p>
+    
+    <div class="note">
+        <strong>重要概念：</strong>Odoo的ORM系统允许通过Python类和对象来操作数据库记录，极大简化了数据库交互并提供了强大的业务逻辑封装能力。
+    </div>
+    
+    <h2>模型（Models）</h2>
+    <p>Odoo中的所有业务对象都是通过模型定义的。模型是Python类，它们定义了业务对象的结构和行为。Odoo提供了三种基本类型的模型：</p>
+    
+    <h3>AbstractModel</h3>
+    <p>抽象模型是不会在数据库中创建表的模型。它们通常用作其他模型的基类，提供公共功能。</p>
+    
+    <div class="code-block">
+        <pre><code>class AbstractExample(models.AbstractModel):
+    _name = 'abstract.example'
+    _description = '抽象模型示例'
+    
+    name = fields.Char('名称')</code></pre>
+    </div>
+    
+    <h3>Model</h3>
+    <p>这是最常用的模型类型，代表持久化的业务对象，在数据库中会有对应的表。</p>
+    
+    <div class="code-block">
+        <pre><code>class NormalModel(models.Model):
+    _name = 'normal.model'
+    _description = '标准模型示例'
+    
+    name = fields.Char('名称', required=True)
+    description = fields.Text('描述')</code></pre>
+    </div>
+    
+    <h3>TransientModel</h3>
+    <p>瞬态模型用于临时数据，如向导（wizards）。它们在数据库中有对应的表，但记录会被自动清理。</p>
+    
+    <div class="code-block">
+        <pre><code>class WizardExample(models.TransientModel):
+    _name = 'wizard.example'
+    _description = '向导示例'
+    
+    name = fields.Char('名称')
+    # 更多字段...</code></pre>
+    </div>
+    
+    <h2>字段（Fields）</h2>
+    <p>字段定义了模型的属性和数据结构。Odoo提供了多种类型的字段来表示不同类型的数据。</p>
+    
+    <h3>基本字段</h3>
+    <table>
+        <tr>
+            <th>字段类型</th>
+            <th>描述</th>
+            <th>示例</th>
+        </tr>
+        <tr>
+            <td>Char</td>
+            <td>字符串字段</td>
+            <td>name = fields.Char('名称', size=64)</td>
+        </tr>
+        <tr>
+            <td>Text</td>
+            <td>文本字段（无长度限制）</td>
+            <td>description = fields.Text('描述')</td>
+        </tr>
+        <tr>
+            <td>Boolean</td>
+            <td>布尔字段</td>
+            <td>active = fields.Boolean('有效', default=True)</td>
+        </tr>
+        <tr>
+            <td>Integer</td>
+            <td>整数字段</td>
+            <td>sequence = fields.Integer('序列', default=10)</td>
+        </tr>
+        <tr>
+            <td>Float</td>
+            <td>浮点数字段</td>
+            <td>price = fields.Float('价格', digits=(10, 2))</td>
+        </tr>
+        <tr>
+            <td>Monetary</td>
+            <td>货币字段</td>
+            <td>amount = fields.Monetary('金额', currency_field='currency_id')</td>
+        </tr>
+        <tr>
+            <td>Selection</td>
+            <td>选择字段</td>
+            <td>state = fields.Selection([('draft', '草稿'), ('done', '已完成')], '状态', default='draft')</td>
+        </tr>
+        <tr>
+            <td>Binary</td>
+            <td>二进制数据字段</td>
+            <td>data = fields.Binary('数据')</td>
+        </tr>
+        <tr>
+            <td>Image</td>
+            <td>图片字段（特殊的二进制字段）</td>
+            <td>image = fields.Image('图片', max_width=1920, max_height=1920)</td>
+        </tr>
+    </table>
+    
+    <h3>高级字段</h3>
+    
+    <h4>日期和时间字段</h4>
+    <ul>
+        <li><code>Date</code>: 日期字段 - date = fields.Date('日期')</li>
+        <li><code>Datetime</code>: 日期时间字段 - datetime = fields.Datetime('日期时间')</li>
+    </ul>
+    
+    <h4>关系字段</h4>
+    <ul>
+        <li><code>Many2one</code>: 多对一关系 - partner_id = fields.Many2one('res.partner', '合作伙伴')</li>
+        <li><code>One2many</code>: 一对多关系 - line_ids = fields.One2many('model.line', 'parent_id', '行')</li>
+        <li><code>Many2many</code>: 多对多关系 - tag_ids = fields.Many2many('model.tag', string='标签')</li>
+    </ul>
+    
+    <h4>伪关系字段</h4>
+    <ul>
+        <li><code>Reference</code>: 动态引用字段 - reference = fields.Reference([('model1', '模型1'), ('model2', '模型2')], '引用')</li>
+    </ul>
+    
+    <h4>计算字段</h4>
+    <p>计算字段是通过函数计算而不是直接存储在数据库中的字段。</p>
+    
+    <div class="code-block">
+        <pre><code>total = fields.Float('总计', compute='_compute_total', store=True)
+
+@api.depends('line_ids.subtotal')
+def _compute_total(self):
+    for record in self:
+        record.total = sum(record.line_ids.mapped('subtotal'))</code></pre>
+    </div>
+    
+    <h4>关联字段</h4>
+    <p>关联字段是引用另一个字段值的快捷方式。</p>
+    
+    <div class="code-block">
+        <pre><code>partner_name = fields.Char('合作伙伴名称', related='partner_id.name', readonly=True)</code></pre>
+    </div>
+    
+    <h3>自动字段</h3>
+    <p>Odoo自动为每个模型创建一些特殊字段：</p>
+    <ul>
+        <li><code>id</code>: 数据库ID</li>
+        <li><code>create_date</code>: 创建日期</li>
+        <li><code>create_uid</code>: 创建用户</li>
+        <li><code>write_date</code>: 最后修改日期</li>
+        <li><code>write_uid</code>: 最后修改用户</li>
+    </ul>
+    
+    <h4>访问日志字段</h4>
+    <p>跟踪记录的创建和修改信息：</p>
+    <ul>
+        <li><code>create_date</code>: 创建日期时间</li>
+        <li><code>create_uid</code>: 创建用户ID</li>
+        <li><code>write_date</code>: 最后更新日期时间</li>
+        <li><code>write_uid</code>: 最后更新用户ID</li>
+    </ul>
+    
+    <h3>保留字段名</h3>
+    <p>某些字段名是保留的，不应用作自定义字段名：</p>
+    <ul>
+        <li>id, display_name, name, create_date, create_uid, write_date, write_uid</li>
+        <li>__last_update, access_id, access_token</li>
+    </ul>
+    
+    <h2>记录集（Recordsets）</h2>
+    <p>记录集是Odoo ORM的核心概念，代表一组数据库记录。它们可以是单条记录(singleton)或多条记录的集合。</p>
+    
+    <h3>字段访问</h3>
+    <p>访问记录的字段值：</p>
+    
+    <div class="code-block">
+        <pre><code># 读取单个记录的字段
+record.name
+# 读取多条记录的字段（返回列表）
+records.mapped('name')</code></pre>
+    </div>
+    
+    <h3>记录缓存和预取</h3>
+    <p>Odoo对记录进行缓存和预取，提高性能：</p>
+    <ul>
+        <li>当访问一条记录的字段时，Odoo会自动预取相同模型的其他记录相同字段</li>
+        <li>这减少了数据库查询次数，提高了性能</li>
+    </ul>
+    
+    <h2>方法装饰器</h2>
+    <p>Odoo使用装饰器来控制方法的行为：</p>
+    
+    <table>
+        <tr>
+            <th>装饰器</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>@api.depends</td>
+            <td>指定计算字段依赖的字段</td>
+        </tr>
+        <tr>
+            <td>@api.onchange</td>
+            <td>指定表单视图中字段变化时触发的方法</td>
+        </tr>
+        <tr>
+            <td>@api.constrains</td>
+            <td>在字段值更改时验证约束</td>
+        </tr>
+        <tr>
+            <td>@api.model</td>
+            <td>标记一个在模型级别而非记录级别操作的方法</td>
+        </tr>
+        <tr>
+            <td>@api.returns</td>
+            <td>指定方法返回值的处理方式</td>
+        </tr>
+    </table>
+    
+    <h2>环境（Environment）</h2>
+    <p>环境是执行ORM操作的上下文，包含以下信息：</p>
+    <ul>
+        <li>数据库游标（cr）</li>
+        <li>当前用户ID（uid）</li>
+        <li>上下文字典（context）</li>
+    </ul>
+    
+    <h3>有用的环境方法</h3>
+    <p>环境对象提供了几个有用的方法：</p>
+    <ul>
+        <li><code>env.user</code>: 当前用户记录</li>
+        <li><code>env.company</code>: 当前公司记录</li>
+        <li><code>env.companies</code>: 当前允许访问的公司记录集</li>
+        <li><code>env.context</code>: 当前环境上下文</li>
+        <li><code>env.ref(xml_id)</code>: 通过XML ID获取记录</li>
+    </ul>
+    
+    <h3>修改环境</h3>
+    <p>可以创建环境的修改版本：</p>
+    
+    <div class="code-block">
+        <pre><code># 使用不同的上下文
+records.with_context(lang='zh_CN').name
+# 以不同用户身份
+records.with_user(admin).create({...})
+# 不同公司
+records.with_company(company).name</code></pre>
+    </div>
+    
+    <h3>SQL执行</h3>
+    <p>尽管Odoo提供了ORM抽象，但有时需要直接执行SQL：</p>
+    
+    <div class="code-block">
+        <pre><code>self.env.cr.execute("SELECT id FROM res_partner WHERE name=%s", [name])
+partner_ids = [row[0] for row in self.env.cr.fetchall()]</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>警告：</strong>直接执行SQL会绕过ORM的安全和业务逻辑。只在必要时使用，并小心避免SQL注入攻击。
+    </div>
+    
+    <h2>常用ORM方法</h2>
+    
+    <h3>创建/更新</h3>
+    
+    <div class="code-block">
+        <pre><code># 创建记录
+record = self.env['model.name'].create({
+    'name': '新记录',
+    'description': '描述...'
+})
+
+# 更新记录
+record.write({
+    'name': '更新的名称',
+    'description': '更新的描述'
+})</code></pre>
+    </div>
+    
+    <h3>搜索/读取</h3>
+    
+    <div class="code-block">
+        <pre><code># 基本搜索
+records = self.env['model.name'].search([('name', '=', '名称')])
+
+# 限制搜索结果
+records = self.env['model.name'].search([...], limit=10)
+
+# 排序
+records = self.env['model.name'].search([...], order='name asc')
+
+# 读取特定字段
+values = records.read(['name', 'description'])</code></pre>
+    </div>
+    
+    <h4>字段</h4>
+    <p>使用<code>fields_get</code>方法获取模型的字段信息：</p>
+    
+    <div class="code-block">
+        <pre><code>fields_data = self.env['model.name'].fields_get()</code></pre>
+    </div>
+    
+    <h4>搜索域</h4>
+    <p>搜索域是指定记录过滤条件的列表：</p>
+    <ul>
+        <li><code>[('field', 'operator', value)]</code></li>
+        <li>操作符包括: <code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>like</code>, <code>ilike</code>, <code>in</code>, <code>not in</code>等</li>
+        <li>可以使用<code>&</code>和<code>|</code>操作符组合条件</li>
+    </ul>
+    
+    <h3>删除</h3>
+    
+    <div class="code-block">
+        <pre><code># 删除记录
+record.unlink()</code></pre>
+    </div>
+    
+    <h3>记录(集)信息</h3>
+    
+    <div class="code-block">
+        <pre><code># 检查记录是否存在
+if record.exists():
+    # 进行操作...
+
+# 获取记录数量
+count = records.search_count([...])
+
+# 获取记录ID
+ids = records.ids</code></pre>
+    </div>
+    
+    <h3>操作</h3>
+    
+    <h4>筛选</h4>
+    
+    <div class="code-block">
+        <pre><code># 筛选记录
+filtered_records = records.filtered(lambda r: r.state == 'done')</code></pre>
+    </div>
+    
+    <h4>映射</h4>
+    
+    <div class="code-block">
+        <pre><code># 映射字段
+names = records.mapped('name')
+
+# 使用函数映射
+results = records.mapped(lambda r: r.name.upper())</code></pre>
+    </div>
+    
+    <h4>排序</h4>
+    
+    <div class="code-block">
+        <pre><code># 排序记录
+sorted_records = records.sorted(key=lambda r: r.name)</code></pre>
+    </div>
+    
+    <h4>分组</h4>
+    
+    <div class="code-block">
+        <pre><code># 按字段分组
+grouped = records.grouped(lambda r: r.state)
+for state, state_records in grouped:
+    # 处理每个组...</code></pre>
+    </div>
+    
+    <h2>继承和扩展</h2>
+    <p>Odoo提供了几种不同的机制来扩展模型：</p>
+    
+    <h3>经典继承</h3>
+    <p>创建一个基于现有模型的新模型，新模型获取原始模型的所有字段、方法和元信息。</p>
+    
+    <div class="code-block">
+        <pre><code>class Inheritance0(models.Model):
+    _name = 'inheritance.0'
+    _description = '继承零'
+
+    name = fields.Char()
+
+    def call(self):
+        return self.check("模型 0")
+
+    def check(self, s):
+        return "这是 {} 记录 {}".format(s, self.name)
+
+class Inheritance1(models.Model):
+    _name = 'inheritance.1'
+    _inherit = 'inheritance.0'
+    _description = '继承一'
+
+    def call(self):
+        return self.check("模型 1")</code></pre>
+    </div>
+    
+    <p>使用示例：</p>
+    
+    <div class="code-block">
+        <pre><code>a = env['inheritance.0'].create({'name': 'A'})
+b = env['inheritance.1'].create({'name': 'B'})
+
+a.call()  # 返回: "这是模型 0 记录 A"
+b.call()  # 返回: "这是模型 1 记录 B"</code></pre>
+    </div>
+    
+    <h3>扩展</h3>
+    <p>当使用<code>_inherit</code>但不使用<code>_name</code>时，新模型会替换现有模型，实质上是对其进行原地扩展。这对于向其他模块创建的现有模型添加新字段或方法很有用。</p>
+    
+    <div class="code-block">
+        <pre><code>class Extension0(models.Model):
+    _name = 'extension.0'
+    _description = '扩展零'
+
+    name = fields.Char(default="A")
+
+class Extension1(models.Model):
+    _inherit = 'extension.0'
+
+    description = fields.Char(default="已扩展")</code></pre>
+    </div>
+    
+    <p>使用示例：</p>
+    
+    <div class="code-block">
+        <pre><code>record = env['extension.0'].create({})
+record.read()[0]  # 返回: {'name': "A", 'description': "已扩展"}</code></pre>
+    </div>
+    
+    <h3>委托</h3>
+    <p>第三种继承机制提供了更多灵活性（可以在运行时更改）但功能较少：使用<code>_inherits</code>，模型将在当前模型上找不到的任何字段查找委托给"子"模型。通过自动在父模型上设置的引用字段执行委托。</p>
+    
+    <div class="code-block">
+        <pre><code>class Screen(models.Model):
+    _name = 'delegation.screen'
+    _description = '屏幕'
+
+    size = fields.Float(string='屏幕尺寸（英寸）')
+
+class Keyboard(models.Model):
+    _name = 'delegation.keyboard'
+    _description = '键盘'
+
+    layout = fields.Char(string='布局')
+
+class Laptop(models.Model):
+    _name = 'delegation.laptop'
+    _description = '笔记本电脑'
+
+    _inherits = {
+        'delegation.screen': 'screen_id',
+        'delegation.keyboard': 'keyboard_id',
+    }
+
+    name = fields.Char(string='名称')
+    maker = fields.Char(string='制造商')
+
+    # 笔记本电脑有一个屏幕
+    screen_id = fields.Many2one('delegation.screen', required=True, ondelete="cascade")
+    # 笔记本电脑有一个键盘
+    keyboard_id = fields.Many2one('delegation.keyboard', required=True, ondelete="cascade")</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>警告：</strong>
+        <ul>
+            <li>使用委托继承时，方法不会被继承，只有字段会被继承</li>
+            <li><code>_inherits</code>实现不完全，如果可能，请避免使用</li>
+            <li>链式<code>_inherits</code>基本上没有实现，我们不能保证最终行为</li>
+        </ul>
+    </div>
+    
+    <h3>字段增量定义</h3>
+    <p>字段作为模型类上的类属性定义。如果模型被扩展，也可以通过在子类上重新定义相同名称和相同类型的字段来扩展字段定义。在这种情况下，字段的属性取自父类并被子类中给出的属性覆盖。</p>
+    
+    <div class="code-block">
+        <pre><code>class First(models.Model):
+    _name = 'foo'
+    state = fields.Selection([...], required=True)
+
+class Second(models.Model):
+    _inherit = 'foo'
+    state = fields.Selection(help="说明文字")</code></pre>
+    </div>
+    
+    <h2>错误管理</h2>
+    <p>Odoo异常模块定义了几种核心异常类型，这些类型被RPC层理解。任何其他冒泡到RPC层的异常类型都将被视为"服务器错误"。</p>
+    
+    <h3>主要异常类型</h3>
+    
+    <table>
+        <tr>
+            <th>异常类</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>UserError</td>
+            <td>客户端管理的通用错误。通常是当用户尝试做某些在当前记录状态下没有意义的事情时。语义上类似于HTTP 400状态码。</td>
+        </tr>
+        <tr>
+            <td>RedirectWarning</td>
+            <td>带有重定向用户可能性的警告，而不仅仅是显示警告消息。</td>
+        </tr>
+        <tr>
+            <td>AccessDenied</td>
+            <td>登录/密码错误。使用错误密码尝试登录时会出现此错误。</td>
+        </tr>
+        <tr>
+            <td>AccessError</td>
+            <td>访问权限错误。当你尝试读取你没有权限的记录时会出现此错误。</td>
+        </tr>
+        <tr>
+            <td>CacheMiss</td>
+            <td>缓存中缺少值。当你尝试在已刷新的缓存中读取值时会出现此错误。</td>
+        </tr>
+        <tr>
+            <td>MissingError</td>
+            <td>缺少记录。当你尝试在已删除的记录上写入时会出现此错误。</td>
+        </tr>
+        <tr>
+            <td>ValidationError</td>
+            <td>违反Python约束。当你尝试创建一个与数据库中已存在的登录名相同的新用户时会出现此错误。</td>
+        </tr>
+    </table>
+    
+    <div class="code-block">
+        <pre><code># 示例：抛出用户错误
+from odoo.exceptions import UserError
+
+def my_method(self):
+    if self.state != 'draft':
+        raise UserError('只能在草稿状态下修改此记录。')
+        
+# 示例：抛出验证错误
+from odoo.exceptions import ValidationError
+
+@api.constrains('value')
+def _check_value(self):
+    for record in self:
+        if record.value < 0:
+            raise ValidationError('值不能为负数！')</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>提示：</strong>使用适当的异常类型可以帮助前端正确处理错误，并为用户提供有意义的信息。
+    </div>
+</body>
+</html> 

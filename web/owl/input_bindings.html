@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owl表单输入绑定详解</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Owl表单输入绑定详解</h1>
+    
+    <h2>文档概述</h2>
+    <p>在Web应用开发中，读取和处理表单输入是非常常见的需求。Owl框架提供了<code>t-model</code>指令，实现了表单输入与组件状态的双向绑定，极大简化了表单处理代码。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong><code>t-model</code>指令用于在HTML表单元素（如输入框、复选框、单选按钮等）和组件状态之间创建双向数据绑定，当用户输入改变时，相关状态会自动更新，反之亦然。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>双向数据绑定</strong>：表单元素值与组件状态自动同步</li>
+        <li><strong>支持多种表单元素</strong>：输入框、文本区域、复选框、单选按钮和选择框</li>
+        <li><strong>值修饰符</strong>：提供修饰符如<code>.lazy</code>、<code>.number</code>和<code>.trim</code>来处理输入值</li>
+        <li><strong>简化代码</strong>：减少处理表单输入所需的样板代码</li>
+    </ol>
+    
+    <h2>基本用法</h2>
+    <p>传统方式处理表单输入需要手动绑定事件和更新状态：</p>
+    
+    <div class="code-block">
+        <pre><code>class Form extends owl.Component {
+  state = useState({ text: "" });
+
+  _updateInputValue(event) {
+    this.state.text = event.target.value;
+  }
+}</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+  &lt;input t-on-input="_updateInputValue" /&gt;
+  &lt;span t-esc="state.text" /&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <p>使用<code>t-model</code>指令，可以大大简化这一过程：</p>
+    
+    <div class="code-block">
+        <pre><code>class Form extends owl.Component {
+  state = useState({ text: "" });
+}</code></pre>
+    </div>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+  &lt;input t-model="state.text" /&gt;
+  &lt;span t-esc="state.text" /&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>支持的表单元素</h2>
+    <p><code>t-model</code>指令可以与以下表单元素一起使用：</p>
+    
+    <table>
+        <tr>
+            <th>元素类型</th>
+            <th>描述</th>
+            <th>绑定值类型</th>
+        </tr>
+        <tr>
+            <td>&lt;input&gt;</td>
+            <td>普通文本输入框</td>
+            <td>字符串</td>
+        </tr>
+        <tr>
+            <td>&lt;input type="checkbox"&gt;</td>
+            <td>复选框</td>
+            <td>布尔值</td>
+        </tr>
+        <tr>
+            <td>&lt;input type="radio"&gt;</td>
+            <td>单选按钮</td>
+            <td>值与value属性相等的字符串</td>
+        </tr>
+        <tr>
+            <td>&lt;textarea&gt;</td>
+            <td>多行文本区域</td>
+            <td>字符串</td>
+        </tr>
+        <tr>
+            <td>&lt;select&gt;</td>
+            <td>下拉选择框</td>
+            <td>所选项的value属性值</td>
+        </tr>
+    </table>
+    
+    <h2>综合示例</h2>
+    <p>以下示例展示了<code>t-model</code>与各种表单元素的结合使用：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;
+    &lt;div&gt;文本输入框: &lt;input t-model="state.someVal"/&gt;&lt;/div&gt;
+    &lt;div&gt;文本区域: &lt;textarea t-model="state.otherVal"/&gt;&lt;/div&gt;
+    &lt;div&gt;布尔值: &lt;input type="checkbox" t-model="state.someFlag"/&gt;&lt;/div&gt;
+    &lt;div&gt;下拉选择:
+        &lt;select t-model="state.color"&gt;
+            &lt;option value=""&gt;选择一个颜色&lt;/option&gt;
+            &lt;option value="red"&gt;红色&lt;/option&gt;
+            &lt;option value="blue"&gt;蓝色&lt;/option&gt;
+        &lt;/select&gt;
+    &lt;/div&gt;
+    &lt;div&gt;
+        单选按钮组:
+        &lt;span&gt;
+            &lt;input type="radio" name="color" id="red" value="red" t-model="state.color"/&gt;
+            &lt;label for="red"&gt;红色&lt;/label&gt;
+        &lt;/span&gt;
+        &lt;span&gt;
+            &lt;input type="radio" name="color" id="blue" value="blue" t-model="state.color" /&gt;
+            &lt;label for="blue"&gt;蓝色&lt;/label&gt;
+        &lt;/span&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>修饰符</h2>
+    <p>与事件处理一样，<code>t-model</code>指令也接受修饰符，用于调整输入值的处理方式：</p>
+    
+    <table>
+        <tr>
+            <th>修饰符</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>.lazy</td>
+            <td>在<code>change</code>事件上更新值（默认是在<code>input</code>事件上）</td>
+        </tr>
+        <tr>
+            <td>.number</td>
+            <td>尝试使用<code>parseFloat</code>将值解析为数字</td>
+        </tr>
+        <tr>
+            <td>.trim</td>
+            <td>对结果值进行去除首尾空格处理</td>
+        </tr>
+    </table>
+    
+    <p>示例：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;input t-model.lazy="state.someVal" /&gt;</code></pre>
+    </div>
+    
+    <p>这些修饰符可以组合使用。例如，<code>t-model.lazy.number</code>将仅在更改完成后更新一个数字值。</p>
+    
+    <h2>实际应用示例</h2>
+    
+    <h3>示例1：基本表单</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript
+class UserForm extends Component {
+  static template = xml`
+    &lt;div class="user-form"&gt;
+      &lt;div class="form-group"&gt;
+        &lt;label for="name"&gt;姓名&lt;/label&gt;
+        &lt;input id="name" t-model="state.name"/&gt;
+      &lt;/div&gt;
+      &lt;div class="form-group"&gt;
+        &lt;label for="email"&gt;邮箱&lt;/label&gt;
+        &lt;input id="email" type="email" t-model="state.email"/&gt;
+      &lt;/div&gt;
+      &lt;div class="form-group"&gt;
+        &lt;label for="age"&gt;年龄&lt;/label&gt;
+        &lt;input id="age" type="number" t-model.number="state.age"/&gt;
+      &lt;/div&gt;
+      &lt;div class="form-group"&gt;
+        &lt;label&gt;
+          &lt;input type="checkbox" t-model="state.isActive"/&gt;
+          账户激活
+        &lt;/label&gt;
+      &lt;/div&gt;
+      &lt;button t-on-click="saveUser"&gt;保存&lt;/button&gt;
+      
+      &lt;div class="preview"&gt;
+        &lt;h3&gt;预览:&lt;/h3&gt;
+        &lt;p&gt;姓名: &lt;t t-esc="state.name"/&gt;&lt;/p&gt;
+        &lt;p&gt;邮箱: &lt;t t-esc="state.email"/&gt;&lt;/p&gt;
+        &lt;p&gt;年龄: &lt;t t-esc="state.age"/&gt;&lt;/p&gt;
+        &lt;p&gt;状态: &lt;t t-esc="state.isActive ? '激活' : '未激活'"/&gt;&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  `;
+  
+  state = useState({
+    name: "",
+    email: "",
+    age: 0,
+    isActive: false
+  });
+  
+  saveUser() {
+    console.log("保存用户:", this.state);
+    // 这里可以发送API请求保存用户数据
+  }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：多选配置表单</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript
+class SettingsForm extends Component {
+  static template = xml`
+    &lt;div class="settings-form"&gt;
+      &lt;h2&gt;用户设置&lt;/h2&gt;
+      
+      &lt;div class="form-group"&gt;
+        &lt;label&gt;主题选择&lt;/label&gt;
+        &lt;select t-model="state.theme"&gt;
+          &lt;option value="light"&gt;浅色&lt;/option&gt;
+          &lt;option value="dark"&gt;深色&lt;/option&gt;
+          &lt;option value="system"&gt;跟随系统&lt;/option&gt;
+        &lt;/select&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="form-group"&gt;
+        &lt;label&gt;通知首选项&lt;/label&gt;
+        &lt;div&gt;
+          &lt;label&gt;
+            &lt;input type="checkbox" t-model="state.notifications.email"/&gt;
+            电子邮件
+          &lt;/label&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;
+            &lt;input type="checkbox" t-model="state.notifications.sms"/&gt;
+            短信
+          &lt;/label&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;
+            &lt;input type="checkbox" t-model="state.notifications.push"/&gt;
+            推送通知
+          &lt;/label&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="form-group"&gt;
+        &lt;label&gt;语言&lt;/label&gt;
+        &lt;div&gt;
+          &lt;label&gt;
+            &lt;input type="radio" name="language" value="zh_CN" t-model="state.language"/&gt;
+            中文
+          &lt;/label&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;
+            &lt;input type="radio" name="language" value="en_US" t-model="state.language"/&gt;
+            英文
+          &lt;/label&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="form-group"&gt;
+        &lt;label for="bio"&gt;个人简介&lt;/label&gt;
+        &lt;textarea id="bio" t-model.trim="state.bio"&gt;&lt;/textarea&gt;
+      &lt;/div&gt;
+      
+      &lt;button t-on-click="saveSettings"&gt;保存设置&lt;/button&gt;
+    &lt;/div&gt;
+  `;
+  
+  state = useState({
+    theme: "system",
+    notifications: {
+      email: true,
+      sms: false,
+      push: true
+    },
+    language: "zh_CN",
+    bio: ""
+  });
+  
+  saveSettings() {
+    console.log("保存设置:", this.state);
+    // 保存设置的逻辑
+  }
+}</code></pre>
+    </div>
+    
+    <h2>在Odoo 18中的应用</h2>
+    <p>在Odoo 18中，<code>t-model</code>指令是构建表单和输入控件的核心技术。以下是在Odoo 18中使用<code>t-model</code>的示例：</p>
+    
+    <h3>示例：Odoo 18过滤器组件</h3>
+    <div class="code-block">
+        <pre><code>// JavaScript
+class FilterComponent extends Component {
+  static template = xml`
+    &lt;div class="o_filter_container"&gt;
+      &lt;div class="o_filter_section"&gt;
+        &lt;input 
+          placeholder="搜索..." 
+          t-model.lazy="state.searchTerm" 
+          t-on-keyup.enter="applySearch"
+        /&gt;
+        &lt;button t-on-click="applySearch" class="btn btn-primary"&gt;
+          搜索
+        &lt;/button&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="o_filter_section"&gt;
+        &lt;label&gt;状态&lt;/label&gt;
+        &lt;select t-model="state.status" t-on-change="applyFilters"&gt;
+          &lt;option value=""&gt;全部&lt;/option&gt;
+          &lt;option value="draft"&gt;草稿&lt;/option&gt;
+          &lt;option value="confirmed"&gt;已确认&lt;/option&gt;
+          &lt;option value="done"&gt;已完成&lt;/option&gt;
+          &lt;option value="cancelled"&gt;已取消&lt;/option&gt;
+        &lt;/select&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="o_filter_section"&gt;
+        &lt;label&gt;日期范围&lt;/label&gt;
+        &lt;input 
+          type="date" 
+          t-model="state.dateFrom" 
+          t-on-change="applyFilters"
+        /&gt;
+        &lt;span&gt;至&lt;/span&gt;
+        &lt;input 
+          type="date" 
+          t-model="state.dateTo" 
+          t-on-change="applyFilters"
+        /&gt;
+      &lt;/div&gt;
+      
+      &lt;div class="o_filter_section"&gt;
+        &lt;label&gt;
+          &lt;input 
+            type="checkbox" 
+            t-model="state.showArchived" 
+            t-on-change="applyFilters"
+          /&gt;
+          显示已归档
+        &lt;/label&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  `;
+  
+  state = useState({
+    searchTerm: "",
+    status: "",
+    dateFrom: "",
+    dateTo: "",
+    showArchived: false
+  });
+  
+  applySearch() {
+    this.applyFilters();
+  }
+  
+  applyFilters() {
+    // 向父组件发送事件，包含过滤条件
+    this.trigger('filter-changed', {
+      search: this.state.searchTerm,
+      status: this.state.status,
+      dateFrom: this.state.dateFrom,
+      dateTo: this.state.dateTo,
+      showArchived: this.state.showArchived
+    });
+  }
+}</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>对于需要即时响应的输入使用默认行为（input事件）</li>
+        <li>对于计算密集型处理或频繁变化的输入，使用<code>.lazy</code>修饰符以减少更新频率</li>
+        <li>对于需要数值处理的输入，使用<code>.number</code>修饰符以避免手动转换</li>
+        <li>对于用户输入的文本，考虑使用<code>.trim</code>修饰符以去除不必要的空白</li>
+        <li>组合使用修饰符以获得最佳用户体验，如<code>t-model.lazy.trim</code></li>
+        <li>始终确保绑定到<code>useState</code>创建的响应式状态对象</li>
+    </ul>
+    
+    <div class="note">
+        <strong>Odoo 18中的应用提示：</strong>在Odoo 18的表单视图和自定义窗口组件中，<code>t-model</code>是处理用户输入的首选方式。使用它可以大大减少样板代码，并使您的组件更易于维护。特别在构建向导、过滤器和自定义设置表单时，这种双向绑定机制非常有价值。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 框架概述</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>框架概述</h1>
+    
+    <h2>简介</h2>
+    <p>Odoo 18的Web客户端是使用Javascript编写的现代单页应用（SPA）。它基于Owl框架（Odoo Web Library）构建，这是Odoo开发的轻量级组件框架。</p>
+    
+    <div class="note">
+        <strong>了解更多：</strong>要更深入了解Owl框架本身，请查看<a href="https://github.com/odoo/owl" target="_blank">Owl仓库</a>。
+    </div>
+    
+    <h2>代码结构</h2>
+    <p>Web客户端的代码组织在以下几个主要目录中：</p>
+    <ul>
+        <li><code>core/</code>：包含核心功能和基础设施</li>
+        <li><code>views/</code>：包含所有视图的实现</li>
+        <li><code>webclient/</code>：包含主Web客户端组件</li>
+        <li><code>public/</code>：包含静态资源，如图像</li>
+        <li><code>legacy/</code>：包含遗留代码，主要用于向后兼容性</li>
+    </ul>
+    
+    <h2>WebClient架构</h2>
+    <p>Web客户端是一个复杂的应用程序，它由许多组件和服务组成。主要组件包括：</p>
+    <ul>
+        <li><strong>WebClient</strong>：顶级组件，负责协调其他组件</li>
+        <li><strong>ActionManager</strong>：负责执行操作并管理动作历史</li>
+        <li><strong>ControlPanel</strong>：显示在视图顶部的面板，包含搜索、分页等功能</li>
+        <li><strong>View</strong>：显示业务数据的各种视图（列表、表单、看板等）</li>
+    </ul>
+    
+    <div class="workflow">
+        <h3>典型的请求流程</h3>
+        <ol>
+            <li>用户与界面交互（点击菜单、按钮等）</li>
+            <li>触发相应的服务或组件方法</li>
+            <li>通过RPC执行服务器端动作</li>
+            <li>处理服务器响应并更新UI</li>
+            <li>使用推送机制（longpolling）检测变更</li>
+        </ol>
+    </div>
+    
+    <h2>环境</h2>
+    <p>在Odoo的Web客户端中，环境（environment）是一个特殊的对象，它包含了应用程序状态和各种服务。环境对象通过组件的context提供，使组件可以访问全局服务和状态。</p>
+    
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        this.orm = useService("orm");
+        this.user = useService("user");
+    }
+}
+</code></pre>
+    </div>
+    
+    <h2>构建块</h2>
+    
+    <h3>注册表</h3>
+    <p>注册表（Registry）是一种特殊的键值存储，允许注册和检索各种组件、服务和其他对象。这是Odoo前端架构的核心概念之一。</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 获取视图注册表
+const viewRegistry = registry.category("views");
+
+// 注册新视图
+viewRegistry.add("my_view", MyViewComponent);</code></pre>
+    </div>
+    
+    <p>主要的注册表包括：</p>
+    <ul>
+        <li><code>main</code>：主注册表，包含其他所有注册表</li>
+        <li><code>services</code>：包含所有服务</li>
+        <li><code>views</code>：包含所有视图</li>
+        <li><code>actions</code>：包含所有客户端动作</li>
+        <li><code>fields</code>：包含所有字段组件</li>
+    </ul>
+    
+    <h3>服务</h3>
+    <p>服务（Services）是提供某种特定功能的单例对象，例如网络通信、本地存储等。服务通过依赖注入使用，保持了代码的模块化和可测试性。</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 定义一个简单服务
+const myService = {
+    dependencies: ["orm", "notification"],
+    start(env, { orm, notification }) {
+        return {
+            async doSomething(param) {
+                try {
+                    const result = await orm.call(...);
+                    return result;
+                } catch (error) {
+                    notification.add(error.message, { type: "danger" });
+                }
+            }
+        };
+    }
+};
+
+// 注册服务
+registry.category("services").add("myService", myService);</code></pre>
+    </div>
+    
+    <h3>组件和钩子</h3>
+    <p>Odoo 18的Web客户端基于Owl组件系统。组件是用于构建用户界面的基本单元，而钩子（Hooks）提供了一种重用逻辑的方法。</p>
+    
+    <div class="code-block">
+        <pre><code>import { Component, useState } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class Counter extends Component {
+    static template = "web.Counter";
+    
+    setup() {
+        this.state = useState({ count: 0 });
+        this.notification = useService("notification");
+    }
+    
+    increment() {
+        this.state.count++;
+        if (this.state.count === 10) {
+            this.notification.add("达到10次！", { type: "success" });
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h2>上下文</h2>
+    <p>Odoo中存在两种类型的上下文，它们在前端代码中都很重要：</p>
+    
+    <h3>用户上下文</h3>
+    <p>用户上下文包含与当前用户相关的信息，如语言、时区等。它会自动添加到所有RPC调用中，并可以通过用户服务访问。</p>
+    
+    <div class="code-block">
+        <pre><code>setup() {
+    this.user = useService("user");
+    
+    // 获取用户上下文
+    const context = this.user.context;
+    
+    // 获取特定上下文值
+    const lang = context.lang;
+}</code></pre>
+    </div>
+    
+    <h3>动作上下文</h3>
+    <p>动作上下文包含与当前动作相关的临时信息。它通常由动作（如打开表单）创建，并传递给子视图。</p>
+    
+    <div class="code-block">
+        <pre><code>// 在客户端动作中设置上下文
+const action = {
+    type: "ir.actions.act_window",
+    res_model: "res.partner",
+    views: [[false, "form"]],
+    context: {
+        default_is_company: true,
+        search_default_customer: 1,
+    },
+};</code></pre>
+    </div>
+    
+    <h2>Python解释器</h2>
+    <p>Odoo客户端包含一个Python表达式解释器，用于评估服务器发送的Python表达式。这主要用于域（domain）表达式和上下文值。</p>
+    
+    <div class="code-block">
+        <pre><code>import { evaluateExpr } from "@web/core/py_js/py";
+
+// 评估Python表达式
+const result = evaluateExpr("{'default_date': datetime.date.today()}");
+// 结果: { default_date: 当前日期 }</code></pre>
+    </div>
+    
+    <h2>域</h2>
+    <p>域（Domain）是Odoo中用于过滤记录的表达式。在客户端中，它们通常表示为Python语法的字符串或JavaScript数组。</p>
+    
+    <p>Odoo 18提供了一个<code>Domain</code>类，用于处理域表达式：</p>
+    
+    <div class="code-block">
+        <pre><code>import { Domain } from "@web/core/domain";
+
+// 创建一个域对象
+const domain = new Domain("[('state', '=', 'done')]");
+
+// 转换为列表表示
+const domainList = domain.toList(); // [["state", "=", "done"]]
+
+// 检查记录是否匹配域
+const matches = domain.contains({ state: "done" }); // true
+
+// 转换为字符串
+const domainString = domain.toString(); // "[('state', '=', 'done')]"</code></pre>
+    </div>
+    
+    <p><code>Domain</code>类还提供了四个实用的静态方法来组合域：</p>
+    
+    <div class="code-block">
+        <pre><code>// ["&", ("a", "=", 1), ("uid", "<=", uid)]
+Domain.and([[["a", "=", 1]], "[('uid', '<=', uid)]"]).toString();
+
+// ["|", ("a", "=", 1), ("uid", "<=", uid)]
+Domain.or([[["a", "=", 1]], "[('uid', '<=', uid)]"]).toString();
+
+// ["!", ("a", "=", 1)]
+Domain.not([["a", "=", 1]]).toString();
+
+// ["&", ("a", "=", 1), ("uid", "<=", uid)]
+Domain.combine([[["a", "=", 1]], "[('uid', '<=', uid)]"], "AND").toString();</code></pre>
+    </div>
+    
+    <h2>总线</h2>
+    <p>Web客户端环境对象包含一个事件总线（Event Bus），名为<code>bus</code>。它的目的是允许系统的各个部分正确地协调自己，而不相互耦合。<code>env.bus</code>是一个Owl事件总线，应该用于全局感兴趣的事件。</p>
+    
+    <div class="code-block">
+        <pre><code>// 例如，在某些服务代码中：
+env.bus.on("WEB_CLIENT_READY", null, doSomething);</code></pre>
+    </div>
+    
+    <p>以下是可以在此总线上触发的事件列表：</p>
+    
+    <table>
+        <tr>
+            <th>消息</th>
+            <th>载荷</th>
+            <th>触发条件</th>
+        </tr>
+        <tr>
+            <td>ACTION_MANAGER:UI-UPDATED</td>
+            <td>一个模式，指示UI的哪一部分已更新（'current'、'new'或'fullscreen'）</td>
+            <td>向动作管理器请求的动作的渲染完成</td>
+        </tr>
+        <tr>
+            <td>ACTION_MANAGER:UPDATE</td>
+            <td>下一个渲染信息</td>
+            <td>动作管理器已完成计算下一个界面</td>
+        </tr>
+        <tr>
+            <td>MENUS:APP-CHANGED</td>
+            <td>无</td>
+            <td>菜单服务的当前应用已更改</td>
+        </tr>
+        <tr>
+            <td>ROUTE_CHANGE</td>
+            <td>无</td>
+            <td>URL哈希已更改</td>
+        </tr>
+        <tr>
+            <td>RPC:REQUEST</td>
+            <td>RPC ID</td>
+            <td>RPC请求刚刚开始</td>
+        </tr>
+        <tr>
+            <td>RPC:RESPONSE</td>
+            <td>RPC ID</td>
+            <td>RPC请求已完成</td>
+        </tr>
+        <tr>
+            <td>WEB_CLIENT_READY</td>
+            <td>无</td>
+            <td>Web客户端已挂载</td>
+        </tr>
+        <tr>
+            <td>FOCUS-VIEW</td>
+            <td>无</td>
+            <td>主视图应该聚焦自己</td>
+        </tr>
+        <tr>
+            <td>CLEAR-CACHES</td>
+            <td>无</td>
+            <td>所有内部缓存应该被清除</td>
+        </tr>
+        <tr>
+            <td>CLEAR-UNCOMMITTED-CHANGES</td>
+            <td>函数列表</td>
+            <td>所有具有未提交更改的视图应该清除它们，并将回调函数推入列表</td>
+        </tr>
+    </table>
+    
+    <h2>浏览器对象</h2>
+    <p>JavaScript框架还提供了一个特殊的对象<code>browser</code>，它提供了对许多浏览器API的访问，如<code>location</code>、<code>localStorage</code>或<code>setTimeout</code>。例如，以下是如何使用<code>browser.setTimeout</code>函数：</p>
+    
+    <div class="code-block">
+        <pre><code>import { browser } from "@web/core/browser/browser";
+
+// 代码中的某个地方
+browser.setTimeout(someFunction, 1000);</code></pre>
+    </div>
+    
+    <p>它主要是为了测试目的：所有使用浏览器对象的代码都可以通过在测试的持续时间内模拟相关函数来轻松测试。</p>
+    
+    <p>它包含以下内容：</p>
+    
+    <table>
+        <tr>
+            <td>addEventListener</td>
+            <td>cancelAnimationFrame</td>
+            <td>clearInterval</td>
+        </tr>
+        <tr>
+            <td>clearTimeout</td>
+            <td>console</td>
+            <td>Date</td>
+        </tr>
+        <tr>
+            <td>fetch</td>
+            <td>history</td>
+            <td>localStorage</td>
+        </tr>
+        <tr>
+            <td>location</td>
+            <td>navigator</td>
+            <td>open</td>
+        </tr>
+        <tr>
+            <td>random</td>
+            <td>removeEventListener</td>
+            <td>requestAnimationFrame</td>
+        </tr>
+        <tr>
+            <td>sessionStorage</td>
+            <td>setInterval</td>
+            <td>setTimeout</td>
+        </tr>
+        <tr>
+            <td>XMLHttpRequest</td>
+            <td></td>
+            <td></td>
+        </tr>
+    </table>
+    
+    <h2>调试模式</h2>
+    <p>Odoo有时可以在一种称为<code>debug</code>模式的特殊模式下运行。它用于两个主要目的：</p>
+    <ul>
+        <li>在某些特定屏幕上显示额外的信息/字段</li>
+        <li>提供一些额外的工具帮助开发者调试Odoo界面</li>
+    </ul>
+    
+    <p><code>debug</code>模式由一个字符串描述。空字符串表示<code>debug</code>模式未激活。否则，它是激活的。如果字符串包含<code>assets</code>或<code>tests</code>，则相应的特定子模式被激活（见下文）。两种模式可以同时激活，例如，使用字符串<code>assets,tests</code>。</p>
+    
+    <p>可以在环境中读取<code>debug</code>模式的当前值：<code>env.debug</code>。</p>
+    
+    <div class="note">
+        <strong>小技巧：</strong>要仅在调试模式下显示菜单、字段或视图元素，应该针对组<code>base.group_no_one</code>：
+        <pre><code>&lt;field name="fname" groups="base.group_no_one"/&gt;</code></pre>
+    </div>
+    
+    <h3>资源模式</h3>
+    <p><code>debug=assets</code>子模式对调试JavaScript代码很有用：一旦激活，资源包不再被压缩，并且也会生成源映射。这使得它对调试各种JavaScript代码很有用。</p>
+    
+    <h3>测试模式</h3>
+    <p>还有另一个名为<code>tests</code>的子模式：如果启用，服务器会在页面中注入<code>web.assets_tests</code>包。这个包主要包含测试导览（目的是测试功能，而不是向用户展示有趣的东西的导览）。因此，<code>tests</code>模式对于能够运行这些导览很有用。</p>
+    
+    <div class="note">
+        <strong>参见：</strong><a href="https://github.com/odoo/owl" target="_blank">Owl 仓库</a>
+    </div>
+</body>
+</html> 

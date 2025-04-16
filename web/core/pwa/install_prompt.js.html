@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo PWA安装提示组件解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo PWA安装提示组件解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>install_prompt.js</code>是Odoo框架中负责展示渐进式Web应用（PWA）安装引导界面的组件文件。该组件在不支持原生安装提示的浏览器（主要是Safari）上显示自定义的安装指导，向用户解释如何将Odoo应用添加到主屏幕。这是PWA功能的重要补充，确保跨平台一致的用户体验。</p>
+    
+    <div class="note">
+        <strong>背景：</strong>虽然现代浏览器如Chrome、Edge和Samsung Internet支持标准的PWA安装API，但Safari（包括iOS和macOS上的版本）仍然使用自己的方式处理PWA安装。因此，需要特殊的安装引导界面来指导Safari用户完成添加到主屏幕的过程。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>平台自适应指导</strong>：根据用户设备（iOS、iPadOS或macOS）显示相应的安装步骤</li>
+        <li><strong>视觉化引导</strong>：提供直观的图标和说明，引导用户完成安装过程</li>
+        <li><strong>多步骤教程</strong>：将复杂的安装过程分解为易于理解的步骤</li>
+        <li><strong>响应式设计</strong>：适应不同屏幕尺寸的布局</li>
+        <li><strong>无干扰体验</strong>：用户可以轻松关闭提示并继续使用应用</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>install_prompt.js的核心是一个OWL组件，专门为不同平台上的Safari浏览器提供PWA安装指导：</p>
+    
+    <h3>组件定义和模板</h3>
+    <div class="code-block">
+        <pre><code>import { Component, useEffect, useRef } from "@odoo/owl";
+import { _t } from "@web/core/l10n/translation";
+import { getActiveHotkey } from "@web/core/hotkeys/hotkey_service";
+import { isMacOS, isIOS, isIPadOS } from "@web/core/browser/feature_detection";
+
+const macSafariSteps = [
+    { step: "分享按钮", action: "点击Safari工具栏中的"分享"按钮" },
+    { step: "添加到书签栏", action: "选择"添加书签"选项" },
+    { step: "收藏夹", action: "在弹出的对话框中选择"完成"" },
+    { step: "边栏", action: "在Safari边栏中找到书签" },
+    { step: "应用", action: "右键点击书签，选择"添加到Dock栏"" },
+];
+
+const iosSafariSteps = [
+    { step: "分享按钮", action: "点击底部工具栏中的"分享"按钮" },
+    { step: "添加到主屏幕", action: "在操作菜单中向下滚动并选择"添加到主屏幕"" },
+    { step: "确认", action: "点击右上角的"添加"按钮确认" },
+];
+
+export class InstallPrompt extends Component {
+    static template = "web.InstallPrompt";
+    static props = {
+        close: { type: Function, optional: true },
+    };
+    
+    setup() {
+        this.steps = isIOS() || isIPadOS() ? iosSafariSteps : macSafariSteps;
+        this.title = isIOS() || isIPadOS()
+            ? _t("将此网页添加到您的主屏幕")
+            : _t("将此网页添加到您的Dock栏");
+        this.currentDevice = isMacOS() ? "Mac" : isIPadOS() ? "iPad" : "iPhone";
+        
+        const promptRef = useRef("prompt");
+        
+        useEffect(
+            () => {
+                if (!this.props.close) {
+                    return;
+                }
+                const keyDownEvent = (ev) => {
+                    if (getActiveHotkey(ev) === "escape") {
+                        this.props.close();
+                    }
+                };
+                promptRef.el.addEventListener("keydown", keyDownEvent);
+                return () => promptRef.el.removeEventListener("keydown", keyDownEvent);
+            },
+            () => []
+        );
+    }
+}</code></pre>
+    </div>
+    <p>这段代码定义了InstallPrompt组件的核心结构：</p>
+    <ul>
+        <li>引入必要的OWL组件和Odoo工具函数</li>
+        <li>定义针对macOS和iOS/iPadOS的安装步骤数组</li>
+        <li>定义InstallPrompt组件，包括模板和属性</li>
+        <li>在setup方法中根据设备类型选择合适的步骤和标题</li>
+        <li>设置ESC键监听器以便用户可以关闭提示</li>
+    </ul>
+    
+    <h3>XML模板结构</h3>
+    <div class="code-block">
+        <pre><code>&lt;!-- web.InstallPrompt模板 --&gt;
+&lt;div t-ref="prompt" class="modal o_technical_modal o_dialog_container o_install_prompt" tabindex="-1" role="dialog"&gt;
+    &lt;div class="modal-dialog modal-dialog-centered" role="document"&gt;
+        &lt;div class="modal-content"&gt;
+            &lt;header class="modal-header"&gt;
+                &lt;h5 class="modal-title"&gt;{{ title }}&lt;/h5&gt;
+                &lt;button t-if="props.close" type="button" class="btn-close" t-on-click="props.close" aria-label="Close" tabindex="-1"&gt;&lt;/button&gt;
+            &lt;/header&gt;
+            &lt;main class="modal-body"&gt;
+                &lt;div class="o_install_prompt_content"&gt;
+                    &lt;div class="o_install_step o_device_img"&gt;
+                        &lt;div class="o_device_container"&gt;
+                            &lt;div class="o_device o_{{ currentDevice.toLowerCase() }}"&gt;
+                                &lt;div class="o_browser"&gt;
+                                    &lt;div class="o_browser_img"&gt;&lt;/div&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/div&gt;
+                    &lt;/div&gt;
+                    &lt;div class="o_install_steps"&gt;
+                        &lt;t t-foreach="steps" t-as="step" t-key="step.step"&gt;
+                            &lt;div class="o_install_step"&gt;
+                                &lt;span class="o_step_number"&gt;{{ step_index + 1 }}&lt;/span&gt;
+                                &lt;div class="o_step_content"&gt;
+                                    &lt;strong&gt;{{ step.step }}&lt;/strong&gt;
+                                    &lt;p&gt;{{ step.action }}&lt;/p&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/t&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/main&gt;
+            &lt;footer class="modal-footer"&gt;
+                &lt;button t-if="props.close" type="button" class="btn btn-secondary" t-on-click="props.close"&gt;稍后再说&lt;/button&gt;
+            &lt;/footer&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre>
+    </div>
+    <p>这是组件的XML模板定义（在XML文件中）。它创建了一个模态对话框，包含：
+    <ul>
+        <li>标题部分，显示根据平台定制的安装提示</li>
+        <li>设备模拟图，直观展示安装过程</li>
+        <li>步骤列表，清晰地指导用户完成安装</li>
+        <li>底部按钮区，允许用户关闭提示</li>
+    </ul>
+    
+    <h3>核心样式</h3>
+    <p>以下是相关的CSS样式（在不同的SCSS文件中定义）：</p>
+    <div class="code-block">
+        <pre><code>.o_install_prompt {
+    .o_install_prompt_content {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        
+        @media (min-width: 768px) {
+            flex-direction: row;
+        }
+    }
+    
+    .o_device_container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    .o_device {
+        position: relative;
+        border-radius: 2rem;
+        background-color: #1e1e1e;
+        padding: 0.5rem;
+        
+        &.o_iphone {
+            width: 10rem;
+            height: 20rem;
+        }
+        
+        &.o_ipad {
+            width: 16rem;
+            height: 12rem;
+        }
+        
+        &.o_mac {
+            width: 16rem;
+            height: 10rem;
+            border-radius: 0.5rem 0.5rem 2rem 2rem;
+        }
+    }
+    
+    .o_browser {
+        height: 100%;
+        background-color: white;
+        border-radius: 0.25rem;
+        overflow: hidden;
+        position: relative;
+    }
+    
+    .o_browser_img {
+        background-image: var(--o-install-prompt-screenshot);
+        background-size: contain;
+        background-position: center;
+        background-repeat: no-repeat;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+    }
+    
+    .o_install_steps {
+        flex: 1;
+    }
+    
+    .o_install_step {
+        display: flex;
+        margin-bottom: 1rem;
+        
+        .o_step_number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            background-color: var(--o-primary);
+            color: white;
+            font-weight: bold;
+            margin-right: 1rem;
+            flex-shrink: 0;
+        }
+        
+        .o_step_content {
+            flex: 1;
+        }
+    }
+}</code></pre>
+    </div>
+    <p>这些样式创建了一个直观的安装指南界面，包括：
+    <ul>
+        <li>设备模拟图的样式，根据不同设备（iPhone、iPad或Mac）调整尺寸和形状</li>
+        <li>浏览器窗口模拟，显示Odoo应用的截图</li>
+        <li>安装步骤的布局和编号样式</li>
+        <li>响应式设计，在移动设备上垂直排列，在桌面上水平排列</li>
+    </ul>
+    
+    <h2>使用方式</h2>
+    <p>install_prompt.js组件通常由PWA服务在需要时显示：</p>
+    
+    <div class="code-block">
+        <pre><code>// 在pwa_service.js中
+async function show({ onDone } = {}) {
+    if (!state.isAvailable) {
+        return;
+    }
+    if (nativePrompt) {
+        // 使用原生提示（非Safari浏览器）
+        const res = await nativePrompt.prompt();
+        _setInstallationState(res.outcome);
+        state.canPromptToInstall = false;
+        if (onDone) {
+            onDone(res);
+        }
+    } else if (isBrowserSafari()) {
+        // 在Safari浏览器上使用自定义提示
+        dialog.add(InstallPrompt, {
+            onClose: () => {
+                if (onDone) {
+                    onDone({});
+                }
+                this.decline();
+            },
+        });
+    }
+}</code></pre>
+    </div>
+    <p>当用户在Safari浏览器上尝试安装PWA时，系统会显示InstallPrompt组件而不是原生提示，为用户提供详细的安装指导。</p>
+    
+    <h2>平台差异处理</h2>
+    <p>InstallPrompt组件针对不同平台采用不同的安装指导：</p>
+    
+    <h3>iOS和iPadOS平台</h3>
+    <div class="flow-diagram">
+        <ol>
+            <li><strong>分享按钮</strong>：指导用户点击Safari底部的分享图标</li>
+            <li><strong>添加到主屏幕</strong>：在弹出的分享菜单中向下滚动并找到"添加到主屏幕"选项</li>
+            <li><strong>确认</strong>：点击右上角的"添加"按钮完成安装</li>
+        </ol>
+    </div>
+    
+    <h3>macOS平台（Safari 17+）</h3>
+    <div class="flow-diagram">
+        <ol>
+            <li><strong>分享按钮</strong>：指导用户点击Safari工具栏中的分享图标</li>
+            <li><strong>添加到书签栏</strong>：选择"添加书签"选项</li>
+            <li><strong>收藏夹</strong>：在弹出的对话框中选择"完成"</li>
+            <li><strong>边栏</strong>：在Safari侧边栏中找到保存的书签</li>
+            <li><strong>应用</strong>：右键点击书签，选择"添加到Dock栏"</li>
+        </ol>
+    </div>
+    
+    <h2>使用示例</h2>
+    <p>以下是如何在自定义组件中使用PWA安装提示的示例：</p>
+    
+    <h3>示例1：安装按钮组件</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class PWAInstallButton extends Component {
+    static template = `
+        <button 
+            t-if="state.showButton" 
+            t-on-click="installApp" 
+            class="btn btn-primary">
+            安装 {{ state.appName }}
+        </button>
+    `;
+    
+    setup() {
+        this.pwa = useService("pwa");
+        this.state = useState({
+            showButton: false,
+            appName: "Odoo应用"
+        });
+        
+        // 根据PWA状态决定是否显示按钮
+        this.state.showButton = this.pwa.isAvailable && this.pwa.canPromptToInstall;
+        
+        // 获取应用名称
+        this.pwa.getManifest().then(manifest => {
+            if (manifest) {
+                this.state.appName = manifest.name || "Odoo应用";
+            }
+        });
+    }
+    
+    installApp() {
+        // 调用PWA服务的show方法，会根据平台决定显示原生提示或InstallPrompt组件
+        this.pwa.show({
+            onDone: (result) => {
+                // 处理安装结果
+                if (result && result.outcome === "accepted") {
+                    // 用户接受了安装
+                    this.env.services.notification.add("应用安装成功，请在主屏幕上查看", {
+                        type: "success",
+                    });
+                } else {
+                    // 用户取消了安装或查看了说明
+                    this.env.services.notification.add("您可以随时从设置菜单安装应用", {
+                        type: "info",
+                    });
+                }
+                
+                // 更新按钮状态
+                this.state.showButton = this.pwa.canPromptToInstall;
+            }
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：自定义安装引导页面</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+import { isBrowserSafari } from "@web/core/browser/feature_detection";
+
+class PWAInstallPage extends Component {
+    static template = `
+        <div class="o_pwa_install_page">
+            <div class="o_pwa_header">
+                <img t-if="state.appIcon" t-att-src="state.appIcon" class="o_app_icon"/>
+                <h1>{{ state.appName }}</h1>
+                <p class="lead">将{{ state.appName }}安装到您的设备上，获得更好的体验</p>
+            </div>
+            
+            <div class="o_pwa_benefits">
+                <div class="o_benefit_item">
+                    <i class="fa fa-bolt"></i>
+                    <h3>更快访问</h3>
+                    <p>直接从主屏幕启动，无需打开浏览器</p>
+                </div>
+                <div class="o_benefit_item">
+                    <i class="fa fa-wifi-slash"></i>
+                    <h3>离线工作</h3>
+                    <p>在网络不稳定时也能访问关键功能</p>
+                </div>
+                <div class="o_benefit_item">
+                    <i class="fa fa-bell"></i>
+                    <h3>接收通知</h3>
+                    <p>及时获取重要更新和提醒</p>
+                </div>
+            </div>
+            
+            <div class="o_pwa_actions">
+                <button t-if="state.canInstall" 
+                        t-on-click="installApp" 
+                        class="btn btn-primary btn-lg">
+                    立即安装
+                </button>
+                <p t-if="state.isSafari" class="text-muted">
+                    *您使用的是Safari浏览器，安装过程可能需要手动操作
+                </p>
+            </div>
+        </div>
+    `;
+    
+    setup() {
+        this.pwa = useService("pwa");
+        this.state = useState({
+            appName: "Odoo应用",
+            appIcon: null,
+            canInstall: false,
+            isSafari: isBrowserSafari()
+        });
+        
+        // 检查PWA安装状态
+        this.state.canInstall = this.pwa.isAvailable && this.pwa.canPromptToInstall;
+        
+        // 获取应用信息
+        this.pwa.getManifest().then(manifest => {
+            if (manifest) {
+                this.state.appName = manifest.name || "Odoo应用";
+                
+                // 获取应用图标
+                if (manifest.icons && manifest.icons.length) {
+                    const icon = manifest.icons.find(i => i.sizes.includes("192x192")) || 
+                              manifest.icons[0];
+                    this.state.appIcon = icon.src;
+                }
+            }
+        });
+    }
+    
+    installApp() {
+        this.pwa.show({
+            onDone: (result) => {
+                if (result && result.outcome === "accepted") {
+                    // 安装成功，可能需要显示成功消息或重定向
+                } else {
+                    // 用户查看了指导或取消了安装
+                }
+            }
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h2>注意事项与最佳实践</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>Safari浏览器的PWA安装流程完全依赖用户手动操作，无法通过代码自动完成</li>
+            <li>iOS上的步骤可能随系统版本更新而略有变化，需要定期检查和更新指导内容</li>
+            <li>InstallPrompt组件仅在不支持原生安装API的浏览器上显示，主要针对Safari</li>
+            <li>安装提示的样式应与Odoo应用的整体设计保持一致，以提供统一的用户体验</li>
+            <li>安装指导中的截图应该清晰易懂，能够准确指导用户找到相关按钮和选项</li>
+        </ul>
+    </div>
+    
+    <h3>最佳实践</h3>
+    <ul>
+        <li>在重要功能页面（如仪表盘或登录后首页）提供PWA安装选项</li>
+        <li>清晰解释PWA的好处，鼓励用户安装</li>
+        <li>提供视觉引导，使用图标或截图帮助用户理解安装步骤</li>
+        <li>记住用户的安装决定，避免重复显示已被拒绝的安装提示</li>
+        <li>考虑用户设备的特性，为不同平台提供定制化的安装指导</li>
+        <li>在安装提示中提供"稍后再说"选项，不要强制用户完成安装</li>
+    </ul>
+    
+    <h2>与其他模块的交互</h2>
+    <p>InstallPrompt组件与Odoo系统中的其他几个模块紧密集成：</p>
+    <ul>
+        <li><strong>PWA服务</strong>：由pwa_service.js调用和管理，根据浏览器类型决定是否显示</li>
+        <li><strong>对话框服务</strong>：使用Odoo的对话框系统显示模态提示</li>
+        <li><strong>特性检测</strong>：利用browser/feature_detection模块识别设备类型和浏览器</li>
+        <li><strong>翻译服务</strong>：通过_t函数支持多语言本地化</li>
+        <li><strong>快捷键服务</strong>：整合ESC键监听，允许用户通过键盘关闭提示</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>InstallPrompt组件是Odoo PWA策略的重要组成部分，它解决了Safari浏览器的兼容性问题，确保所有用户都能获得一致的PWA体验。通过提供清晰的视觉指导，它弥补了平台间的差异，帮助所有用户都能成功安装和使用Odoo PWA。
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，InstallPrompt组件有以下新特点和改进：</p>
+    <ul>
+        <li>支持macOS Safari 17+的安装指导，适应Safari桌面版新增的PWA支持</li>
+        <li>改进的视觉设计，提供更直观的安装步骤展示</li>
+        <li>更好的动态适应，根据不同的设备和浏览器版本自动调整指导内容</li>
+        <li>与新版对话框系统的无缝集成，提供一致的用户体验</li>
+        <li>支持键盘操作，提高可访问性</li>
+        <li>更新的安装步骤内容，反映最新iOS和macOS系统的操作方式</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>InstallPrompt组件是Odoo PWA功能的关键补充，它通过提供以下功能确保了良好的跨平台用户体验：</p>
+    <ul>
+        <li>针对Safari浏览器的定制安装指导</li>
+        <li>平台感知能力，为不同设备提供适当的指导</li>
+        <li>视觉化步骤说明，简化安装过程</li>
+        <li>与PWA服务的紧密集成</li>
+        <li>响应式设计，适应不同的屏幕尺寸</li>
+    </ul>
+    
+    <div class="note">
+        <strong>开发建议：</strong>在开发利用PWA功能的Odoo模块时，应考虑Safari用户的特殊需求，确保提供清晰的安装指导。通过了解InstallPrompt组件的工作原理，开发者可以更好地集成和自定义PWA安装体验，提高用户采用率。
+    </div>
+</body>
+</html> 

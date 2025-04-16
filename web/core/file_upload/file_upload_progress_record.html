@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo文件上传进度记录组件解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo文件上传进度记录组件解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>file_upload_progress_record.js</code>是Odoo框架中的一个前端组件，它负责在文件上传过程中显示上传进度信息。这个组件可以在不同类型的视图（如看板视图和数据行视图）中使用，为用户提供文件上传的实时反馈。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>文件上传进度记录组件是Odoo文件上传系统的一部分，它提供了视觉化的方式展示文件上传的进度，增强用户体验，让用户能够实时了解文件上传的状态。
+    </div>
+    
+    <h2>代码结构</h2>
+    <p>该文件定义了三个相关的组件类：</p>
+    <ol>
+        <li><strong>FileUploadProgressRecord</strong>：基础组件类，提供共享的功能</li>
+        <li><strong>FileUploadProgressKanbanRecord</strong>：适用于看板视图的进度记录</li>
+        <li><strong>FileUploadProgressDataRow</strong>：适用于数据行（如列表视图）的进度记录</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>导入声明</h3>
+    <div class="code-block">
+        <pre><code>import { _t } from "@web/core/l10n/translation";
+import { FileUploadProgressBar } from "./file_upload_progress_bar";
+
+import { Component } from "@odoo/owl";</code></pre>
+    </div>
+    
+    <p>这些导入包括：</p>
+    <ul>
+        <li><code>_t</code>：Odoo的翻译函数，用于国际化</li>
+        <li><code>FileUploadProgressBar</code>：进度条组件，用于显示进度条UI</li>
+        <li><code>Component</code>：OWL框架的基础组件类</li>
+    </ul>
+    
+    <h3>FileUploadProgressRecord基础类</h3>
+    <div class="code-block">
+        <pre><code>export class FileUploadProgressRecord extends Component {
+    static template = "";
+    static components = {
+        FileUploadProgressBar,
+    };
+    static props = {
+        fileUpload: Object,
+        selector: { type: String, optional: true },
+    };
+    getProgressTexts() {
+        const fileUpload = this.props.fileUpload;
+        const percent = Math.round(fileUpload.progress * 100);
+        if (percent === 100) {
+            return {
+                left: _t("Processing..."),
+                right: "",
+            };
+        } else {
+            const mbLoaded = Math.round(fileUpload.loaded / 1000000);
+            const mbTotal = Math.round(fileUpload.total / 1000000);
+            return {
+                left: _t("Uploading... (%s%)", percent),
+                right: _t("(%(mbLoaded)s/%(mbTotal)sMB)", { mbLoaded, mbTotal }),
+            };
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h4>属性与方法解析</h4>
+    <table>
+        <tr>
+            <th>属性/方法</th>
+            <th>说明</th>
+        </tr>
+        <tr>
+            <td><code>static template = ""</code></td>
+            <td>模板为空字符串，因为这是一个基础类，具体模板由子类提供</td>
+        </tr>
+        <tr>
+            <td><code>static components</code></td>
+            <td>注册子组件，这里注册了FileUploadProgressBar组件</td>
+        </tr>
+        <tr>
+            <td><code>static props</code></td>
+            <td>定义组件的props：
+                <ul>
+                    <li>fileUpload: 文件上传对象，包含进度信息</li>
+                    <li>selector: 可选的选择器字符串</li>
+                </ul>
+            </td>
+        </tr>
+        <tr>
+            <td><code>getProgressTexts()</code></td>
+            <td>生成进度文本信息的方法，根据上传进度返回不同的左侧和右侧文本：
+                <ul>
+                    <li>当进度为100%时显示"Processing..."</li>
+                    <li>其他情况显示上传百分比和已上传/总大小（MB）</li>
+                </ul>
+            </td>
+        </tr>
+    </table>
+    
+    <h3>子类实现</h3>
+    <div class="code-block">
+        <pre><code>export class FileUploadProgressKanbanRecord extends FileUploadProgressRecord {
+    static template = "web.FileUploadProgressKanbanRecord";
+}
+
+export class FileUploadProgressDataRow extends FileUploadProgressRecord {
+    static template = "web.FileUploadProgressDataRow";
+}</code></pre>
+    </div>
+    
+    <p>这两个子类继承自基础类FileUploadProgressRecord，区别在于使用不同的模板：</p>
+    <ul>
+        <li><code>FileUploadProgressKanbanRecord</code>：使用适用于看板视图的模板</li>
+        <li><code>FileUploadProgressDataRow</code>：使用适用于数据行（如列表视图）的模板</li>
+    </ul>
+    
+    <h2>工作原理</h2>
+    <p>FileUploadProgressRecord组件的工作原理如下：</p>
+    
+    <div class="workflow">
+        <h3>组件工作流程</h3>
+        <ol>
+            <li>组件接收一个fileUpload对象，该对象包含有关上传文件的信息（进度、已上传大小、总大小等）</li>
+            <li>通过getProgressTexts()方法，根据当前进度计算要显示的文本</li>
+            <li>根据进度是否为100%显示不同的状态信息：
+                <ul>
+                    <li>如果进度为100%：显示"Processing..."，表示文件已上传完毕正在处理</li>
+                    <li>如果进度小于100%：显示上传百分比和已上传/总大小</li>
+                </ul>
+            </li>
+            <li>通过内部包含的FileUploadProgressBar组件显示视觉化进度条</li>
+            <li>根据不同的视图类型使用不同的模板渲染UI</li>
+        </ol>
+    </div>
+    
+    <h2>核心功能分析</h2>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>进度计算功能</h4>
+            <p>核心功能之一是计算并格式化上传进度：</p>
+            <ul>
+                <li>进度百分比计算：<code>Math.round(fileUpload.progress * 100)</code></li>
+                <li>文件大小转换：将字节转换为兆字节(MB)，方便用户理解</li>
+                <li>国际化支持：所有显示文本都通过_t函数处理，支持多语言</li>
+            </ul>
+        </div>
+        
+        <div class="class-box">
+            <h4>不同视图模式支持</h4>
+            <p>通过继承基础类创建两个专用组件，适应不同视图的需求：</p>
+            <ul>
+                <li>看板视图：FileUploadProgressKanbanRecord</li>
+                <li>列表视图：FileUploadProgressDataRow</li>
+            </ul>
+            <p>这种设计模式允许共享核心逻辑，同时适应不同UI呈现方式</p>
+        </div>
+        
+        <div class="class-box">
+            <h4>用户体验考量</h4>
+            <p>设计中考虑了增强用户体验的细节：</p>
+            <ul>
+                <li>当文件上传完成(100%)但服务器仍在处理时，显示"Processing..."而非上传大小信息</li>
+                <li>上传过程中同时显示百分比和文件大小，提供多维度进度指示</li>
+                <li>集成进度条组件，提供视觉反馈</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2>使用实例</h2>
+    <p>以下是在Odoo代码中如何使用这些组件的示例：</p>
+    
+    <div class="code-block">
+        <pre><code>// 在看板视图中使用
+&lt;FileUploadProgressKanbanRecord 
+    fileUpload="state.fileUploads[uploadId]" 
+    selector="'.o_kanban_record'" 
+/&gt;
+
+// 在列表视图中使用
+&lt;FileUploadProgressDataRow 
+    fileUpload="state.fileUploads[uploadId]"
+/&gt;</code></pre>
+    </div>
+    
+    <h2>与其他组件的关系</h2>
+    <div class="note">
+        <p>FileUploadProgressRecord组件是Odoo文件上传系统的一部分，它与其他组件协同工作：</p>
+        <ul>
+            <li><strong>FileUploadProgressBar</strong>：被嵌入在记录组件中，提供进度条UI</li>
+            <li><strong>FileUploadProgressContainer</strong>：作为容器管理多个上传记录</li>
+            <li><strong>FileUploadService</strong>：提供文件上传的核心功能，生成fileUpload对象</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>FileUploadProgressRecord组件及其子类提供了以下关键功能：</p>
+    <ul>
+        <li>实时显示文件上传进度信息</li>
+        <li>适应不同视图类型的灵活设计</li>
+        <li>用户友好的进度显示，包括百分比和已上传/总大小</li>
+        <li>国际化支持，确保在不同语言环境下正常工作</li>
+        <li>与进度条组件集成，提供视觉化反馈</li>
+    </ul>
+    
+    <p>这些组件在Odoo中的文件上传功能中扮演着重要角色，提升了用户体验，让用户能够清晰了解文件上传状态，避免在上传大文件时产生困惑或焦虑。</p>
+</body>
+</html> 

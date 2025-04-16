@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 SCSS继承</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 SCSS继承</h1>
+    
+    <h2>SCSS 继承</h2>
+    <p>Odoo使用SCSS（Sass CSS的一种语法变体）来构建其样式表，并提供了一种强大的继承机制，允许模块修改和扩展现有样式。这种机制在创建主题或自定义Odoo的外观时特别有用。</p>
+    
+    <div class="note">
+        <strong>注意：</strong>Odoo 18进一步增强了SCSS继承系统，提供了更多的函数和更简洁的语法。
+    </div>
+
+    <h2>SCSS资产包</h2>
+    <p>在Odoo中，样式被组织成资产包（asset bundles）。这些包是在XML文件中定义的，通常位于模块的<code>views</code>目录中的<code>assets.xml</code>文件中。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="web.assets_backend" model="ir.asset"&gt;
+    &lt;field name="name"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;web/static/src/scss/main.scss&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>主要资产包包括：</p>
+    <ul>
+        <li><code>web.assets_backend</code>：用于后端界面样式</li>
+        <li><code>web.assets_frontend</code>：用于前端/网站样式</li>
+        <li><code>web.report_assets_common</code>：用于报表样式</li>
+    </ul>
+    
+    <h2>添加新的SCSS文件</h2>
+    <p>向现有资产包添加新的SCSS文件的最简单方法是在模块的XML文件中定义一个资产记录：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="my_module.assets_backend" model="ir.asset"&gt;
+    &lt;field name="name"&gt;my_module.assets_backend&lt;/field&gt;
+    &lt;field name="bundle"&gt;web.assets_backend&lt;/field&gt;
+    &lt;field name="path"&gt;my_module/static/src/scss/my_styles.scss&lt;/field&gt;
+    &lt;field name="target"&gt;after&lt;/field&gt;
+    &lt;field name="active" eval="True"/&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>关键字段：</p>
+    <ul>
+        <li><code>bundle</code>：指定要添加到的资产包</li>
+        <li><code>path</code>：SCSS文件的路径（相对于Odoo根目录）</li>
+        <li><code>target</code>：可以是'before'或'after'，表示在其他资产前或后加载</li>
+    </ul>
+    
+    <h2>继承SCSS变量</h2>
+    <p>Odoo定义了许多SCSS变量，这些变量可以在自定义SCSS文件中重写，以改变颜色、字体和其他样式属性。</p>
+    
+    <div class="code-block">
+        <pre><code>// 自定义主色调和品牌颜色
+$o-brand-primary: #3AADAA;
+$o-brand-secondary: #7C6576;
+
+// 自定义字体
+$o-font-family-sans-serif: 'Roboto', sans-serif;
+$o-font-family-monospace: 'Roboto Mono', monospace;</code></pre>
+    </div>
+    
+    <p>主要变量类别：</p>
+    <ul>
+        <li>颜色变量：<code>$o-brand-primary</code>、<code>$o-brand-secondary</code>等</li>
+        <li>字体变量：<code>$o-font-family-sans-serif</code>、<code>$o-font-size-base</code>等</li>
+        <li>布局变量：<code>$o-navbar-height</code>、<code>$o-form-spacing</code>等</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>将变量覆盖放在SCSS文件的顶部，这样它们就能在整个文件中生效。
+    </div>
+    
+    <h2>使用SCSS钩子</h2>
+    <p>Odoo的SCSS系统提供了"钩子（hooks）"，这些是特殊的混合（mixins），允许模块向特定位置注入额外的CSS，而不需要完全覆盖原始样式。</p>
+    
+    <div class="code-block">
+        <pre><code>// 在my_module/static/src/scss/my_styles.scss
+@include o-webclient-padding($top: 20px, $right: 15px, $bottom: 20px, $left: 15px);
+
+// 使用after钩子添加自定义样式
+@include o-kanban-view-after() {
+    .o_kanban_record {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+        
+        &:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <p>常用钩子：</p>
+    <ul>
+        <li><code>o-webclient-padding</code>：设置Web客户端的内边距</li>
+        <li><code>o-list-view-before/after</code>：添加到列表视图的前面/后面</li>
+        <li><code>o-kanban-view-before/after</code>：添加到看板视图的前面/后面</li>
+        <li><code>o-form-view-before/after</code>：添加到表单视图的前面/后面</li>
+    </ul>
+    
+    <h2>扩展现有样式</h2>
+    <p>除了使用钩子，还可以直接扩展或覆盖现有的CSS选择器。这种方法需要更加小心，因为它可能会影响Odoo的其他部分。</p>
+    
+    <div class="code-block">
+        <pre><code>// 扩展现有的按钮样式
+.btn-primary {
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+// 修改表单视图的样式
+.o_form_view {
+    .o_form_sheet {
+        max-width: 1100px;  // 增加表单宽度
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .o_form_label {
+        font-weight: 500;
+        color: #555;
+    }
+}</code></pre>
+    </div>
+    
+    <div class="warning">
+        <strong>注意：</strong>直接覆盖现有选择器可能会在Odoo更新时引起冲突。尽可能使用预定义的变量和钩子，或者使用高度特定的选择器以避免影响全局样式。
+    </div>
+    
+    <h2>媒体查询和响应式设计</h2>
+    <p>Odoo 18增强了对响应式设计的支持，可以使用媒体查询为不同的屏幕尺寸自定义样式：</p>
+    
+    <div class="code-block">
+        <pre><code>// 为小屏幕设备定制样式
+@media (max-width: 767.98px) {
+    .o_form_view .o_form_sheet {
+        margin: 0;
+        max-width: 100%;
+        border-radius: 0;
+    }
+    
+    .o_kanban_view.o_kanban_ungrouped .o_kanban_record {
+        width: 100%;
+    }
+}
+
+// 使用Odoo的断点变量
+@media (max-width: $o-screen-sm-max) {
+    .o_main_navbar {
+        padding: 0 10px;
+    }
+}</code></pre>
+    </div>
+    
+    <p>Odoo提供的断点变量：</p>
+    <ul>
+        <li><code>$o-screen-xs-max</code>：超小屏幕（通常为575.98px）</li>
+        <li><code>$o-screen-sm-max</code>：小屏幕（通常为767.98px）</li>
+        <li><code>$o-screen-md-max</code>：中等屏幕（通常为991.98px）</li>
+        <li><code>$o-screen-lg-max</code>：大屏幕（通常为1199.98px）</li>
+    </ul>
+    
+    <h2>创建SCSS组件</h2>
+    <p>为了更好地组织代码，可以创建可重用的SCSS组件和混合：</p>
+    
+    <div class="code-block">
+        <pre><code>// 定义一个卡片混合
+@mixin custom-card($padding: 16px, $border-radius: 8px, $shadow: true) {
+    padding: $padding;
+    border-radius: $border-radius;
+    background-color: white;
+    
+    @if $shadow {
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    } @else {
+        border: 1px solid $o-gray-300;
+    }
+}
+
+// 使用混合
+.o_form_sheet {
+    @include custom-card(20px, 10px, true);
+}
+
+.o_kanban_record {
+    @include custom-card(12px, 6px, false);
+}</code></pre>
+    </div>
+    
+    <h2>SCSS工具函数</h2>
+    <p>Odoo 18提供了多种SCSS工具函数，可以简化样式开发：</p>
+    
+    <div class="code-block">
+        <pre><code>// 颜色函数
+.custom-element {
+    // 从主品牌颜色生成一个稍浅的变体
+    background-color: o-color-lighten($o-brand-primary, 20%);
+    
+    // 从主品牌颜色生成一个稍深的变体
+    border-color: o-color-darken($o-brand-primary, 10%);
+    
+    // 生成一个互补色
+    color: o-color-contrast($o-brand-primary);
+}
+
+// 使用o-text-overflow创建省略号截断效果
+.o_kanban_record_title {
+    @include o-text-overflow;
+    max-width: 150px;
+}</code></pre>
+    </div>
+    
+    <p>有用的函数和混合：</p>
+    <ul>
+        <li><code>o-color-lighten($color, $amount)</code>：使颜色变浅</li>
+        <li><code>o-color-darken($color, $amount)</code>：使颜色变深</li>
+        <li><code>o-color-contrast($color)</code>：生成对比色</li>
+        <li><code>o-text-overflow</code>：添加省略号文本截断</li>
+        <li><code>o-position-absolute($top, $right, $bottom, $left)</code>：简化绝对定位</li>
+    </ul>
+    
+    <h2>调试SCSS</h2>
+    <p>调试SCSS可能具有挑战性，因为它会被编译成CSS。以下是一些调试技巧：</p>
+    
+    <ul>
+        <li>使用浏览器的开发者工具检查元素，了解应用了哪些样式</li>
+        <li>在开发模式下，Odoo不会缓存CSS，这使得测试更改变得更容易</li>
+        <li>使用<code>!important</code>标记临时测试样式（但不要在生产代码中这样做）</li>
+        <li>使用特定的CSS注释来帮助识别自定义样式</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>/* 调试样式 - TODO: 移除 */
+.o_form_view {
+    border: 2px solid red !important;
+}
+
+/* CUSTOM: my_module - 组织自定义样式 */
+.o_kanban_view .o_kanban_record {
+    // 自定义样式
+}</code></pre>
+    </div>
+    
+    <h2>重置资产缓存</h2>
+    <p>当更改SCSS文件时，可能需要重置Odoo的资产缓存才能看到更改：</p>
+    
+    <div class="code-block">
+        <pre><code># 从命令行重置资产
+python odoo-bin --no-http -d your_database_name -u web</code></pre>
+    </div>
+    
+    <p>或者通过Web界面重置：</p>
+    <ol>
+        <li>启用开发者模式</li>
+        <li>转到<strong>设置</strong> &gt; <strong>技术</strong> &gt; <strong>清除缓存</strong></li>
+        <li>点击<strong>清除资产缓存</strong>按钮</li>
+    </ol>
+    
+    <h2>最佳实践</h2>
+    
+    <h3>组织SCSS文件</h3>
+    <p>组织良好的SCSS文件结构可以提高可维护性：</p>
+    
+    <div class="code-block">
+        <pre><code>// 1. 变量覆盖
+$o-brand-primary: #3AADAA;
+$o-font-size-base: 15px;
+
+// 2. 导入和工具
+@import 'mixins';
+@import 'components';
+
+// 3. 视图特定样式
+.o_form_view {
+    // 表单视图样式
+}
+
+.o_list_view {
+    // 列表视图样式
+}
+
+// 4. 响应式调整
+@media (max-width: $o-screen-sm-max) {
+    // 移动设备样式
+}</code></pre>
+    </div>
+    
+    <h3>性能考虑</h3>
+    <ul>
+        <li>避免过度嵌套选择器（不超过3-4级）</li>
+        <li>优先使用类选择器而非标签或属性选择器</li>
+        <li>对于频繁重复的样式，创建可重用的混合或类</li>
+        <li>避免生成不必要的CSS</li>
+    </ul>
+    
+    <h3>可维护性提示</h3>
+    <ul>
+        <li>使用有意义的名称和一致的命名约定</li>
+        <li>添加注释解释复杂的样式或特定的设计决策</li>
+        <li>模块化设计：将相关样式组织到单独的文件中</li>
+        <li>尽可能依赖Odoo的变量而不是硬编码值</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>考虑为每个主要视图类型（表单、列表、看板等）创建单独的SCSS文件，以便更好地组织代码。
+    </div>
+</body>
+</html>

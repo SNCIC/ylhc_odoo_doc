@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo上下文处理模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo上下文处理模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>context.js</code>是Odoo框架中的一个核心模块，它提供了创建和处理上下文(Context)对象的功能。在Odoo中，上下文是一个特殊的数据结构，用于存储当前环境信息、用户偏好和临时状态，这些信息会影响数据的展示、过滤和处理逻辑。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>上下文(Context)在Odoo中非常重要，它允许客户端将额外的环境信息传递给服务器，例如语言设置、时区、特定的筛选条件等。<code>context.js</code>模块提供了处理这些上下文的工具函数，能够解析和评估各种格式的上下文表达式。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>上下文创建</strong>：合并多个上下文对象或表达式成单一上下文</li>
+        <li><strong>上下文评估</strong>：解析和评估Python风格的上下文表达式</li>
+        <li><strong>部分评估</strong>：处理不完整的上下文信息，提取可评估的部分</li>
+        <li><strong>表达式分析</strong>：分析上下文表达式中的变量使用情况</li>
+    </ol>
+    
+    <h2>核心API</h2>
+    <p>模块提供了以下两个主要函数：</p>
+    
+    <table>
+        <tr>
+            <th>函数名</th>
+            <th>描述</th>
+            <th>参数</th>
+            <th>返回值</th>
+        </tr>
+        <tr>
+            <td><code>makeContext(contexts, initialEvaluationContext)</code></td>
+            <td>创建一个评估后的上下文对象，合并多个上下文描述</td>
+            <td>
+                <code>contexts: ContextDescription[]</code> - 上下文描述数组<br>
+                <code>initialEvaluationContext?: Context</code> - 可选的初始评估上下文
+            </td>
+            <td><code>Context</code> - 生成的上下文对象</td>
+        </tr>
+        <tr>
+            <td><code>evalPartialContext(context, evaluationContext)</code></td>
+            <td>使用不完整的评估上下文评估一个上下文表达式</td>
+            <td>
+                <code>context: string</code> - 上下文表达式字符串<br>
+                <code>evaluationContext?: Object</code> - 可选的评估上下文对象
+            </td>
+            <td><code>Context</code> - 部分评估的上下文对象</td>
+        </tr>
+    </table>
+    
+    <h2>代码详细解析</h2>
+    
+    <h3>1. makeContext函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Create an evaluated context from an arbitrary list of context representations.
+ * The evaluated context in construction is used along the way to evaluate further parts.
+ *
+ * @param {ContextDescription[]} contexts
+ * @param {Context} [initialEvaluationContext] optional evaluation context to start from.
+ * @returns {Context}
+ */
+export function makeContext(contexts, initialEvaluationContext) {
+    const evaluationContext = Object.assign({}, initialEvaluationContext);
+    const context = {};
+    for (let ctx of contexts) {
+        if (ctx !== "") {
+            ctx = typeof ctx === "string" ? evaluateExpr(ctx, evaluationContext) : ctx;
+            Object.assign(context, ctx);
+            Object.assign(evaluationContext, context); // is this behavior really wanted ?
+        }
+    }
+    return context;
+}</code></pre>
+    </div>
+    <p><code>makeContext</code>函数用于合并多个上下文描述，创建一个完整的上下文对象：</p>
+    <ol>
+        <li>首先从初始评估上下文创建一个新的评估上下文对象</li>
+        <li>创建一个空的上下文对象作为结果容器</li>
+        <li>遍历每个上下文描述：
+            <ul>
+                <li>如果描述不为空，继续处理</li>
+                <li>如果描述是字符串，使用<code>evaluateExpr</code>函数将其解析为对象</li>
+                <li>将解析后的上下文合并到结果容器中</li>
+                <li>同时更新评估上下文，使后续的字符串表达式能够访问前面定义的变量</li>
+            </ul>
+        </li>
+        <li>返回合并后的上下文对象</li>
+    </ol>
+    <p>这个函数的一个关键特性是递进式评估：每个上下文描述在评估时可以访问之前已处理的上下文内容，这让上下文构建变得灵活而强大。</p>
+    
+    <h3>2. getPartialNames函数(内部函数)</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Extract a partial list of variable names found in the AST.
+ * Note that it is not complete. It is used as an heuristic to avoid
+ * evaluating expressions that we know for sure will fail.
+ *
+ * @param {AST} ast
+ * @returns string[]
+ */
+function getPartialNames(ast) {
+    if (ast.type === 5) {
+        return [ast.value];
+    }
+    if (ast.type === 6) {
+        return getPartialNames(ast.right);
+    }
+    if (ast.type === 14 || ast.type === 7) {
+        return getPartialNames(ast.left).concat(getPartialNames(ast.right));
+    }
+    if (ast.type === 15) {
+        return getPartialNames(ast.obj);
+    }
+    return [];
+}</code></pre>
+    </div>
+    <p><code>getPartialNames</code>是一个内部工具函数，用于从抽象语法树(AST)中提取变量名列表：</p>
+    <ul>
+        <li>如果AST节点类型是5(标识符)，直接返回其值作为变量名</li>
+        <li>如果AST节点类型是6(属性访问)，递归检查右侧部分</li>
+        <li>如果AST节点类型是14或7(二元操作)，递归检查左右两侧并合并结果</li>
+        <li>如果AST节点类型是15(方法调用)，递归检查对象部分</li>
+        <li>对于其他类型的节点，返回空数组</li>
+    </ul>
+    <p>这个函数的目的是提取表达式中使用的变量名，作为后续判断表达式是否可以被评估的依据。</p>
+    
+    <h3>3. evalPartialContext函数</h3>
+    <div class="code-block">
+        <pre><code>/**
+ * Allow to evaluate a context with an incomplete evaluation context. The evaluated context only
+ * contains keys whose values are static or can be evaluated with the given evaluation context.
+ *
+ * @param {string} context
+ * @param {Object} [evaluationContext={}]
+ * @returns {Context}
+ */
+export function evalPartialContext(_context, evaluationContext = {}) {
+    const ast = parseExpr(_context);
+    const context = {};
+    for (const key in ast.value) {
+        const value = ast.value[key];
+        if (
+            getPartialNames(value).some((name) => !(name in evaluationContext || name in BUILTINS))
+        ) {
+            continue;
+        }
+        try {
+            context[key] = evaluate(value, evaluationContext);
+        } catch {
+            // ignore this key as we can't evaluate its value
+        }
+    }
+    return context;
+}</code></pre>
+    </div>
+    <p><code>evalPartialContext</code>函数实现了部分上下文评估的核心逻辑：</p>
+    <ol>
+        <li>将上下文字符串解析成抽象语法树(AST)</li>
+        <li>创建一个空对象作为结果容器</li>
+        <li>遍历AST中的每个键值对：
+            <ul>
+                <li>使用<code>getPartialNames</code>提取值部分使用的变量名</li>
+                <li>检查这些变量名是否都存在于评估上下文或内置函数中</li>
+                <li>如果有变量不存在，跳过当前键值对</li>
+                <li>否则尝试评估值表达式，将结果存入上下文对象</li>
+                <li>如果评估失败，忽略该键值对</li>
+            </ul>
+        </li>
+        <li>返回部分评估的上下文对象</li>
+    </ol>
+    <p>这个函数的关键特性是容错性：它能够处理不完整的上下文信息，只提取那些能够被安全评估的部分，避免因不完整信息导致的错误。</p>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 基本上下文合并</h3>
+    <div class="code-block">
+        <pre><code>import { makeContext } from "@web/core/context";
+
+// 合并多个上下文对象
+const context = makeContext([
+    { lang: "zh_CN" },
+    { timeZone: "Asia/Shanghai" },
+    { uid: 1 }
+]);
+// 结果: { lang: "zh_CN", timeZone: "Asia/Shanghai", uid: 1 }</code></pre>
+    </div>
+    
+    <h3>2. 包含Python表达式的上下文</h3>
+    <div class="code-block">
+        <pre><code>import { makeContext } from "@web/core/context";
+
+// 合并对象和Python风格表达式
+const initialContext = { 
+    uid: 42, 
+    current_date: "2023-05-01" 
+};
+
+const context = makeContext([
+    { lang: "zh_CN" },
+    "{'year': current_date.split('-')[0]}", // 使用现有上下文变量
+    "{'user_id': uid}"                      // 使用现有上下文变量
+], initialContext);
+
+// 结果: { 
+//   lang: "zh_CN", 
+//   year: "2023", 
+//   user_id: 42 
+// }</code></pre>
+    </div>
+    
+    <h3>3. 部分上下文评估</h3>
+    <div class="code-block">
+        <pre><code>import { evalPartialContext } from "@web/core/context";
+
+// 部分评估上下文
+const partialEvalContext = {
+    uid: 42,
+    company_id: 1
+};
+
+// 包含已知和未知变量的表达式
+const contextStr = "{'user_id': uid, 'company': company_id, 'time_range': time_period + 7}";
+
+const result = evalPartialContext(contextStr, partialEvalContext);
+// 结果: { user_id: 42, company: 1 }
+// 注意: time_range被跳过，因为time_period变量不存在于评估上下文中</code></pre>
+    </div>
+    
+    <h2>与Python和服务器端的关系</h2>
+    <p>Odoo的上下文处理跨越了JavaScript客户端和Python服务器端，<code>context.js</code>模块是这个桥接的关键部分：</p>
+    
+    <div class="relationship">
+        <h3>Python表达式评估</h3>
+        <p>模块使用<code>py_js</code>工具包将Python风格的表达式转换为JavaScript对象，使客户端能够处理服务器端传来的上下文表达式。</p>
+        <div class="code-block">
+            <pre><code>// Python端: {'default_type': 'opportunity', 'search_default_assigned_to_me': 1}
+// JavaScript端通过evaluateExpr解析为:
+{
+    default_type: 'opportunity',
+    search_default_assigned_to_me: 1
+}</code></pre>
+        </div>
+    </div>
+    
+    <div class="relationship">
+        <h3>上下文传递</h3>
+        <p>上下文通常作为RPC调用的一部分从客户端传递到服务器，影响服务器端的行为：</p>
+        <div class="code-block">
+            <pre><code>// JavaScript客户端创建上下文
+const context = makeContext([
+    session.user_context,
+    { active_test: false }
+]);
+
+// 作为RPC调用的一部分传递
+await this.orm.call('res.partner', 'read', [[id]], { context });</code></pre>
+        </div>
+    </div>
+    
+    <h2>上下文在Odoo中的应用</h2>
+    <p>上下文在Odoo中有多种重要应用：</p>
+    
+    <div class="applications">
+        <h3>1. 视图筛选</h3>
+        <p>通过上下文传递搜索过滤条件，影响数据展示：</p>
+        <div class="code-block">
+            <pre><code>// 在action中设置上下文
+{
+    name: "客户",
+    type: "ir.actions.act_window",
+    res_model: "res.partner",
+    context: "{'search_default_customer': 1, 'default_is_company': true}"
+}</code></pre>
+        </div>
+    </div>
+    
+    <div class="applications">
+        <h3>2. 默认值传递</h3>
+        <p>使用上下文为新记录设置默认值：</p>
+        <div class="code-block">
+            <pre><code>// 通过上下文传递默认值
+const action = {
+    type: "ir.actions.act_window",
+    res_model: "crm.lead",
+    view_mode: "form",
+    context: "{'default_partner_id': " + partnerId + ", 'default_type': 'opportunity'}"
+};</code></pre>
+        </div>
+    </div>
+    
+    <div class="applications">
+        <h3>3. 多语言支持</h3>
+        <p>上下文中的语言设置会影响翻译和日期格式：</p>
+        <div class="code-block">
+            <pre><code>// 设置特定语言的上下文
+const context = makeContext([
+    session.user_context,
+    { lang: "zh_CN" }
+]);
+
+// 使用该上下文获取中文翻译的产品名称
+const [product] = await this.orm.read("product.product", [productId], ["name"], { context });</code></pre>
+        </div>
+    </div>
+    
+    <h2>性能和安全考虑</h2>
+    <p>在使用上下文处理模块时，有几个重要的性能和安全考虑点：</p>
+    
+    <div class="considerations">
+        <h3>性能优化</h3>
+        <ul>
+            <li><strong>避免过大的上下文</strong>：上下文会影响服务器端缓存，过大的上下文可能导致缓存效率降低</li>
+            <li><strong>减少解析开销</strong>：频繁解析相同的上下文表达式会带来性能开销，可以考虑缓存结果</li>
+            <li><strong>谨慎使用递归评估</strong>：<code>makeContext</code>中的递进式评估虽然强大，但可能在复杂表达式中带来性能问题</li>
+        </ul>
+    </div>
+    
+    <div class="considerations">
+        <h3>安全注意事项</h3>
+        <ul>
+            <li><strong>输入验证</strong>：不应该直接评估来自不受信任来源的上下文表达式</li>
+            <li><strong>避免环境泄露</strong>：确保敏感信息不会通过上下文暴露给未授权用户</li>
+            <li><strong>权限检查</strong>：服务器端应该对通过上下文传递的操作进行权限验证</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，上下文处理模块具有以下增强：</p>
+    <ul>
+        <li><strong>更好的类型支持</strong>：通过TypeScript定义提供更好的类型安全</li>
+        <li><strong>改进的错误处理</strong>：更精确的错误信息和恢复机制</li>
+        <li><strong>更高效的AST处理</strong>：优化了表达式解析和评估的性能</li>
+        <li><strong>与现代框架集成</strong>：更好地与OWL组件系统协同工作</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>在Odoo 18开发中使用上下文的最佳实践：</p>
+    
+    <div class="best-practices">
+        <h3>最佳实践：</h3>
+        <ul>
+            <li><strong>使用结构化上下文</strong>：尽可能使用对象字面量而非字符串表达式，提高代码可读性</li>
+            <li><strong>遵循命名约定</strong>：使用标准前缀如<code>default_</code>、<code>search_default_</code>让代码更加一致</li>
+            <li><strong>处理不完整上下文</strong>：使用<code>evalPartialContext</code>安全地处理可能缺少变量的表达式</li>
+            <li><strong>保持上下文简洁</strong>：只传递必要的信息，避免上下文膨胀</li>
+            <li><strong>记录上下文用途</strong>：在代码注释中说明复杂上下文的用途和结构</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>提示：</strong>上下文是Odoo中不可或缺的概念，它连接了用户界面和业务逻辑。理解和正确使用<code>context.js</code>模块提供的功能，可以让你的Odoo应用更加灵活、响应更快，并提供更好的用户体验。
+    </div>
+</body>
+</html> 

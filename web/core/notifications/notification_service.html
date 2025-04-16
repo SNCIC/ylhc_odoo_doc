@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo通知服务模块解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo通知服务模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>notification_service.js</code>是Odoo框架中的核心服务模块，它提供了全局通知消息的创建、管理和显示功能。这个服务允许开发者在用户界面上显示临时或持久的通知消息，以提供操作反馈、警告或信息提示。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>通知服务是Odoo UI框架中的重要组成部分，它提供了一种统一的方式来向用户展示各种类型的消息提醒，无论是临时的操作成功提示，还是需要用户注意的警告信息。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>通知创建</strong>：提供简单API创建不同类型的通知</li>
+        <li><strong>自动关闭</strong>：非持久通知会在指定时间后自动关闭</li>
+        <li><strong>交互控制</strong>：支持暂停/恢复自动关闭计时（鼠标悬停）</li>
+        <li><strong>通知分类</strong>：支持不同类型的通知（成功、警告、危险、信息）</li>
+        <li><strong>按钮支持</strong>：通知可包含交互按钮供用户响应</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>notification_service是一个设计精巧的服务模块，它通过Odoo的服务注册机制提供全局访问。让我们来看看它的实现：</p>
+    
+    <div class="code-block">
+        <pre><code>export const notificationService = {
+    notificationContainer: NotificationContainer,
+
+    start() {
+        let notifId = 0;
+        const notifications = reactive({});
+
+        registry.category("main_components").add(
+            this.notificationContainer.name,
+            {
+                Component: this.notificationContainer,
+                props: { notifications },
+            },
+            { sequence: 100 }
+        );
+
+        function add(message, options = {}) {
+            const id = ++notifId;
+            const closeFn = () => close(id);
+            const props = Object.assign({}, options, { message, close: closeFn });
+            const autocloseDelay = options.autocloseDelay ?? AUTOCLOSE_DELAY;
+            const sticky = props.sticky;
+            // 处理属性并设置自动关闭逻辑...
+
+            notifications[id] = notification;
+            if (!sticky) {
+                closeTimeout = browser.setTimeout(closeFn, autocloseDelay);
+            }
+            return closeFn;
+        }
+
+        // ... 其他内部函数
+
+        return { add };
+    },
+};</code></pre>
+    </div>
+    
+    <h3>关键属性解释</h3>
+    <ul>
+        <li><code>notificationContainer</code>：通知容器组件，负责渲染通知</li>
+        <li><code>start()</code>：服务启动函数，初始化通知系统并返回公共API</li>
+        <li><code>registry.category("services").add("notification", notificationService)</code>：将服务注册到全局服务注册表</li>
+    </ul>
+    
+    <h3>核心API详解</h3>
+    <table>
+        <tr>
+            <th>函数</th>
+            <th>参数</th>
+            <th>返回值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>add(message, options)</td>
+            <td>
+                <ul>
+                    <li><code>message</code>：通知消息内容（字符串）</li>
+                    <li><code>options</code>：配置选项对象（可选）</li>
+                </ul>
+            </td>
+            <td>函数 - 用于手动关闭通知</td>
+            <td>创建并显示一个新通知</td>
+        </tr>
+    </table>
+    
+    <h3>选项参数详解</h3>
+    <table>
+        <tr>
+            <th>选项名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>title</td>
+            <td>字符串</td>
+            <td>undefined</td>
+            <td>通知标题</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>字符串</td>
+            <td>"warning"</td>
+            <td>通知类型：'warning'、'danger'、'success'或'info'</td>
+        </tr>
+        <tr>
+            <td>sticky</td>
+            <td>布尔值</td>
+            <td>false</td>
+            <td>是否为持久通知（不自动关闭）</td>
+        </tr>
+        <tr>
+            <td>autocloseDelay</td>
+            <td>数字</td>
+            <td>4000（毫秒）</td>
+            <td>非持久通知的自动关闭延迟时间</td>
+        </tr>
+        <tr>
+            <td>className</td>
+            <td>字符串</td>
+            <td>""</td>
+            <td>附加到通知元素的CSS类名</td>
+        </tr>
+        <tr>
+            <td>onClose</td>
+            <td>函数</td>
+            <td>undefined</td>
+            <td>通知关闭时的回调函数</td>
+        </tr>
+        <tr>
+            <td>buttons</td>
+            <td>数组</td>
+            <td>[]</td>
+            <td>通知中包含的按钮配置数组</td>
+        </tr>
+    </table>
+    
+    <h3>按钮配置详解</h3>
+    <table>
+        <tr>
+            <th>属性</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>name</td>
+            <td>字符串</td>
+            <td>按钮显示的文本</td>
+        </tr>
+        <tr>
+            <td>icon</td>
+            <td>字符串</td>
+            <td>按钮图标的CSS类（可选）</td>
+        </tr>
+        <tr>
+            <td>primary</td>
+            <td>布尔值</td>
+            <td>是否为主要按钮（样式差异）</td>
+        </tr>
+        <tr>
+            <td>onClick</td>
+            <td>函数</td>
+            <td>点击按钮时触发的回调函数</td>
+        </tr>
+    </table>
+    
+    <h2>内部工作原理</h2>
+    <p>通知服务的工作原理可以概括为以下几点：</p>
+    
+    <div class="flow-diagram">
+        <h3>通知创建与管理流程</h3>
+        <ol>
+            <li>服务启动时，将<code>NotificationContainer</code>组件注册到主组件容器</li>
+            <li>调用<code>add</code>方法创建新通知，分配唯一ID并准备关闭函数</li>
+            <li>处理通知配置，设置自动关闭定时器（非持久通知）</li>
+            <li>将通知对象添加到响应式<code>notifications</code>对象中</li>
+            <li>返回关闭函数，允许外部代码手动关闭通知</li>
+        </ol>
+    </div>
+    
+    <h3>自动关闭机制</h3>
+    <p>非持久通知（sticky=false）具有自动关闭功能：</p>
+    <ul>
+        <li>创建通知时启动定时器，默认4000毫秒后关闭</li>
+        <li>鼠标悬停在通知上时暂停计时器（freeze函数）</li>
+        <li>鼠标离开时重新启动计时器（refresh函数）</li>
+        <li>这种机制让用户有足够时间查看重要通知</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    <p>下面是几个通知服务使用的典型场景：</p>
+    
+    <h3>示例1：基本成功通知</h3>
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+// 在组件中
+setup() {
+    this.notification = useService("notification");
+},
+
+// 在方法中使用
+async saveRecord() {
+    try {
+        await this.model.save();
+        this.notification.add("记录已成功保存！", { type: "success" });
+    } catch (error) {
+        this.notification.add("保存记录时出错", { type: "danger" });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：带标题和按钮的警告通知</h3>
+    <div class="code-block">
+        <pre><code>this.notification.add(
+    "您确定要删除这条记录吗？此操作无法撤销。", 
+    {
+        title: "警告：删除操作",
+        type: "warning",
+        sticky: true,
+        buttons: [
+            {
+                name: "取消",
+                onClick: () => {
+                    // 取消操作
+                }
+            },
+            {
+                name: "确认删除",
+                icon: "fa-trash",
+                primary: true,
+                onClick: () => {
+                    this.deleteRecord();
+                }
+            }
+        ]
+    }
+);</code></pre>
+    </div>
+    
+    <h3>示例3：自定义关闭延迟的信息通知</h3>
+    <div class="code-block">
+        <pre><code>// 显示10秒后自动关闭的通知
+const closeFn = this.notification.add(
+    "系统将在5分钟后进行维护...", 
+    {
+        title: "系统通知",
+        type: "info",
+        autocloseDelay: 10000,
+        onClose: () => {
+            console.log("用户已查看维护通知");
+        }
+    }
+);
+
+// 也可以在任何时候手动关闭通知
+setTimeout(() => {
+    closeFn();
+}, 3000); // 3秒后强制关闭</code></pre>
+    </div>
+    
+    <h2>注意事项和最佳实践</h2>
+    <div class="warning">
+        <strong>建议：</strong>使用通知服务时，请注意以下几点：
+        <ul>
+            <li>通知消息应简明扼要，避免过长文本</li>
+            <li>根据消息重要性选择适当的类型（成功、警告、危险、信息）</li>
+            <li>重要操作提示应使用sticky=true防止自动关闭</li>
+            <li>按钮数量不宜过多，通常不超过2-3个</li>
+            <li>不要同时显示过多通知，以免干扰用户体验</li>
+            <li>考虑通知显示时机，避免在用户输入或重要操作过程中打断</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>通知服务与Odoo框架中的其他组件有密切的交互关系：</p>
+    <ul>
+        <li><strong>与Dialog服务的关系</strong>：通知适用于短暂、非阻塞的消息，而对话框（Dialog）适用于需要用户确认或输入的场景</li>
+        <li><strong>与Effects服务的关系</strong>：通知服务提供UI反馈，而Effects服务提供UI动画效果</li>
+        <li><strong>与主组件容器的关系</strong>：通知容器作为主组件注册，确保通知显示在UI顶层</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，通知服务具有以下特性和改进：</p>
+    <ul>
+        <li>使用响应式数据管理通知状态，提高渲染效率</li>
+        <li>改进的动画效果，使通知显示和消失更加平滑</li>
+        <li>更好的移动设备支持，响应式设计适应不同屏幕尺寸</li>
+        <li>与OWL框架深度集成，优化性能和代码结构</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>notification_service是Odoo UI框架中的重要组成部分，它提供了：</p>
+    <ul>
+        <li>简洁高效的通知消息显示机制</li>
+        <li>多种类型和样式的通知选项</li>
+        <li>灵活的交互控制和自动关闭逻辑</li>
+        <li>按钮支持，增强通知的交互性</li>
+        <li>统一的服务API，便于在应用的任何部分使用</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在Odoo开发中，应优先使用notification_service提供用户反馈，而不是alert或console.log等方式。这样可以确保用户体验的一致性和专业性。
+    </div>
+</body>
+</html> 

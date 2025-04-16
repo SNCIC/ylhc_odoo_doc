@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo系统参数(ir.config_parameter)模块解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo系统参数(ir.config_parameter)模块解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>ir_config_parameter.py</code>是Odoo邮件模块中扩展系统参数功能的文件。系统参数(ir.config_parameter)是Odoo中存储全局配置值的键值存储机制，邮件模块对其进行了扩展，添加了邮件特定的参数处理逻辑。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>系统参数是Odoo中存储系统级配置的主要方式，它允许在数据库级别存储键值对。邮件模块扩展了这一功能，为邮件相关设置提供了特殊处理，同时也在文件中记录了所有邮件相关的系统参数。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>邮件模板渲染组权限管理</strong>：通过系统参数控制模板编辑权限</li>
+        <li><strong>邮件相关参数的集中文档</strong>：文件中详细记录了所有邮件相关的系统参数</li>
+        <li><strong>域名允许列表处理</strong>：处理企业邮件域名允许列表的标准化</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    
+    <h3>1. 类定义与继承</h3>
+    <div class="code-block">
+        <pre><code>class IrConfigParameter(models.Model):
+    _inherit = 'ir.config_parameter'</code></pre>
+    </div>
+    <p>通过继承扩展了<code>ir.config_parameter</code>模型，添加了邮件特定的处理逻辑。</p>
+    
+    <h3>2. 参数设置逻辑</h3>
+    <div class="code-block">
+        <pre><code>@api.model
+def set_param(self, key, value):
+    if key == 'mail.restrict.template.rendering':
+        group_user = self.env.ref('base.group_user')
+        group_mail_template_editor = self.env.ref('mail.group_mail_template_editor')
+
+        if not value and group_mail_template_editor not in group_user.implied_ids:
+            group_user.implied_ids |= group_mail_template_editor
+
+        elif value and group_mail_template_editor in group_user.implied_ids:
+            # remove existing users, including inactive template user
+            # admin will regain the right via implied_ids on group_system
+            group_user._remove_group(group_mail_template_editor)
+    # sanitize and normalize allowed catchall domains
+    elif key == 'mail.catchall.domain.allowed' and value:
+        value = self.env['mail.alias']._sanitize_allowed_domains(value)
+
+    return super().set_param(key, value)</code></pre>
+    </div>
+    
+    <p>此方法重写了系统参数的设置功能，添加了以下特殊处理：</p>
+    <ul>
+        <li><strong>模板渲染权限控制</strong>：
+            <ul>
+                <li>当<code>mail.restrict.template.rendering</code>参数设置为False时，将模板编辑权限添加到所有内部用户</li>
+                <li>当参数设置为True时，将从内部用户组中移除模板编辑权限</li>
+                <li>这种机制允许管理员在设置中轻松控制谁可以编辑邮件模板</li>
+            </ul>
+        </li>
+        <li><strong>域名列表处理</strong>：
+            <ul>
+                <li>当设置<code>mail.catchall.domain.allowed</code>参数时，对域名列表进行清理和标准化</li>
+                <li>使用<code>_sanitize_allowed_domains</code>方法确保域名格式正确</li>
+            </ul>
+        </li>
+    </ul>
+    
+    <div class="note">
+        <strong>安全特性：</strong>此重写确保了安全敏感的设置（如模板编辑权限）在修改时正确更新相关的权限组，防止未授权用户获得敏感功能的访问权限。
+    </div>
+    
+    <h3>3. 邮件系统参数全面文档</h3>
+    <p>文件中以注释形式提供了Odoo邮件系统中使用的所有系统参数的详细文档，这些注释是理解Odoo邮件系统配置的宝贵资源。</p>
+    
+    <h4>电子邮件发送参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>默认值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.mail.queue.batch.size</td>
+            <td>1000</td>
+            <td>定义每次cron作业处理的最大邮件数量</td>
+        </tr>
+        <tr>
+            <td>mail.session.batch.size</td>
+            <td>1000</td>
+            <td>定义每次SMTP会话发送的最大邮件数量</td>
+        </tr>
+        <tr>
+            <td>mail.mail.force.send.limit</td>
+            <td>100</td>
+            <td>定义何时使用队列而不是直接发送邮件的阈值</td>
+        </tr>
+        <tr>
+            <td>mail.batch_size</td>
+            <td>50</td>
+            <td>用于批量生成邮件的批处理大小</td>
+        </tr>
+        <tr>
+            <td>mail.render.cron.limit</td>
+            <td>1000</td>
+            <td>定义涉及内容渲染的cron作业处理的最大记录数</td>
+        </tr>
+    </table>
+    
+    <h4>邮件网关参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>默认值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.gateway.loop.minutes</td>
+            <td>120</td>
+            <td>邮件循环检测的时间窗口（分钟）</td>
+        </tr>
+        <tr>
+            <td>mail.gateway.loop.threshold</td>
+            <td>20</td>
+            <td>在指定时间窗口内的邮件数量阈值，超过则视为循环</td>
+        </tr>
+        <tr>
+            <td>mail.default.from_filter</td>
+            <td>无默认值</td>
+            <td>当没有特定的出站邮件服务器时使用的默认发件人过滤器</td>
+        </tr>
+        <tr>
+            <td>mail.catchall.domain.allowed</td>
+            <td>无默认值</td>
+            <td>在pre-17兼容模式下限制别名右部分的电子邮件域列表</td>
+        </tr>
+    </table>
+    
+    <h4>活动参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>默认值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.activity.gc.delete_overdue_years</td>
+            <td>0 (不启用)</td>
+            <td>超过指定年数的过期活动将被垃圾回收</td>
+        </tr>
+        <tr>
+            <td>mail.activity.systray.limit</td>
+            <td>1000</td>
+            <td>系统托盘中获取的活动数量，避免性能问题</td>
+        </tr>
+    </table>
+    
+    <h4>权限组参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>默认值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.restrict.template.rendering</td>
+            <td>不启用</td>
+            <td>用于限制或允许内部用户默认编辑QWeb模板</td>
+        </tr>
+    </table>
+    
+    <h4>讨论功能参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>默认值</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.link_preview_throttle</td>
+            <td>99</td>
+            <td>限制每10秒内为同一域名存储的链接预览数量</td>
+        </tr>
+        <tr>
+            <td>mail.chat_from_token</td>
+            <td>无默认值</td>
+            <td>允许从令牌创建聊天</td>
+        </tr>
+    </table>
+    
+    <h4>其他配置参数</h4>
+    <table>
+        <tr>
+            <th>参数名</th>
+            <th>用途</th>
+        </tr>
+        <tr>
+            <td>mail.google_translate_api_key</td>
+            <td>使用Google翻译获取翻译的API密钥</td>
+        </tr>
+        <tr>
+            <td>mail.web_push_vapid_private_key</td>
+            <td>用于Web推送通知的VAPID私钥</td>
+        </tr>
+        <tr>
+            <td>mail.web_push_vapid_public_key</td>
+            <td>用于Web推送通知的VAPID公钥</td>
+        </tr>
+        <tr>
+            <td>mail.use_twilio_rtc_servers</td>
+            <td>RTC服务器配置</td>
+        </tr>
+        <tr>
+            <td>mail.sfu_server_url</td>
+            <td>SFU服务器URL配置</td>
+        </tr>
+        <tr>
+            <td>mail.sfu_server_key</td>
+            <td>SFU服务器密钥配置</td>
+        </tr>
+        <tr>
+            <td>discuss.tenor_api_key</td>
+            <td>用于GIF获取服务的Tenor API密钥</td>
+        </tr>
+        <tr>
+            <td>discuss.tenor_gif_limit</td>
+            <td>Tenor GIF结果限制</td>
+        </tr>
+        <tr>
+            <td>discuss.tenor_content_filter</td>
+            <td>Tenor内容过滤器设置</td>
+        </tr>
+    </table>
+    
+    <h2>使用示例</h2>
+    
+    <h3>示例1：控制模板渲染权限</h3>
+    <div class="code-block">
+        <pre><code># 在系统设置中启用模板渲染限制
+def enable_template_rendering_restriction(self):
+    self.env['ir.config_parameter'].sudo().set_param('mail.restrict.template.rendering', True)
+    return {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {
+            'message': '已限制非管理员用户编辑邮件模板',
+            'type': 'success',
+        }
+    }</code></pre>
+    </div>
+    
+    <h3>示例2：设置允许的企业邮件域名</h3>
+    <div class="code-block">
+        <pre><code># 配置允许的邮件域名
+def set_allowed_mail_domains(self, domains):
+    # domains示例: "example.com, mycompany.org"
+    self.env['ir.config_parameter'].sudo().set_param('mail.catchall.domain.allowed', domains)
+    return True</code></pre>
+    </div>
+    
+    <h3>示例3：获取邮件批处理大小</h3>
+    <div class="code-block">
+        <pre><code># 获取邮件发送批处理大小
+def get_mail_batch_size(self):
+    batch_size = self.env['ir.config_parameter'].sudo().get_param('mail.batch_size', '50')
+    return int(batch_size)</code></pre>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>系统参数模块的工作原理可以概括为以下几点：</p>
+    
+    <div class="workflow">
+        <h3>系统参数设置流程</h3>
+        <ol>
+            <li>应用或用户通过<code>set_param</code>方法设置系统参数</li>
+            <li>重写的<code>set_param</code>方法检查参数是否需要特殊处理</li>
+            <li>
+                <div>对于特殊参数：</div>
+                <ul>
+                    <li>如果是<code>mail.restrict.template.rendering</code>，更新相关权限组</li>
+                    <li>如果是<code>mail.catchall.domain.allowed</code>，清理和标准化域名列表</li>
+                </ul>
+            </li>
+            <li>调用父类方法真正保存参数值</li>
+            <li>其他模块和组件通过<code>get_param</code>方法使用这些参数</li>
+        </ol>
+    </div>
+    
+    <h2>安全考虑</h2>
+    
+    <div class="warning">
+        <strong>安全提示：</strong>
+        <ul>
+            <li>模板渲染权限控制是一个重要的安全功能，它防止未授权用户编辑可能执行Python代码的模板</li>
+            <li>修改系统参数通常需要管理员权限，因为它们会影响整个系统的行为</li>
+            <li>某些参数（如API密钥）应该被视为敏感信息，应该限制对其的访问</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的关系</h2>
+    <p>系统参数模块与多个Odoo模块交互：</p>
+    <ul>
+        <li><strong>mail模块</strong>：许多邮件功能依赖于系统参数进行配置</li>
+        <li><strong>base模块</strong>：系统参数是基础模块的一部分，邮件模块对其进行了扩展</li>
+        <li><strong>讨论(discuss)模块</strong>：讨论功能使用多个系统参数进行配置</li>
+    </ul>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，系统参数模块有以下特点和改进：</p>
+    <ul>
+        <li>更全面的参数文档，便于开发人员理解各参数的用途</li>
+        <li>添加了新的讨论和GIF服务相关参数</li>
+        <li>Web推送通知的参数支持</li>
+        <li>域名允许列表的标准化处理</li>
+    </ul>
+    
+    <h2>性能考虑</h2>
+    <p>系统参数模块的性能考虑：</p>
+    <ul>
+        <li>系统参数通常存储在数据库中，访问频率高的参数可能会影响性能</li>
+        <li>Odoo通常会缓存系统参数以提高性能</li>
+        <li>邮件批处理大小相关参数对系统性能有直接影响，应根据服务器能力合理设置</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>Odoo邮件模块的系统参数扩展提供了：</p>
+    <ul>
+        <li>细粒度的邮件系统配置控制</li>
+        <li>安全相关参数的特殊处理逻辑</li>
+        <li>全面的邮件系统配置参数文档</li>
+        <li>与权限系统的集成，实现模板编辑控制</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发自定义邮件功能时，建议参考这些已有的系统参数，遵循相同的模式添加新的配置选项，并确保在参数处理时考虑安全性和性能影响。
+    </div>
+</body>
+</html> 

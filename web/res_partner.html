@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 合作伙伴vCard功能解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 合作伙伴vCard功能解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>res_partner.py</code>是Odoo 18 Web模块中的一个扩展文件，它为合作伙伴（partners）模型添加了vCard生成功能。vCard是一种标准的电子名片格式，用于交换个人和商业联系信息。通过这个扩展，Odoo使用户能够将联系人信息导出为标准的vCard格式，便于在各种设备和应用程序中使用。</p>
+    
+    <div class="note">
+        <strong>依赖关系：</strong>该功能依赖于Python的<code>vobject</code>库，它是一个用于解析和生成vCard和iCalendar文件的第三方库。如果没有安装此库，vCard功能将被禁用，但系统仍会正常运行。
+    </div>
+    
+    <h2>导入与依赖检查</h2>
+    <div class="code-block">
+        <pre><code>import logging
+from base64 import b64decode
+
+from odoo import models
+
+_logger = logging.getLogger(__name__)
+
+try:
+    import vobject
+except ImportError:
+    _logger.warning("`vobject` Python module not found, vcard file generation disabled. Consider installing this module if you want to generate vcard files")
+    vobject = None</code></pre>
+    </div>
+    
+    <p>代码开始部分做了以下工作：</p>
+    <ol>
+        <li>导入必要的Python模块：<code>logging</code>（用于记录日志）和<code>b64decode</code>（用于解码Base64编码的图像）</li>
+        <li>从Odoo中导入<code>models</code>类</li>
+        <li>创建一个日志记录器</li>
+        <li>尝试导入<code>vobject</code>库，如果失败则记录警告并将<code>vobject</code>设置为<code>None</code></li>
+    </ol>
+    
+    <p>这种条件导入的模式允许系统在缺少可选依赖的情况下仍能正常工作，只是禁用依赖此库的功能。</p>
+    
+    <h2>模型定义与继承</h2>
+    <div class="code-block">
+        <pre><code>class ResPartner(models.Model):
+    _inherit = 'res.partner'</code></pre>
+    </div>
+    
+    <p>这里定义了<code>ResPartner</code>类，它继承了Odoo的核心<code>res.partner</code>模型。通过继承而不是创建新模型，它扩展了现有模型的功能而不更改基本数据结构。</p>
+    
+    <h2>核心方法解析</h2>
+    
+    <h3>_build_vcard 方法</h3>
+    <div class="code-block">
+        <pre><code>def _build_vcard(self):
+    """ Build the partner's vCard.
+        :returns a vobject.vCard object
+    """
+    if not vobject:
+        return False
+    vcard = vobject.vCard()
+    # Name
+    n = vcard.add('n')
+    n.value = vobject.vcard.Name(family=self.name or self.complete_name or '')
+    if self.title:
+        n.value.prefix = self.title.name
+    # Formatted Name
+    fn = vcard.add('fn')
+    fn.value = self.name or self.complete_name or ''
+    # Address
+    adr = vcard.add('adr')
+    adr.value = vobject.vcard.Address(street=self.street or '', city=self.city or '', code=self.zip or '')
+    if self.state_id:
+        adr.value.region = self.state_id.name
+    if self.country_id:
+        adr.value.country = self.country_id.name
+    # Email
+    if self.email:
+        email = vcard.add('email')
+        email.value = self.email
+        email.type_param = 'INTERNET'
+    # Telephone numbers
+    if self.phone:
+        tel = vcard.add('tel')
+        tel.type_param = 'work'
+        tel.value = self.phone
+    if self.mobile:
+        tel = vcard.add('tel')
+        tel.type_param = 'cell'
+        tel.value = self.mobile
+    # URL
+    if self.website:
+        url = vcard.add('url')
+        url.value = self.website
+    # Organisation
+    if self.commercial_company_name:
+        org = vcard.add('org')
+        org.value = [self.commercial_company_name]
+    if self.function:
+        function = vcard.add('title')
+        function.value = self.function
+    # Photo
+    photo = vcard.add('photo')
+    photo.value = b64decode(self.avatar_512)
+    photo.encoding_param = 'B'
+    photo.type_param = 'JPG'
+    return vcard</code></pre>
+    </div>
+    
+    <p>这个方法是vCard功能的核心，它构建了一个完整的vCard对象，包含合作伙伴的所有相关信息：</p>
+    <ol>
+        <li>首先检查<code>vobject</code>库是否可用，如果不可用则返回<code>False</code></li>
+        <li>创建一个新的vCard对象</li>
+        <li>添加姓名信息（包括称谓）</li>
+        <li>添加格式化的全名</li>
+        <li>添加完整的地址信息（街道、城市、邮编、省/州、国家）</li>
+        <li>添加电子邮件地址（如果有）</li>
+        <li>添加电话号码，区分工作电话和手机</li>
+        <li>添加网站URL（如果有）</li>
+        <li>添加公司信息和职位</li>
+        <li>添加照片（使用合作伙伴的头像）</li>
+    </ol>
+    
+    <div class="workflow">
+        <h4>vCard构建流程：</h4>
+        <ol>
+            <li>检查依赖可用性</li>
+            <li>创建基本vCard结构</li>
+            <li>逐项填充联系人数据字段</li>
+            <li>处理可选字段（仅当有值时添加）</li>
+            <li>处理特殊格式（如解码Base64图像）</li>
+            <li>返回完整的vCard对象</li>
+        </ol>
+    </div>
+    
+    <h3>_get_vcard_file 方法</h3>
+    <div class="code-block">
+        <pre><code>def _get_vcard_file(self):
+    vcard = self._build_vcard()
+    if vcard:
+        return vcard.serialize().encode()
+    return False</code></pre>
+    </div>
+    
+    <p>这个方法是一个公共接口，调用<code>_build_vcard</code>方法并处理其返回值：</p>
+    <ul>
+        <li>如果成功创建了vCard，将其序列化（转换为文本格式）并编码为字节串</li>
+        <li>如果vCard创建失败，返回<code>False</code></li>
+    </ul>
+    
+    <p>返回的数据格式适合直接提供下载或保存为文件。</p>
+    
+    <h2>vCard格式详解</h2>
+    <p>vCard（也称为VCF文件）是一种标准化的格式，用于存储和交换联系人信息。下面是由上述代码生成的vCard示例：</p>
+    
+    <div class="code-block">
+        <pre><code>BEGIN:VCARD
+VERSION:3.0
+N:公司名称;;;;
+FN:公司名称
+ADR:;;某某街道;某某城市;;12345;中国
+EMAIL;TYPE=INTERNET:contact@example.com
+TEL;TYPE=WORK:+86 123 4567 8910
+TEL;TYPE=CELL:+86 987 6543 2100
+URL:https://www.example.com
+ORG:示例公司
+TITLE:总经理
+PHOTO;ENCODING=B;TYPE=JPG:/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAA... (Base64编码的图像数据)
+END:VCARD</code></pre>
+    </div>
+    
+    <table>
+        <tr>
+            <th>vCard字段</th>
+            <th>Odoo字段</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>N</td>
+            <td>name / complete_name</td>
+            <td>联系人姓名</td>
+        </tr>
+        <tr>
+            <td>FN</td>
+            <td>name / complete_name</td>
+            <td>格式化的全名</td>
+        </tr>
+        <tr>
+            <td>ADR</td>
+            <td>street, city, zip, state_id, country_id</td>
+            <td>完整地址</td>
+        </tr>
+        <tr>
+            <td>EMAIL</td>
+            <td>email</td>
+            <td>电子邮件地址</td>
+        </tr>
+        <tr>
+            <td>TEL (WORK)</td>
+            <td>phone</td>
+            <td>工作电话</td>
+        </tr>
+        <tr>
+            <td>TEL (CELL)</td>
+            <td>mobile</td>
+            <td>手机号码</td>
+        </tr>
+        <tr>
+            <td>URL</td>
+            <td>website</td>
+            <td>网站地址</td>
+        </tr>
+        <tr>
+            <td>ORG</td>
+            <td>commercial_company_name</td>
+            <td>公司名称</td>
+        </tr>
+        <tr>
+            <td>TITLE</td>
+            <td>function</td>
+            <td>职位/职能</td>
+        </tr>
+        <tr>
+            <td>PHOTO</td>
+            <td>avatar_512</td>
+            <td>联系人照片/头像</td>
+        </tr>
+    </table>
+    
+    <h2>实际应用示例</h2>
+    
+    <h3>在控制器中使用vCard功能</h3>
+    <p>下面是一个如何在Odoo控制器中使用vCard功能的示例：</p>
+    
+    <div class="code-block">
+        <pre><code>from odoo import http
+from odoo.http import request
+
+class PartnerController(http.Controller):
+    
+    @http.route('/partner/<int:partner_id>/vcard', type='http', auth="user")
+    def download_vcard(self, partner_id, **kwargs):
+        """提供合作伙伴的vCard下载"""
+        partner = request.env['res.partner'].browse(partner_id)
+        if not partner.exists():
+            return request.not_found()
+            
+        vcard_file = partner._get_vcard_file()
+        if not vcard_file:
+            return request.not_found()
+            
+        return request.make_response(
+            vcard_file,
+            headers=[
+                ('Content-Type', 'text/vcard'),
+                ('Content-Disposition', f'attachment; filename="{partner.name}.vcf"'),
+            ]
+        )</code></pre>
+    </div>
+    
+    <h3>在视图中添加下载vCard的按钮</h3>
+    <p>以下是如何在合作伙伴表单视图中添加下载vCard的按钮：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;record id="view_partner_form_vcard" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;res.partner.form.vcard&lt;/field&gt;
+    &lt;field name="model"&gt;res.partner&lt;/field&gt;
+    &lt;field name="inherit_id" ref="base.view_partner_form"/&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;xpath expr="//div[@name='button_box']" position="inside"&gt;
+            &lt;button name="action_download_vcard" type="object" 
+                    class="oe_stat_button" icon="fa-address-card-o"
+                    string="下载 vCard"/&gt;
+        &lt;/xpath&gt;
+    &lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <p>然后在合作伙伴模型中添加相应的方法：</p>
+    
+    <div class="code-block">
+        <pre><code>def action_download_vcard(self):
+    """访问vCard下载URL的动作"""
+    self.ensure_one()
+    return {
+        'type': 'ir.actions.act_url',
+        'url': f'/partner/{self.id}/vcard',
+        'target': 'new',
+    }</code></pre>
+    </div>
+    
+    <h2>技术考量与最佳实践</h2>
+    
+    <div class="class-structure">
+        <div class="class-box">
+            <h4>优雅的依赖管理</h4>
+            <p>代码使用了try-except块和条件检查来处理可选依赖，这是一种推荐的方式，可以确保系统在缺少依赖时也能优雅地降级。</p>
+        </div>
+        <div class="class-box">
+            <h4>数据安全处理</h4>
+            <p>代码在处理字段时使用<code>or ''</code>语法来确保即使字段为空也不会引发错误，增强了健壮性。</p>
+        </div>
+        <div class="class-box">
+            <h4>功能模块化</h4>
+            <p>vCard功能被分为两个方法：一个用于构建vCard对象，另一个用于序列化，这种分离使代码更易于测试和扩展。</p>
+        </div>
+        <div class="class-box">
+            <h4>标准兼容性</h4>
+            <p>生成的vCard遵循标准格式，确保与大多数联系人管理应用程序的兼容性。</p>
+        </div>
+    </div>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>vCard功能依赖于<code>vobject</code>库，确保在部署前安装此依赖</li>
+            <li>大型图像可能导致vCard文件过大，考虑在生产环境中限制图像大小</li>
+            <li>字符编码问题可能影响非拉丁字符的正确显示，需要在测试中特别关注</li>
+            <li>不同的设备和应用程序可能对vCard格式有不同的解释，在主流平台上测试兼容性</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特点和改进</h2>
+    <p>相比之前版本，Odoo 18在处理vCard功能方面有以下改进：</p>
+    <ul>
+        <li>使用<code>avatar_512</code>提供更高分辨率的照片</li>
+        <li>改进的错误处理和依赖检查</li>
+        <li>优化的代码结构和注释</li>
+        <li>更好的多语言支持</li>
+    </ul>
+    
+    <h2>安装vobject库</h2>
+    <p>要启用vCard功能，需要安装vobject库。在Odoo服务器上，可以使用以下命令：</p>
+    
+    <div class="code-block">
+        <pre><code># 使用pip安装
+pip install vobject
+
+# 或者在Odoo的requirements.txt中添加
+echo "vobject" >> requirements.txt
+pip install -r requirements.txt</code></pre>
+    </div>
+    
+    <h2>扩展vCard功能</h2>
+    <p>如果需要扩展vCard功能，可以在自定义模块中重写<code>_build_vcard</code>方法：</p>
+    
+    <div class="code-block">
+        <pre><code>class ResPartner(models.Model):
+    _inherit = 'res.partner'
+    
+    def _build_vcard(self):
+        vcard = super(ResPartner, self)._build_vcard()
+        if not vcard:
+            return False
+            
+        # 添加自定义字段
+        if self.birthday:
+            bday = vcard.add('bday')
+            bday.value = self.birthday.strftime('%Y%m%d')
+            
+        # 添加社交媒体链接
+        if hasattr(self, 'social_linkedin') and self.social_linkedin:
+            social = vcard.add('x-socialprofile')
+            social.value = self.social_linkedin
+            social.type_param = 'linkedin'
+            
+        return vcard</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Odoo 18的<code>res_partner.py</code>文件通过vCard功能扩展了合作伙伴模型，使用户能够：</p>
+    <ul>
+        <li>生成标准兼容的电子名片</li>
+        <li>包含联系人的完整详细信息，包括照片</li>
+        <li>促进与外部联系人管理系统的数据交换</li>
+        <li>增强Odoo作为完整CRM解决方案的能力</li>
+    </ul>
+    
+    <p>这个功能虽然相对简单，但展示了Odoo的模块化设计和扩展性，以及如何通过继承扩展核心模型的功能。</p>
+</body>
+</html> 

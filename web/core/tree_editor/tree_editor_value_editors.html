@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo树编辑器值编辑器解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo树编辑器值编辑器解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>tree_editor_value_editors.js</code>是Odoo 18中tree_editor模块的核心组件之一，负责为条件树中的不同字段类型和操作符提供适当的值编辑器。该文件定义了一套完整的编辑器系统，能够处理从简单文本到复杂关联字段的各种数据类型。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>值编辑器是树编辑器的关键组成部分，它提供了与字段类型和操作符相匹配的用户界面组件，让用户能够以直观的方式编辑条件值，而无需了解底层数据结构或格式要求。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>编辑器匹配</strong>：根据字段类型和操作符选择合适的值编辑器</li>
+        <li><strong>组件定义</strong>：为各种数据类型定义专用的编辑器组件</li>
+        <li><strong>值处理</strong>：值的解析、格式化和验证</li>
+        <li><strong>默认值生成</strong>：根据字段类型和操作符生成默认值</li>
+        <li><strong>特殊操作符支持</strong>：支持between、within等复杂操作符的值编辑</li>
+        <li><strong>多值操作</strong>：支持in、not in等需要多值输入的操作符</li>
+    </ol>
+    
+    <h2>核心函数解析</h2>
+    <p>tree_editor_value_editors.js包含几个关键函数，下面详细分析：</p>
+    
+    <h3>值编辑器信息获取函数</h3>
+    <div class="code-block">
+        <pre><code>export function getValueEditorInfo(fieldDef, operator, options = {}) {
+    // 如果操作符在特殊处理函数中定义，使用特殊处理
+    const partialGetterFunc = OPERATOR_PARTIAL_GETTERS[operator];
+    if (partialGetterFunc) {
+        return partialGetterFunc(fieldDef, operator, options);
+    }
+    
+    // 查找匹配字段类型的编辑器
+    if (fieldDef) {
+        for (const [predicate, editorInfo] of TYPE_EDITORS) {
+            if (predicate(fieldDef)) {
+                return editorInfo;
+            }
+        }
+    }
+    
+    // 如果没有找到适合的编辑器，使用默认编辑器
+    return STRING_EDITOR;
+}</code></pre>
+    </div>
+    <p>getValueEditorInfo函数是核心函数，负责根据字段定义和操作符选择适当的值编辑器信息。它首先检查特殊操作符，然后查找匹配字段类型的编辑器，如果都找不到，则使用默认的字符串编辑器。</p>
+    
+    <h3>默认值生成函数</h3>
+    <div class="code-block">
+        <pre><code>export function getDefaultValue(fieldDef, operator, value = null) {
+    // 如果已提供值，直接返回
+    if (value !== null) {
+        return value;
+    }
+    
+    // 获取适用于此字段和操作符的编辑器信息
+    const editorInfo = getValueEditorInfo(fieldDef, operator);
+    return editorInfo.defaultValue();
+}</code></pre>
+    </div>
+    <p>getDefaultValue函数根据字段定义和操作符生成默认值。它利用编辑器信息中的defaultValue函数创建适当的默认值，确保值与编辑器和字段类型匹配。</p>
+    
+    <h3>部分值编辑器获取函数</h3>
+    <div class="code-block">
+        <pre><code>function getPartialValueEditorInfo(fieldDef, operator, params = {}) {
+    switch (operator) {
+        case "set":
+        case "not_set":
+            return {
+                component: null,
+                extractProps: null,
+                isSupported: (value) => value === false,
+                defaultValue: () => false,
+            };
+        case "=like":
+        case "=ilike":
+        case "like":
+        case "not like":
+        case "ilike":
+        case "not ilike":
+            return STRING_EDITOR;
+        case "between": {
+            const editorInfo = getValueEditorInfo(fieldDef, "=");
+            return {
+                component: Range,
+                extractProps: ({ value, update }) => ({
+                    value,
+                    update,
+                    editorInfo,
+                }),
+                isSupported: (value) => Array.isArray(value) && value.length === 2,
+                defaultValue: () => {
+                    const { defaultValue } = editorInfo;
+                    return [defaultValue(), defaultValue()];
+                },
+            };
+        }
+        case "within": {
+            return {
+                component: Within,
+                extractProps: ({ value, update }) => ({
+                    value,
+                    update,
+                    amountEditorInfo: getValueEditorInfo({ type: "integer" }, "="),
+                    optionEditorInfo: makeSelectEditor(Within.options),
+                }),
+                isSupported: (value) =>
+                    Array.isArray(value) &&
+                    value.length === 3 &&
+                    typeof value[1] === "string" &&
+                    value[2] === fieldDef.type,
+                defaultValue: () => {
+                    return [-1, "months", fieldDef.type];
+                },
+            };
+        }
+        case "in":
+        case "not in": {
+            // ... 处理in/not in操作符 ...
+        }
+        // ... 其他操作符处理 ...
+    }
+}</code></pre>
+    </div>
+    <p>getPartialValueEditorInfo函数根据操作符类型提供适当的值编辑器信息。它处理各种特殊操作符，如set/not_set、between、within、in/not in等，为每种操作符提供定制的编辑器组件和配置。</p>
+    
+    <h2>编辑器类型</h2>
+    <p>tree_editor_value_editors.js定义了多种编辑器类型，适用于不同的字段类型：</p>
+    
+    <table>
+        <tr>
+            <th>编辑器</th>
+            <th>适用字段类型</th>
+            <th>组件</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>STRING_EDITOR</td>
+            <td>char, text</td>
+            <td>Input</td>
+            <td>基本文本输入</td>
+        </tr>
+        <tr>
+            <td>BOOLEAN_EDITOR</td>
+            <td>boolean</td>
+            <td>Select</td>
+            <td>布尔值选择(是/否)</td>
+        </tr>
+        <tr>
+            <td>INTEGER_EDITOR</td>
+            <td>integer</td>
+            <td>Input (type="number")</td>
+            <td>整数输入</td>
+        </tr>
+        <tr>
+            <td>FLOAT_EDITOR</td>
+            <td>float</td>
+            <td>Input (type="number")</td>
+            <td>浮点数输入</td>
+        </tr>
+        <tr>
+            <td>AUTOCOMPLETE_EDITOR</td>
+            <td>many2one, many2many, one2many</td>
+            <td>DomainSelectorAutocomplete</td>
+            <td>记录选择自动完成</td>
+        </tr>
+        <tr>
+            <td>DATE_EDITOR</td>
+            <td>date</td>
+            <td>DateTimeInput</td>
+            <td>日期选择</td>
+        </tr>
+        <tr>
+            <td>DATETIME_EDITOR</td>
+            <td>datetime</td>
+            <td>DateTimeInput</td>
+            <td>日期时间选择</td>
+        </tr>
+        <tr>
+            <td>SELECTION_EDITOR</td>
+            <td>selection</td>
+            <td>Select</td>
+            <td>选项列表选择</td>
+        </tr>
+    </table>
+    
+    <h2>特殊操作符编辑器</h2>
+    <p>tree_editor_value_editors.js为复杂操作符提供了专门的编辑器：</p>
+    
+    <div class="special-editors">
+        <div class="editor-type">
+            <h3>范围编辑器 (Range)</h3>
+            <p>用于"between"操作符，允许用户设置最小值和最大值。</p>
+            <div class="code-block">
+                <pre><code>case "between": {
+    const editorInfo = getValueEditorInfo(fieldDef, "=");
+    return {
+        component: Range,
+        extractProps: ({ value, update }) => ({
+            value,
+            update,
+            editorInfo,
+        }),
+        isSupported: (value) => Array.isArray(value) && value.length === 2,
+        defaultValue: () => {
+            const { defaultValue } = editorInfo;
+            return [defaultValue(), defaultValue()];
+        },
+    };
+}</code></pre>
+            </div>
+        </div>
+        <div class="editor-type">
+            <h3>时间段编辑器 (Within)</h3>
+            <p>用于"within"操作符，允许用户设置相对时间范围。</p>
+            <div class="code-block">
+                <pre><code>case "within": {
+    return {
+        component: Within,
+        extractProps: ({ value, update }) => ({
+            value,
+            update,
+            amountEditorInfo: getValueEditorInfo({ type: "integer" }, "="),
+            optionEditorInfo: makeSelectEditor(Within.options),
+        }),
+        isSupported: (value) =>
+            Array.isArray(value) &&
+            value.length === 3 &&
+            typeof value[1] === "string" &&
+            value[2] === fieldDef.type,
+        defaultValue: () => {
+            return [-1, "months", fieldDef.type];
+        },
+    };
+}</code></pre>
+            </div>
+        </div>
+        <div class="editor-type">
+            <h3>列表编辑器 (List)</h3>
+            <p>用于"in"/"not in"操作符，允许用户添加多个值。</p>
+            <div class="code-block">
+                <pre><code>case "in":
+case "not in": {
+    // ... 
+    return {
+        component: List,
+        extractProps: ({ value, update }) => {
+            if (!disambiguate(value)) {
+                const { stringify } = editorInfo;
+                editorInfo.stringify = (val) => stringify(val, false);
+            }
+            return {
+                value,
+                update,
+                editorInfo,
+            };
+        },
+        isSupported: (value) => Array.isArray(value),
+        defaultValue: () => [],
+    };
+}</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>工作原理</h2>
+    <p>tree_editor_value_editors.js的工作原理可以概括为以下流程：</p>
+    
+    <div class="flow-diagram">
+        <h3>值编辑器选择和应用流程</h3>
+        <ol>
+            <li>当树编辑器需要渲染条件值编辑器时，调用getValueEditorInfo获取编辑器信息</li>
+            <li>根据操作符和字段类型选择合适的编辑器组件和配置</li>
+            <li>提取编辑器所需的属性，包括当前值和更新函数</li>
+            <li>渲染编辑器组件，允许用户修改值</li>
+            <li>用户更改值时，通过update回调函数通知树编辑器</li>
+            <li>树编辑器更新条件树，反映新的值</li>
+        </ol>
+    </div>
+    
+    <h2>编辑器工厂函数</h2>
+    <p>tree_editor_value_editors.js提供了几个编辑器工厂函数来创建特定类型的编辑器：</p>
+    
+    <div class="code-block">
+        <pre><code>function makeSelectEditor(options, params = {}) {
+    const getOption = (value) => options.find(([v]) => v === value) || null;
+    return {
+        component: Select,
+        extractProps: ({ value, update }) => ({
+            value,
+            update,
+            options,
+            addBlankOption: params.addBlankOption,
+        }),
+        isSupported: (value) => Boolean(getOption(value)),
+        defaultValue: () => options[0]?.[0] ?? false,
+        stringify: (value, disambiguate) => {
+            const option = getOption(value);
+            return option ? option[1] : disambiguate ? formatValue(value) : String(value);
+        },
+        message: _t("Value not in selection"),
+    };
+}
+
+function makeAutoCompleteEditor(fieldDef) {
+    return {
+        component: DomainSelectorAutocomplete,
+        extractProps: ({ value, update }) => {
+            return {
+                resModel: getResModel(fieldDef),
+                fieldString: fieldDef.string,
+                domain: getDomain(fieldDef),
+                update: (value) => update(unique(value)),
+                resIds: unique(value),
+            };
+        },
+        isSupported: (value) => Array.isArray(value),
+        defaultValue: () => [],
+    };
+}</code></pre>
+    </div>
+    
+    <p>这些工厂函数根据不同的参数和需求创建编辑器配置对象，使系统能够灵活地支持各种字段类型和操作符的组合。</p>
+    
+    <h2>使用示例</h2>
+    <p>下面是一些tree_editor_value_editors.js中功能的使用示例：</p>
+    
+    <div class="usage-examples">
+        <div class="example">
+            <h3>获取值编辑器信息</h3>
+            <div class="code-block">
+                <pre><code>import { getValueEditorInfo, getDefaultValue } from "@web/core/tree_editor/tree_editor_value_editors";
+
+// 假设我们有一个字段定义
+const fieldDef = {
+    type: "many2one",
+    string: "客户",
+    relation: "res.partner"
+};
+
+// 获取编辑器信息
+const editorInfo = getValueEditorInfo(fieldDef, "in");
+console.log(editorInfo.component.name); // "DomainSelectorAutocomplete"
+
+// 获取默认值
+const defaultValue = getDefaultValue(fieldDef, "in");
+console.log(defaultValue); // []
+
+// 检查值是否受支持
+console.log(editorInfo.isSupported([1, 2, 3])); // true
+console.log(editorInfo.isSupported("不支持的值")); // false</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>在组件中使用值编辑器</h3>
+            <div class="code-block">
+                <pre><code>import { Component } from "@odoo/owl";
+import { getValueEditorInfo } from "@web/core/tree_editor/tree_editor_value_editors";
+
+export class ConditionValueEditor extends Component {
+    static template = "my_module.ConditionValueEditor";
+    
+    setup() {
+        this.fieldDef = this.props.fieldDef;
+        this.operator = this.props.operator;
+        this.value = this.props.value;
+        
+        // 获取编辑器信息
+        this.editorInfo = getValueEditorInfo(this.fieldDef, this.operator);
+        
+        // 提取编辑器组件的属性
+        this.editorProps = this.editorInfo.extractProps({
+            value: this.value,
+            update: this.updateValue.bind(this)
+        });
+    }
+    
+    updateValue(newValue) {
+        this.props.onValueChange(newValue);
+    }
+}</code></pre>
+            </div>
+        </div>
+        <div class="example">
+            <h3>处理日期时间值</h3>
+            <div class="code-block">
+                <pre><code>import { getValueEditorInfo } from "@web/core/tree_editor/tree_editor_value_editors";
+
+const dateFieldDef = { type: "date" };
+const datetimeFieldDef = { type: "datetime" };
+
+// 获取日期编辑器
+const dateEditorInfo = getValueEditorInfo(dateFieldDef, "=");
+console.log(dateEditorInfo.component.name); // "DateTimeInput"
+
+// 获取日期时间编辑器
+const datetimeEditorInfo = getValueEditorInfo(datetimeFieldDef, "=");
+console.log(datetimeEditorInfo.component.name); // "DateTimeInput"
+
+// 对于between操作符，会返回Range编辑器
+const dateRangeEditorInfo = getValueEditorInfo(dateFieldDef, "between");
+console.log(dateRangeEditorInfo.component.name); // "Range"
+
+// 对于within操作符，会返回Within编辑器
+const dateWithinEditorInfo = getValueEditorInfo(dateFieldDef, "within");
+console.log(dateWithinEditorInfo.component.name); // "Within"</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>tree_editor_value_editors.js与多个模块有交互：</p>
+    <ul>
+        <li><strong>tree_editor_components.js</strong>：使用其中定义的各种编辑器组件，如Input、Select、Range、Within等</li>
+        <li><strong>tree_editor_autocomplete.js</strong>：使用DomainSelectorAutocomplete组件处理关联字段选择</li>
+        <li><strong>condition_tree.js</strong>：使用formatValue等函数处理值格式化</li>
+        <li><strong>utils.js</strong>：使用getResModel、disambiguate等辅助函数</li>
+        <li><strong>l10n/dates.js</strong>：处理日期和时间的序列化和反序列化</li>
+        <li><strong>formatters和parsers注册表</strong>：使用注册的格式化器和解析器处理不同类型的值</li>
+    </ul>
+    
+    <h2>类型编辑器映射</h2>
+    <p>tree_editor_value_editors.js使用一个特殊的映射表来根据字段类型选择编辑器：</p>
+    
+    <div class="code-block">
+        <pre><code>// 字段类型到编辑器的映射
+const TYPE_EDITORS = [
+    // 布尔型字段
+    [(f) => f.type === "boolean", BOOLEAN_EDITOR],
+    // 整数型字段
+    [(f) => f.type === "integer", INTEGER_EDITOR],
+    // 浮点型字段
+    [(f) => ["float", "monetary"].includes(f.type), FLOAT_EDITOR],
+    // 选择型字段
+    [(f) => f.type === "selection", (fieldDef) => makeSelectEditor(fieldDef.selection || [])],
+    // 日期字段
+    [(f) => f.type === "date", DATE_EDITOR],
+    // 日期时间字段
+    [(f) => f.type === "datetime", DATETIME_EDITOR],
+    // 关联字段
+    [(f) => ["many2one", "many2many", "one2many"].includes(f.type), makeAutoCompleteEditor],
+];</code></pre>
+    </div>
+    
+    <p>这个映射表使用谓词函数来检查字段类型，并返回相应的编辑器信息或编辑器工厂函数。</p>
+    
+    <h2>操作符处理</h2>
+    <p>tree_editor_value_editors.js使用特殊的操作符映射来处理需要定制编辑器的操作符：</p>
+    
+    <div class="code-block">
+        <pre><code>// 操作符到部分获取器的映射
+const OPERATOR_PARTIAL_GETTERS = {
+    set: getPartialValueEditorInfo,
+    not_set: getPartialValueEditorInfo,
+    "=like": getPartialValueEditorInfo,
+    "=ilike": getPartialValueEditorInfo,
+    like: getPartialValueEditorInfo,
+    "not like": getPartialValueEditorInfo,
+    ilike: getPartialValueEditorInfo,
+    "not ilike": getPartialValueEditorInfo,
+    between: getPartialValueEditorInfo,
+    within: getPartialValueEditorInfo,
+    in: getPartialValueEditorInfo,
+    "not in": getPartialValueEditorInfo,
+    any: getPartialValueEditorInfo,
+    "not any": getPartialValueEditorInfo,
+};</code></pre>
+    </div>
+    
+    <p>这个映射表将特殊操作符映射到getPartialValueEditorInfo函数，该函数根据操作符类型提供定制的编辑器信息。</p>
+    
+    <h2>最佳实践</h2>
+    <div class="warning">
+        <strong>提示：</strong>在使用tree_editor_value_editors.js时，请注意以下几点：
+        <ul>
+            <li>使用getValueEditorInfo函数获取编辑器信息，而不是直接使用编辑器组件</li>
+            <li>使用getDefaultValue函数生成默认值，确保与编辑器兼容</li>
+            <li>在更新值之前，使用editorInfo.isSupported函数检查值是否受支持</li>
+            <li>对于复杂字段类型，注意可能需要特殊处理值的格式</li>
+            <li>处理日期和时间时，注意序列化和反序列化函数的使用</li>
+        </ul>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，tree_editor_value_editors.js有以下改进：</p>
+    <ul>
+        <li>更完善的within操作符支持，用于相对日期和时间范围</li>
+        <li>更好的多字段选择器和自动完成组件集成</li>
+        <li>改进的值格式化和解析</li>
+        <li>更好的类型检查和验证</li>
+        <li>更灵活的编辑器配置系统</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何在自定义模块中扩展或使用值编辑器？下面是一个示例：</p>
+    
+    <div class="code-block">
+        <pre><code>import { 
+    getValueEditorInfo, 
+    getDefaultValue 
+} from "@web/core/tree_editor/tree_editor_value_editors";
+import { Component, useState } from "@odoo/owl";
+import { patch } from "@web/core/utils/patch";
+
+// 1. 创建一个使用值编辑器的组件
+export class CustomValueEditor extends Component {
+    static template = "my_module.CustomValueEditor";
+    
+    setup() {
+        this.state = useState({
+            value: this.props.initialValue || null
+        });
+        
+        // 获取编辑器信息
+        this.editorInfo = getValueEditorInfo(this.props.fieldDef, this.props.operator);
+        
+        // 如果没有初始值，使用默认值
+        if (this.state.value === null) {
+            this.state.value = getDefaultValue(this.props.fieldDef, this.props.operator);
+        }
+    }
+    
+    get editorProps() {
+        return this.editorInfo.extractProps({
+            value: this.state.value,
+            update: this.updateValue.bind(this)
+        });
+    }
+    
+    updateValue(newValue) {
+        this.state.value = newValue;
+        this.props.onChange(newValue);
+    }
+    
+    get EditorComponent() {
+        return this.editorInfo.component;
+    }
+}
+
+// 2. 扩展现有值编辑器系统，添加自定义编辑器
+// 注意：这应该在模块加载时执行
+function setupCustomEditors() {
+    // 为自定义字段类型添加编辑器
+    patch(getValueEditorInfo, "custom_editors", function (originalFn, fieldDef, operator, options = {}) {
+        // 检查是否为自定义字段类型
+        if (fieldDef && fieldDef.type === "my_custom_type") {
+            // 返回自定义编辑器信息
+            return {
+                component: MyCustomEditor,
+                extractProps: ({ value, update }) => ({
+                    value,
+                    update,
+                    // 添加自定义属性
+                    customOptions: fieldDef.custom_options,
+                }),
+                isSupported: (value) => typeof value === "object",
+                defaultValue: () => ({}),
+                stringify: (value) => JSON.stringify(value),
+            };
+        }
+        
+        // 否则使用原始函数
+        return originalFn(fieldDef, operator, options);
+    });
+}</code></pre>
+    </div>
+    
+    <p>对应的XML模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;templates&gt;
+    &lt;t t-name="my_module.CustomValueEditor"&gt;
+        &lt;div class="custom-value-editor"&gt;
+            &lt;t t-if="EditorComponent"&gt;
+                &lt;t t-component="EditorComponent" t-props="editorProps"/&gt;
+            &lt;/t&gt;
+            &lt;div t-else class="text-muted"&gt;
+                该操作符不需要值
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/t&gt;
+&lt;/templates&gt;</code></pre>
+    </div>
+    
+    <h2>小结</h2>
+    <p>tree_editor_value_editors.js是tree_editor模块中负责处理条件值编辑的关键组件，它：</p>
+    <ul>
+        <li>提供了一套完整的编辑器系统，匹配各种字段类型和操作符</li>
+        <li>定义了标准接口，包括组件、属性提取、值检查和默认值生成</li>
+        <li>支持复杂操作符如between、within、in/not in等</li>
+        <li>处理各种数据类型，从简单的字符串到复杂的关联记录</li>
+        <li>与其他模块紧密集成，提供完整的编辑体验</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>值编辑器系统的设计遵循了组合和配置的原则，使其能够处理各种复杂的编辑场景。在开发自定义模块时，可以利用这一系统为特定字段类型提供专用的编辑体验，而无需重新实现整个树编辑器。
+    </div>
+</body>
+</html> 

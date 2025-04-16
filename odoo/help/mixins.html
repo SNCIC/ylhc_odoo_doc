@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 Mixins和实用类参考文档</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo Mixins和实用类参考文档</h1>
+    
+    <h2>文件概述</h2>
+    <p>Mixins是一种特殊的类，设计用于将可复用的功能注入到Odoo模型中。这些mixins通常用于添加共享特性，如消息传递、活动跟踪、网站功能等，使开发者能够快速扩展模型的功能。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>Mixins在Odoo中的实现是通过Python的多重继承机制，使开发者能够将通用功能添加到不同的模型中，无需重复代码。
+    </div>
+    
+    <h2>主要组件</h2>
+    <ol>
+        <li><strong>消息传递功能</strong>：提供聊天、日志和活动集成</li>
+        <li><strong>网站功能</strong>：管理网站可见性、SEO和访客跟踪</li>
+        <li><strong>实用类</strong>：提供诸如客户评分等额外功能</li>
+    </ol>
+    
+    <h2>消息传递功能</h2>
+    <p>Odoo的消息传递系统提供了一套完整的mixins，用于集成聊天、日志和活动功能。</p>
+    
+    <h3>消息集成 - <code>mail.thread</code></h3>
+    <p>提供消息线程功能，包括聊天、通知和跟踪修改。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['mail.thread']
+    
+    # 标记字段为可跟踪
+    name = fields.Char(tracking=True)
+    state = fields.Selection([
+        ('draft', '草稿'),
+        ('done', '完成')
+    ], tracking=True)</code></pre>
+    </div>
+    
+    <p>主要特性：</p>
+    <ul>
+        <li>添加消息线程到记录</li>
+        <li>跟踪字段变更</li>
+        <li>支持用户关注/取消关注记录</li>
+        <li>允许在记录上发送消息和通知</li>
+    </ul>
+    
+    <h3>日志变更 - <code>mail.thread.cc</code></h3>
+    <p>扩展了mail.thread，添加了抄送收件人功能。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['mail.thread.cc']</code></pre>
+    </div>
+    
+    <p>这允许在消息中添加抄送收件人，并提供了扩展的电子邮件通知功能。</p>
+    
+    <h3>活动 - <code>mail.activity.mixin</code></h3>
+    <p>为模型添加活动管理功能，如待办事项、计划和提醒。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['mail.thread', 'mail.activity.mixin']</code></pre>
+    </div>
+    
+    <p>主要功能：</p>
+    <ul>
+        <li>创建和分配活动给用户</li>
+        <li>设置截止日期和提醒</li>
+        <li>将活动标记为完成</li>
+        <li>查看活动历史记录</li>
+    </ul>
+    
+    <h3>子类型 - <code>mail.thread</code> 子特性</h3>
+    <p>消息子类型允许对消息进行分类，并自定义通知行为。</p>
+    
+    <div class="code-block">
+        <pre><code># 在数据XML文件中定义子类型
+<record id="mt_state_change" model="mail.message.subtype">
+    <field name="name">状态变更</field>
+    <field name="res_model">model.name</field>
+    <field name="default" eval="True"/>
+    <field name="description">模型状态已更改</field>
+</record></code></pre>
+    </div>
+    
+    <h3>自定义通知</h3>
+    <p>可以通过重写方法来自定义消息通知行为：</p>
+    
+    <div class="code-block">
+        <pre><code>def _notify_get_recipients_groups(self, msg_vals=None):
+    groups = super()._notify_get_recipients_groups(msg_vals=msg_vals)
+    # 添加或修改收件人组
+    return groups</code></pre>
+    </div>
+    
+    <h2>网站功能</h2>
+    
+    <h3>访问跟踪 - <code>website.visitor.mixin</code></h3>
+    <p>用于跟踪网站访问者对特定记录的访问。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['website.visitor.mixin']</code></pre>
+    </div>
+    
+    <p>启用后，系统会自动跟踪访问者与记录的交互，并提供分析数据。</p>
+    
+    <h3>网站可见性 - <code>website.published.mixin</code></h3>
+    <p>允许模型记录在网站上发布或隐藏。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['website.published.mixin']</code></pre>
+    </div>
+    
+    <p>添加的字段和方法：</p>
+    <ul>
+        <li><code>website_published</code>：布尔字段，指示记录是否已发布</li>
+        <li><code>website_url</code>：记录在网站上的URL</li>
+        <li><code>website_publish_button</code>：用于切换记录的发布状态</li>
+    </ul>
+    
+    <h3>网站元数据 - <code>website.seo.metadata</code></h3>
+    <p>为模型添加SEO元数据，如标题、描述和关键词。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['website.seo.metadata']</code></pre>
+    </div>
+    
+    <p>添加的字段：</p>
+    <ul>
+        <li><code>website_meta_title</code>：页面的SEO标题</li>
+        <li><code>website_meta_description</code>：页面的元描述</li>
+        <li><code>website_meta_keywords</code>：页面的关键词</li>
+        <li><code>website_meta_og_img</code>：社交媒体分享图片</li>
+    </ul>
+    
+    <h2>其他实用类</h2>
+    
+    <h3>客户评分 - <code>rating.mixin</code></h3>
+    <p>允许用户对记录进行评分和评价。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['rating.mixin']</code></pre>
+    </div>
+    
+    <p>主要功能：</p>
+    <ul>
+        <li>允许用户对记录进行评分</li>
+        <li>管理评分统计</li>
+        <li>显示评级历史</li>
+    </ul>
+    
+    <h3>添加评分到模型</h3>
+    <p>完整的评分集成示例：</p>
+    
+    <div class="code-block">
+        <pre><code>class MyModel(models.Model):
+    _name = 'my.model'
+    _inherit = ['mail.thread', 'rating.mixin']
+    
+    # 模型字段
+    name = fields.Char(required=True)
+    description = fields.Text()
+    
+    # 自定义评分行为
+    def _rating_domain(self):
+        domain = super()._rating_domain()
+        return ['&'] + domain + [('state', '=', 'done')]</code></pre>
+    </div>
+    
+    <h3>图像管理 - <code>image.mixin</code></h3>
+    <p>提供图像存储和处理功能，可以自动创建不同大小的缩略图。</p>
+    
+    <div class="code-block">
+        <pre><code>class ModelName(models.Model):
+    _name = 'model.name'
+    _inherit = ['image.mixin']</code></pre>
+    </div>
+    
+    <p>添加的字段：</p>
+    <ul>
+        <li><code>image_1920</code>：原始图像（最大 1920px）</li>
+        <li><code>image_1024</code>：中等大小图像（1024px）</li>
+        <li><code>image_512</code>：小图像（512px）</li>
+        <li><code>image_256</code>：缩略图（256px）</li>
+        <li><code>image_128</code>：迷你缩略图（128px）</li>
+    </ul>
+    
+    <h2>开发者最佳实践</h2>
+    
+    <h3>组合多个Mixins</h3>
+    <p>可以将多个mixins组合使用，以构建功能丰富的模型：</p>
+    
+    <div class="code-block">
+        <pre><code>class CompleteModel(models.Model):
+    _name = 'complete.model'
+    _description = '包含多种功能的完整模型'
+    _inherit = [
+        'mail.thread',
+        'mail.activity.mixin',
+        'website.published.mixin',
+        'website.seo.metadata',
+        'rating.mixin',
+        'image.mixin'
+    ]
+    
+    name = fields.Char(required=True, tracking=True)
+    description = fields.Text(tracking=True)
+    
+    # 模型特定的字段和方法</code></pre>
+    </div>
+    
+    <h3>继承顺序</h3>
+    <p>注意继承顺序可能影响某些功能的行为：</p>
+    <ul>
+        <li>一些mixins可能依赖于其他mixins（如mail.activity.mixin通常需要mail.thread）</li>
+        <li>在多重继承中，Python从左到右解析方法，因此有可能出现方法覆盖</li>
+        <li>建议先继承基础mixins，然后再继承依赖于它们的mixins</li>
+    </ul>
+    
+    <h3>性能考虑</h3>
+    <p>虽然mixins提供了强大的功能，但应注意：</p>
+    <ul>
+        <li>每个mixin都会添加额外的字段和方法，可能影响模型的性能</li>
+        <li>只使用真正需要的mixins</li>
+        <li>对于性能关键的模型，考虑使用更轻量级的自定义实现而不是完整的mixins</li>
+    </ul>
+    
+    <h2>总结</h2>
+    <p>Odoo的mixins和实用类提供了一种优雅的方式来扩展模型的功能，而无需重复代码。通过正确地使用这些mixins，开发者可以快速构建具有高级功能的应用，如消息传递、活动跟踪、网站集成和用户评分。</p>
+    
+</body>
+</html> 

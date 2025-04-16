@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo错误对话框解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo错误对话框系统解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>error_dialogs.js</code>是Odoo框架中的错误显示组件模块，它定义了一系列用于向用户展示不同类型错误的对话框组件。这些对话框为用户提供了友好的错误信息展示方式，并在某些情况下提供操作选项。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>错误对话框是Odoo错误处理系统的可视化组件，负责将技术性错误信息转化为用户友好的提示。不同类型的错误使用不同风格的对话框展示，以便用户能够理解发生了什么以及如何应对。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>统一的错误展示接口</strong>：为各类错误提供一致的展示方式</li>
+        <li><strong>错误类型差异化显示</strong>：根据错误性质提供不同风格的对话框</li>
+        <li><strong>技术细节切换功能</strong>：允许在简洁信息和详细信息间切换</li>
+        <li><strong>错误信息复制功能</strong>：支持一键复制错误信息，便于报告问题</li>
+        <li><strong>后端异常与对话框映射</strong>：将服务器端异常类型映射到前端对话框</li>
+        <li><strong>支持特殊操作对话框</strong>：如会话过期、重定向警告等特殊场景</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>error_dialogs.js定义了一系列继承自基本错误对话框的组件，让我们首先看看共享的标准属性：</p>
+    
+    <div class="code-block">
+        <pre><code>export const standardErrorDialogProps = {
+    traceback: { type: [String, { value: null }], optional: true },
+    message: { type: String, optional: true },
+    name: { type: String, optional: true },
+    exceptionName: { type: [String, { value: null }], optional: true },
+    data: { type: [Object, { value: null }], optional: true },
+    subType: { type: [String, { value: null }], optional: true },
+    code: { type: [Number, String, { value: null }], optional: true },
+    type: { type: [String, { value: null }], optional: true },
+    serverHost: { type: [String, { value: null }], optional: true },
+    id: { type: [Number, { value: null }], optional: true },
+    model: { type: [String, { value: null }], optional: true },
+    close: Function, // 由Dialog服务添加的属性
+};</code></pre>
+    </div>
+    
+    <h3>通用错误对话框 (ErrorDialog)</h3>
+    <div class="code-block">
+        <pre><code>export class ErrorDialog extends Component {
+    static template = "web.ErrorDialog";
+    static components = { Dialog };
+    static title = _t("Odoo Error");
+    static showTracebackButtonText = _t("See technical details");
+    static hideTracebackButtonText = _t("Hide technical details");
+    static props = { ...standardErrorDialogProps };
+
+    setup() {
+        this.state = useState({
+            showTraceback: false,
+        });
+        this.copyButtonRef = useRef("copyButton");
+        this.popover = usePopover(Tooltip);
+        this.contextDetails = "Occured ";
+        if (this.props.serverHost) {
+            this.contextDetails += `on ${this.props.serverHost} `;
+        }
+        if (this.props.model && this.props.id) {
+            this.contextDetails += `on model ${this.props.model} and id ${this.props.id} `;
+        }
+        this.contextDetails += `on ${DateTime.now()
+            .setZone("UTC")
+            .toFormat("yyyy-MM-dd HH:mm:ss")} GMT`;
+    }
+
+    showTooltip() {
+        this.popover.open(this.copyButtonRef.el, { tooltip: _t("Copied") });
+        browser.setTimeout(this.popover.close, 800);
+    }
+
+    onClickClipboard() {
+        browser.navigator.clipboard.writeText(
+            `${this.props.name}\n\n${this.props.message}\n\n${this.contextDetails}\n\n${this.props.traceback}`
+        );
+        this.showTooltip();
+    }
+}</code></pre>
+    </div>
+    
+    <h3>特定错误对话框</h3>
+    <p>基于基本ErrorDialog类，该模块还定义了多种具体错误对话框：</p>
+    
+    <div class="code-block">
+        <pre><code>// 客户端错误对话框
+export class ClientErrorDialog extends ErrorDialog {}
+ClientErrorDialog.title = _t("Odoo Client Error");
+
+// 网络错误对话框
+export class NetworkErrorDialog extends ErrorDialog {}
+NetworkErrorDialog.title = _t("Odoo Network Error");
+
+// RPC错误对话框
+export class RPCErrorDialog extends ErrorDialog {
+    setup() {
+        super.setup();
+        this.inferTitle();
+        this.traceback = this.props.traceback;
+        if (this.props.data && this.props.data.debug) {
+            this.traceback = `${this.props.data.debug}\nThe above server error caused the following client error:\n${this.traceback}`;
+        }
+    }
+    
+    inferTitle() {
+        // 根据错误类型和异常名称推断标题
+        // ...
+    }
+}</code></pre>
+    </div>
+    
+    <h3>警告对话框</h3>
+    <div class="code-block">
+        <pre><code>export class WarningDialog extends Component {
+    static template = "web.WarningDialog";
+    static components = { Dialog };
+    static props = {
+        ...standardErrorDialogProps,
+        title: { type: String, optional: true },
+    };
+
+    setup() {
+        this.title = this.inferTitle();
+        const { data, message } = this.props;
+        if (data && data.arguments && data.arguments.length > 0) {
+            this.message = data.arguments[0];
+        } else {
+            this.message = message;
+        }
+    }
+    
+    inferTitle() {
+        // 根据异常名称推断标题
+        // ...
+    }
+}</code></pre>
+    </div>
+    
+    <h3>特殊场景对话框</h3>
+    <div class="code-block">
+        <pre><code>// 重定向警告对话框
+export class RedirectWarningDialog extends Component {
+    static template = "web.RedirectWarningDialog";
+    static components = { Dialog };
+    static props = { ...standardErrorDialogProps };
+
+    setup() {
+        this.actionService = useService("action");
+        const { data, subType } = this.props;
+        const [message, actionId, buttonText, additionalContext] = data.arguments;
+        this.title = capitalize(subType) || _t("Odoo Warning");
+        this.message = message;
+        this.actionId = actionId;
+        this.buttonText = buttonText;
+        this.additionalContext = additionalContext;
+    }
+    
+    async onClick() {
+        // 处理重定向按钮点击
+        // ...
+    }
+}
+
+// 504错误对话框
+export class Error504Dialog extends Component {
+    static template = "web.Error504Dialog";
+    static components = { Dialog };
+    static props = { ...standardErrorDialogProps };
+}
+
+// 会话过期对话框
+export class SessionExpiredDialog extends Component {
+    static template = "web.SessionExpiredDialog";
+    static components = { Dialog };
+    static props = { ...standardErrorDialogProps };
+
+    onClick() {
+        browser.location.reload();
+    }
+}</code></pre>
+    </div>
+    
+    <h3>异常类型映射</h3>
+    <div class="code-block">
+        <pre><code>export const odooExceptionTitleMap = new Map(
+    Object.entries({
+        "odoo.addons.base.models.ir_mail_server.MailDeliveryException": _t("MailDeliveryException"),
+        "odoo.exceptions.AccessDenied": _t("Access Denied"),
+        "odoo.exceptions.MissingError": _t("Missing Record"),
+        "odoo.addons.web.controllers.action.MissingActionError": _t("Missing Action"),
+        "odoo.exceptions.UserError": _t("Invalid Operation"),
+        "odoo.exceptions.ValidationError": _t("Validation Error"),
+        "odoo.exceptions.AccessError": _t("Access Error"),
+        "odoo.exceptions.Warning": _t("Warning"),
+    })
+);
+
+registry
+    .category("error_dialogs")
+    .add("odoo.exceptions.AccessDenied", WarningDialog)
+    .add("odoo.exceptions.AccessError", WarningDialog)
+    .add("odoo.exceptions.MissingError", WarningDialog)
+    .add("odoo.addons.web.controllers.action.MissingActionError", WarningDialog)
+    .add("odoo.exceptions.UserError", WarningDialog)
+    .add("odoo.exceptions.ValidationError", WarningDialog)
+    .add("odoo.exceptions.RedirectWarning", RedirectWarningDialog)
+    .add("odoo.http.SessionExpiredException", SessionExpiredDialog)
+    .add("werkzeug.exceptions.Forbidden", SessionExpiredDialog)
+    .add("504", Error504Dialog);</code></pre>
+    </div>
+    
+    <h3>关键组件解释</h3>
+    <table>
+        <tr>
+            <th>组件名</th>
+            <th>功能描述</th>
+            <th>使用场景</th>
+            <th>特殊属性/方法</th>
+        </tr>
+        <tr>
+            <td>ErrorDialog</td>
+            <td>基础错误对话框，提供通用错误展示功能</td>
+            <td>通用错误展示</td>
+            <td>showTraceback切换、复制功能</td>
+        </tr>
+        <tr>
+            <td>ClientErrorDialog</td>
+            <td>客户端JavaScript错误对话框</td>
+            <td>前端代码错误</td>
+            <td>继承自ErrorDialog，仅修改标题</td>
+        </tr>
+        <tr>
+            <td>NetworkErrorDialog</td>
+            <td>网络相关错误对话框</td>
+            <td>网络请求失败、CORS问题</td>
+            <td>继承自ErrorDialog，仅修改标题</td>
+        </tr>
+        <tr>
+            <td>RPCErrorDialog</td>
+            <td>RPC调用错误对话框</td>
+            <td>服务器返回错误</td>
+            <td>智能标题推断、合并服务器和客户端错误信息</td>
+        </tr>
+        <tr>
+            <td>WarningDialog</td>
+            <td>警告提示对话框</td>
+            <td>用户操作警告、验证错误</td>
+            <td>简化界面，无技术详情</td>
+        </tr>
+        <tr>
+            <td>RedirectWarningDialog</td>
+            <td>带重定向操作的警告对话框</td>
+            <td>需引导用户到其他界面</td>
+            <td>提供操作按钮和重定向功能</td>
+        </tr>
+        <tr>
+            <td>SessionExpiredDialog</td>
+            <td>会话过期提示对话框</td>
+            <td>用户会话超时</td>
+            <td>提供刷新页面的按钮</td>
+        </tr>
+        <tr>
+            <td>Error504Dialog</td>
+            <td>网关超时错误对话框</td>
+            <td>服务器响应超时</td>
+            <td>特定于504错误的友好提示</td>
+        </tr>
+    </table>
+    
+    <h2>对话框展示流程</h2>
+    <p>错误对话框的展示流程可以概括为以下几点：</p>
+    
+    <div class="flow-diagram">
+        <h3>错误捕获到显示的流程</h3>
+        <ol>
+            <li>错误被错误服务捕获并传递给错误处理器</li>
+            <li>错误处理器根据错误类型选择合适的对话框组件</li>
+            <li>如果是RPC错误，尝试从errorDialogRegistry中查找匹配的对话框</li>
+            <li>创建对话框组件实例并传入错误相关数据</li>
+            <li>对话框组件根据传入的数据准备显示内容</li>
+            <li>用户可以查看错误信息，必要时展开技术详情或执行其他操作</li>
+        </ol>
+    </div>
+    
+    <h3>RPCErrorDialog标题推断逻辑</h3>
+    <div class="flow-diagram">
+        <ol>
+            <li>首先检查异常名称是否在odooExceptionTitleMap中有映射</li>
+            <li>如有映射，使用预定义的标题</li>
+            <li>否则，根据错误类型(server/script/network)选择标题</li>
+            <li>如果都没有匹配，使用默认标题"Odoo Error"</li>
+        </ol>
+    </div>
+    
+    <h2>常见对话框类型与展示</h2>
+    <p>Odoo错误对话框系统根据错误性质提供了不同的展示方式：</p>
+    
+    <div class="dialog-examples">
+        <div class="dialog-item">
+            <h4>一般错误对话框</h4>
+            <p>包含错误消息和可选的技术详情，用于展示系统错误：</p>
+            <pre><code>[错误标题]
+很抱歉，操作未能完成，发生了错误。
+
+[错误消息]
+
+[显示/隐藏技术详情按钮]
+[技术详情区域 - 可折叠]
+[复制按钮]</code></pre>
+        </div>
+        <div class="dialog-item">
+            <h4>警告对话框</h4>
+            <p>简化的对话框，用于显示用户操作错误：</p>
+            <pre><code>[警告标题]
+[警告消息]
+
+[确定按钮]</code></pre>
+        </div>
+        <div class="dialog-item">
+            <h4>重定向警告对话框</h4>
+            <p>带有操作选项的警告对话框：</p>
+            <pre><code>[警告标题]
+[警告消息]
+
+[取消按钮] [操作按钮]</code></pre>
+        </div>
+        <div class="dialog-item">
+            <h4>会话过期对话框</h4>
+            <p>提示用户会话已过期并需要刷新：</p>
+            <pre><code>会话已过期
+您的会话已过期，需要重新登录。
+
+[刷新按钮]</code></pre>
+        </div>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，错误对话框系统具有以下增强特性：</p>
+    <ul>
+        <li>改进的上下文信息收集，包括服务器主机、模型和记录ID</li>
+        <li>更好的技术详情格式化，包括错误链显示</li>
+        <li>复制功能改进，复制的内容更加完整和有条理</li>
+        <li>与调试模式的更好集成</li>
+        <li>更友好的界面，包括更多可操作选项</li>
+        <li>对话框组件与服务器端异常的更精确映射</li>
+    </ul>
+    
+    <h2>开发者使用指南</h2>
+    <p>如何创建和注册自定义错误对话框？下面是一个例子：</p>
+    
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { Dialog } from "@web/core/dialog/dialog";
+import { standardErrorDialogProps } from "@web/core/errors/error_dialogs";
+
+// 自定义错误对话框组件
+export class CustomErrorDialog extends Component {
+    static template = "my_module.CustomErrorDialog";
+    static components = { Dialog };
+    static props = { 
+        ...standardErrorDialogProps,
+        additionalInfo: { type: Object, optional: true }
+    };
+    
+    setup() {
+        this.title = "自定义错误";
+        this.errorCode = this.props.additionalInfo?.errorCode || "未知";
+        this.solutions = this.props.additionalInfo?.solutions || [];
+    }
+    
+    onTrySolution(solutionId) {
+        // 实现解决方案尝试逻辑
+        console.log(`尝试解决方案 ${solutionId}`);
+    }
+}
+
+// 注册自定义错误对话框
+registry.category("error_dialogs").add(
+    "my_module.CustomError", 
+    CustomErrorDialog
+);</code></pre>
+    </div>
+    
+    <p>在模板中定义对话框UI：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;!-- 在 my_module.xml 中定义模板 --&gt;
+&lt;templates&gt;
+    &lt;t t-name="my_module.CustomErrorDialog" owl="1"&gt;
+        &lt;Dialog&gt;
+            &lt;t t-set-slot="title"&gt;
+                &lt;t t-esc="title"/&gt;
+            &lt;/t&gt;
+            &lt;div class="custom-error-content"&gt;
+                &lt;div class="error-message"&gt;
+                    &lt;t t-esc="props.message"/&gt;
+                &lt;/div&gt;
+                &lt;div class="error-code"&gt;
+                    错误代码: &lt;t t-esc="errorCode"/&gt;
+                &lt;/div&gt;
+                &lt;div t-if="solutions.length" class="error-solutions"&gt;
+                    &lt;h4&gt;可能的解决方案:&lt;/h4&gt;
+                    &lt;ul&gt;
+                        &lt;li t-foreach="solutions" t-as="solution" t-key="solution.id"&gt;
+                            &lt;t t-esc="solution.text"/&gt;
+                            &lt;button t-if="solution.action" class="btn btn-sm btn-primary ms-2"
+                                    t-on-click="() => this.onTrySolution(solution.id)"&gt;
+                                尝试
+                            &lt;/button&gt;
+                        &lt;/li&gt;
+                    &lt;/ul&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;t t-set-slot="footer"&gt;
+                &lt;button class="btn btn-primary" t-on-click="props.close"&gt;关闭&lt;/button&gt;
+            &lt;/t&gt;
+        &lt;/Dialog&gt;
+    &lt;/t&gt;
+&lt;/templates&gt;</code></pre>
+    </div>
+    
+    <h3>从错误处理器中使用自定义对话框</h3>
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+import { MyModuleError } from "./custom_errors";
+
+// 处理自定义模块错误
+function myModuleErrorHandler(env, error, originalError) {
+    if (originalError instanceof MyModuleError) {
+        // 显示自定义错误对话框
+        env.services.dialog.add("my_module.CustomErrorDialog", {
+            message: originalError.message,
+            name: originalError.name,
+            traceback: error.traceback,
+            additionalInfo: {
+                errorCode: originalError.code,
+                solutions: originalError.solutions,
+            }
+        });
+        return true;
+    }
+    return false;
+}
+
+// 注册自定义错误处理器
+registry.category("error_handlers").add(
+    "myModuleErrorHandler", 
+    myModuleErrorHandler, 
+    { sequence: 95 }
+);</code></pre>
+    </div>
+    
+    <h3>注意事项</h3>
+    <div class="warning">
+        <strong>提示：</strong>在设计自定义错误对话框时，请注意以下几点：
+        <ul>
+            <li>保持标准错误属性，同时可以添加特定于你的对话框的额外属性</li>
+            <li>确保对话框提供足够的信息，帮助用户理解问题</li>
+            <li>对于需要用户采取行动的错误，提供清晰的操作指引</li>
+            <li>避免在对话框中包含过多技术细节，除非用户明确要求查看</li>
+            <li>确保错误消息的国际化，使用_t函数包装所有文本</li>
+            <li>对话框组件应遵循Owl组件最佳实践，避免副作用</li>
+        </ul>
+    </div>
+    
+    <h2>与其他模块的交互</h2>
+    <p>错误对话框组件与以下模块紧密协作：</p>
+    <ul>
+        <li><strong>error_service.js</strong>：提供错误捕获机制</li>
+        <li><strong>error_handlers.js</strong>：决定何时显示何种对话框</li>
+        <li><strong>error_utils.js</strong>：提供错误处理的工具函数</li>
+        <li><strong>dialog组件和服务</strong>：提供对话框的基础框架</li>
+        <li><strong>registry</strong>：用于注册和查找错误对话框组件</li>
+        <li><strong>popover</strong>：用于显示复制成功等临时提示</li>
+        <li><strong>action服务</strong>：用于执行重定向等操作</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>error_dialogs.js提供了Odoo前端错误显示的UI组件，它具有以下特点：</p>
+    <ul>
+        <li>提供了一套完整的错误对话框组件体系</li>
+        <li>支持不同错误类型的差异化展示</li>
+        <li>提供技术详情的展开/折叠功能</li>
+        <li>支持错误信息一键复制</li>
+        <li>实现了服务器异常类型到对话框组件的映射</li>
+        <li>针对特殊错误场景提供专用对话框</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计自定义错误处理时，建议优先使用现有的对话框类型，必要时通过继承扩展它们。如果需要全新的错误展示方式，可以创建自定义对话框组件并注册到错误对话框注册表中。始终确保错误信息对用户友好且操作指引明确。
+    </div>
+</body>
+</html> 

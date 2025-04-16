@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo模块清单解析</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo模块清单（Module Manifests）</h1>
+    
+    <h2>文件概述</h2>
+    <p>清单文件（Manifest）用于将Python包声明为Odoo模块并指定模块元数据。它是一个名为<code>__manifest__.py</code>的文件，包含一个Python字典，其中每个键指定模块的元数据。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>模块清单是Odoo模块的"身份证"，定义了模块的基本信息、依赖关系、数据文件和行为特性，是Odoo模块系统的基础。
+    </div>
+    
+    <h2>基本结构</h2>
+    <div class="code-block">
+        <pre><code>{
+    'name': "A Module",
+    'version': '1.0',
+    'depends': ['base'],
+    'author': "Author Name",
+    'category': 'Category',
+    'description': """
+    Description text
+    """,
+    # 安装时始终加载的数据文件
+    'data': [
+        'views/mymodule_view.xml',
+    ],
+    # 仅在演示模式下加载的演示数据文件
+    'demo': [
+        'demo/demo_data.xml',
+    ],
+}</code></pre>
+    </div>
+    
+    <h2>可用的清单字段</h2>
+    
+    <h3>基本信息字段</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>name</code></td>
+            <td>str</td>
+            <td>必填</td>
+            <td>模块的人类可读名称</td>
+        </tr>
+        <tr>
+            <td><code>version</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块版本，应遵循语义化版本规则</td>
+        </tr>
+        <tr>
+            <td><code>description</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块的扩展描述，使用reStructuredText格式</td>
+        </tr>
+        <tr>
+            <td><code>author</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块作者名称</td>
+        </tr>
+        <tr>
+            <td><code>website</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块作者的网站URL</td>
+        </tr>
+        <tr>
+            <td><code>maintainer</code></td>
+            <td>str</td>
+            <td>author</td>
+            <td>负责维护此模块的个人或实体，默认情况下假定作者是维护者</td>
+        </tr>
+    </table>
+    
+    <h3>分类与许可</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>license</code></td>
+            <td>str</td>
+            <td>LGPL-3</td>
+            <td>模块的分发许可证</td>
+        </tr>
+        <tr>
+            <td><code>category</code></td>
+            <td>str</td>
+            <td>Uncategorized</td>
+            <td>Odoo内的分类类别，大致表示模块的业务领域</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>许可证可选值：</strong>
+        <ul>
+            <li><code>GPL-2</code></li>
+            <li><code>GPL-2 or any later version</code></li>
+            <li><code>GPL-3</code></li>
+            <li><code>GPL-3 or any later version</code></li>
+            <li><code>AGPL-3</code></li>
+            <li><code>LGPL-3</code></li>
+            <li><code>Other OSI approved licence</code></li>
+            <li><code>OEEL-1</code> (Odoo Enterprise Edition License v1.0)</li>
+            <li><code>OPL-1</code> (Odoo Proprietary License v1.0)</li>
+            <li><code>Other proprietary</code></li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>关于类别：</strong>虽然建议使用现有类别，但该字段是自由格式的，未知类别会即时创建。可以使用分隔符"/"创建类别层次结构，例如<code>Foo / Bar</code>将创建一个类别<code>Foo</code>和一个作为<code>Foo</code>子类别的<code>Bar</code>，并将<code>Bar</code>设置为模块的类别。
+    </div>
+    
+    <h3>依赖与加载</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>depends</code></td>
+            <td>list(str)</td>
+            <td></td>
+            <td>必须在此模块之前加载的Odoo模块，可能是因为此模块使用它们创建的功能，或者因为它改变了它们定义的资源</td>
+        </tr>
+        <tr>
+            <td><code>data</code></td>
+            <td>list(str)</td>
+            <td></td>
+            <td>必须始终随模块安装或更新的数据文件列表（从模块根目录的路径列表）</td>
+        </tr>
+        <tr>
+            <td><code>demo</code></td>
+            <td>list(str)</td>
+            <td></td>
+            <td>仅在演示模式下安装或更新的数据文件列表</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>依赖说明：</strong>安装模块时，所有依赖项会在模块之前安装。同样，依赖项会在模块加载之前加载。
+    </div>
+    
+    <div class="note">
+        <strong>重要提示：</strong>模块<code>base</code>始终安装在任何Odoo实例中。但仍需将其指定为依赖项，以确保<code>base</code>更新时模块也会更新。
+    </div>
+    
+    <h3>自动安装与可安装性</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>auto_install</code></td>
+            <td>bool 或 list(str)</td>
+            <td>False</td>
+            <td>如果为<code>True</code>，当所有依赖项都已安装时，将自动安装此模块</td>
+        </tr>
+        <tr>
+            <td><code>installable</code></td>
+            <td>bool</td>
+            <td>True</td>
+            <td>用户是否可以从Web UI安装模块</td>
+        </tr>
+        <tr>
+            <td><code>application</code></td>
+            <td>bool</td>
+            <td>False</td>
+            <td>模块是否应被视为完整的应用程序(<code>True</code>)或仅是为现有应用程序模块提供额外功能的技术模块(<code>False</code>)</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>自动安装说明：</strong>
+        <p>通常用于"链接模块"，实现两个独立模块之间的协同集成。</p>
+        <p>例如，<code>sale_crm</code>依赖于<code>sale</code>和<code>crm</code>，并设置为<code>auto_install</code>。当<code>sale</code>和<code>crm</code>都安装时，它会自动将CRM活动跟踪添加到销售订单中，而<code>sale</code>或<code>crm</code>互不感知对方。</p>
+        <p>如果是列表类型，则必须包含依赖项的子集。一旦子集中的所有依赖项都已安装，此模块将自动安装。剩余的依赖项也将自动安装。如果列表为空，则此模块将始终自动安装，无论其依赖项如何，并且这些依赖项也将安装。</p>
+    </div>
+    
+    <h3>外部依赖</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>external_dependencies</code></td>
+            <td>dict(key=list(str))</td>
+            <td></td>
+            <td>包含Python和/或二进制依赖项的字典</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>外部依赖说明：</strong>
+        <p>对于Python依赖项，必须为该字典定义<code>python</code>键，并为其分配要导入的Python模块列表。</p>
+        <p>对于二进制依赖项，必须为该字典定义<code>bin</code>键，并为其分配二进制可执行文件名称的列表。</p>
+        <p>如果主机上未安装Python模块或在主机的PATH环境变量中找不到二进制可执行文件，则不会安装该模块。</p>
+    </div>
+    
+    <h3>资源与钩子</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>assets</code></td>
+            <td>dict</td>
+            <td></td>
+            <td>定义如何在各种资源包中加载所有静态文件。有关如何描述包的更多详细信息，请参阅assets页面</td>
+        </tr>
+        <tr>
+            <td><code>pre_init_hook</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块安装前执行的钩子函数名</td>
+        </tr>
+        <tr>
+            <td><code>post_init_hook</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块安装后执行的钩子函数名</td>
+        </tr>
+        <tr>
+            <td><code>uninstall_hook</code></td>
+            <td>str</td>
+            <td></td>
+            <td>模块卸载后执行的钩子函数名</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>钩子函数说明：</strong>
+        <p><code>pre_init_hook</code>：接受游标作为其唯一参数，此函数在模块安装之前执行。</p>
+        <p><code>post_init_hook</code>：接受游标和注册表作为其参数，此函数在模块安装后立即执行。</p>
+        <p><code>uninstall_hook</code>：接受游标和注册表作为其参数，此函数在模块卸载后执行。</p>
+        <p>这些钩子仅在通过API极其困难或不可能进行此模块所需的设置/清理时才应使用。</p>
+    </div>
+    
+    <h3>废弃字段</h3>
+    <table>
+        <tr>
+            <th>字段名</th>
+            <th>类型</th>
+            <th>默认值</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td><code>active</code></td>
+            <td>bool</td>
+            <td></td>
+            <td>已废弃。已被<code>auto_install</code>替代</td>
+        </tr>
+    </table>
+    
+    <h2>示例与最佳实践</h2>
+    
+    <h3>基本清单示例</h3>
+    <div class="code-block">
+        <pre><code>{
+    'name': "项目管理扩展",
+    'version': '1.0.0',
+    'category': 'Project/Management',
+    'summary': '为项目管理添加高级功能',
+    'description': """
+        此模块扩展了基本项目管理功能:
+            - 添加了高级报告
+            - 提供了团队协作工具
+            - 包含资源分配优化
+    """,
+    'author': "开发者名称",
+    'website': "https://www.example.com",
+    'license': 'LGPL-3',
+    
+    'depends': [
+        'base',
+        'project',
+        'hr',
+    ],
+    
+    'data': [
+        'security/ir.model.access.csv',
+        'views/project_views.xml',
+        'views/templates.xml',
+        'data/project_data.xml',
+    ],
+    
+    'demo': [
+        'demo/project_demo.xml',
+    ],
+    
+    'application': False,
+    'installable': True,
+    'auto_install': False,
+}</code></pre>
+    </div>
+    
+    <h3>带外部依赖的示例</h3>
+    <div class="code-block">
+        <pre><code>{
+    'name': "PDF报告增强",
+    'version': '1.0.0',
+    'depends': ['base', 'web'],
+    'external_dependencies': {
+        'python': ['reportlab', 'pypdf2'],
+        'bin': ['wkhtmltopdf']
+    },
+    'data': [
+        'report/report_templates.xml',
+    ],
+}</code></pre>
+    </div>
+    
+    <h3>使用钩子的示例</h3>
+    <div class="code-block">
+        <pre><code>{
+    'name': "数据迁移工具",
+    'version': '1.0.0',
+    'depends': ['base'],
+    'data': [
+        'views/migration_views.xml',
+    ],
+    'pre_init_hook': 'pre_init_check_database',
+    'post_init_hook': 'post_init_setup_data',
+    'uninstall_hook': 'uninstall_cleanup_data',
+}</code></pre>
+    </div>
+    
+    <h3>自动安装模块示例</h3>
+    <div class="code-block">
+        <pre><code>{
+    'name': "销售与CRM集成",
+    'version': '1.0.0',
+    'depends': ['sale', 'crm'],
+    'data': [
+        'views/sale_crm_views.xml',
+    ],
+    'auto_install': True,
+}</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li><strong>明确的依赖关系</strong>：确保列出模块所有必要的依赖项，即使是间接依赖的模块</li>
+        <li><strong>语义化版本</strong>：遵循主版本.次版本.补丁的版本命名规则</li>
+        <li><strong>清晰的描述</strong>：提供简洁但信息丰富的模块描述</li>
+        <li><strong>正确的许可证</strong>：确保使用与模块发布计划一致的许可证</li>
+        <li><strong>有序的数据文件</strong>：在data列表中按照依赖顺序排列文件（安全规则通常应首先加载）</li>
+    </ul>
+    
+    <h2>Odoo 18中的变化</h2>
+    <p>在Odoo 18中，模块清单的基本结构保持不变，但有以下值得注意的增强：</p>
+    <ul>
+        <li><code>auto_install</code>字段现在可以接受依赖项子集列表，提供更灵活的自动安装策略</li>
+        <li>添加了<code>assets</code>字段，用于更现代化地管理静态资源</li>
+        <li>优化了模块加载性能</li>
+    </ul>
+    
+    <div class="warning">
+        <strong>注意：</strong>旧版本的某些字段在Odoo 18中已不再使用，如<code>css</code>和<code>images</code>，建议使用新的<code>assets</code>系统代替。
+    </div>
+    
+    <h2>小结</h2>
+    <p>模块清单（Manifest）是Odoo模块系统的核心，它：</p>
+    <ul>
+        <li>定义了模块的身份和元数据</li>
+        <li>管理模块间的依赖关系</li>
+        <li>控制数据文件的加载</li>
+        <li>确定模块的安装和行为特性</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，清晰完整的清单文件是模块质量的重要指标。良好的清单文件有助于其他开发者理解模块的用途和依赖关系，也便于模块的维护和升级。
+    </div>
+</body>
+</html> 

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owl翻译系统详解</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Owl翻译系统全解析</h1>
+    
+    <h2>翻译概述</h2>
+    <p>如果正确设置，Owl可以翻译所有渲染的模板。为此，它需要一个翻译函数，该函数接收：</p>
+    <ul>
+        <li>一个字符串（要翻译的术语）</li>
+        <li>一个字符串（术语的翻译上下文）</li>
+    </ul>
+    <p>并返回一个字符串。</p>
+    
+    <div class="note">
+        <strong>核心概念：</strong>Owl的翻译系统允许应用程序以多种语言呈现，而无需为每种语言创建单独的模板。翻译是在模板编译时进行的，而不是在渲染时。
+    </div>
+    
+    <h2>基本用法</h2>
+    <p>例如，以下是一个简单的翻译函数实现：</p>
+    
+    <div class="code-block">
+        <pre><code>const translations = {
+  fr: {
+    hello: "bonjour",
+    yes: "oui",
+    no: "non",
+  },
+  pt: {
+    hello: "bom dia",
+    yes: "sim",
+    no: "não",
+  },
+};
+const translateFn = (str, ctx) => translations[ctx]?.[str] || str;
+
+const app = new App(Root, { templates, translateFn });</code></pre>
+    </div>
+    
+    <p>一旦设置好，所有渲染的模板都将使用<code>translateFn</code>进行翻译：</p>
+    <ul>
+        <li>每个文本节点将被替换为其翻译</li>
+        <li>以下属性值也将被翻译：<code>title</code>、<code>placeholder</code>、<code>label</code>和<code>alt</code></li>
+        <li>如果特殊属性<code>t-translation</code>的值为"off"，则可以禁用文本节点的翻译</li>
+        <li>翻译函数接收第二个参数，即上下文，可用于上下文化翻译。可以使用<code>t-translation-context</code>在节点及其子节点上全局设置该上下文。如果特定节点属性<code>x</code>需要另一个上下文，可以使用特殊指令<code>t-translation-context-x</code>指定该上下文。</li>
+    </ul>
+    
+    <h2>实际示例</h2>
+    <p>使用上面的<code>translateFn</code>，以下模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;hello&lt;/div&gt;
+&lt;div t-translation="off"&gt;hello&lt;/div&gt;
+&lt;div&gt;Are you sure?&lt;/div&gt;
+&lt;input placeholder="hello" other="yes"/&gt;</code></pre>
+    </div>
+    
+    <p>将被渲染为：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div&gt;bonjour&lt;/div&gt;
+&lt;div&gt;hello&lt;/div&gt;
+&lt;div&gt;Are you sure?&lt;/div&gt;
+&lt;input placeholder="bonjour" other="yes"/&gt;</code></pre>
+    </div>
+    
+    <p>以下模板：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div t-translation-context="fr" title="hello"&gt;hello&lt;/div&gt;
+&lt;div&gt;Are you sure?&lt;/div&gt;
+&lt;input t-translation-context-placeholder="pt" placeholder="hello" other="yes"/&gt;</code></pre>
+    </div>
+    
+    <p>将被渲染为：</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;div title="bonjour"&gt;bonjour&lt;/div&gt;
+&lt;div&gt;Are you sure?&lt;/div&gt;
+&lt;input placeholder="bom dia" other="yes"/&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>注意：</strong>翻译是在模板编译时完成的，而不是在渲染时。
+    </div>
+    
+    <h2>扩展可翻译属性</h2>
+    <p>在某些情况下，扩展可翻译属性列表是有用的。例如，您可能还想翻译<code>data-title</code>属性。为此，我们可以使用<code>translatableAttributes</code>选项定义其他属性：</p>
+    
+    <div class="code-block">
+        <pre><code>const app = new App(Root, { templates, translateFn, translatableAttributes: ["data-title"] });</code></pre>
+    </div>
+    
+    <p>也可以通过在属性前加上"-"前缀从默认列表中删除属性：</p>
+    
+    <div class="code-block">
+        <pre><code>const app = new App(Root, {
+  templates,
+  translateFn,
+  translatableAttributes: ["data-title", "-title"],
+});
+// data-title属性将被翻译，但title属性不会...</code></pre>
+    </div>
+    
+    <h2>翻译系统的配置流程</h2>
+    <div class="flow-diagram">
+        <h4>设置翻译系统的步骤</h4>
+        <ol>
+            <li>创建翻译字典（可以是对象、数据库或API调用）</li>
+            <li>实现翻译函数，该函数接收文本和上下文并返回翻译</li>
+            <li>在应用程序初始化时配置翻译函数</li>
+            <li>在模板中使用翻译上下文指令控制特定元素的翻译行为</li>
+        </ol>
+    </div>
+    
+    <h2>高级用法</h2>
+    
+    <h3>动态切换语言</h3>
+    <p>虽然Owl的翻译是在编译时进行的，但可以通过重新编译模板并重新渲染应用程序来动态切换语言：</p>
+    
+    <div class="code-block">
+        <pre><code>// 定义多语言翻译
+const allTranslations = {
+  en: {
+    hello: "Hello",
+    welcome: "Welcome",
+  },
+  fr: {
+    hello: "Bonjour",
+    welcome: "Bienvenue",
+  },
+  zh: {
+    hello: "你好",
+    welcome: "欢迎",
+  }
+};
+
+// 创建一个可以动态切换语言的状态
+let currentLang = "en";
+const translateFn = (str, ctx) => {
+  // 使用当前选择的语言
+  return allTranslations[currentLang]?.[str] || str;
+};
+
+// 初始化应用
+const app = new App(Root, { templates, translateFn });
+
+// 切换语言的函数
+function switchLanguage(lang) {
+  if (allTranslations[lang]) {
+    currentLang = lang;
+    // 重新加载模板并重新渲染应用
+    app.mount();
+  }
+}</code></pre>
+    </div>
+    
+    <h3>带有插值的翻译</h3>
+    <p>对于需要动态值的翻译，可以结合使用翻译系统和模板插值：</p>
+    
+    <div class="code-block">
+        <pre><code>// 在翻译字典中
+const translations = {
+  fr: {
+    "Hello, {0}!": "Bonjour, {0} !",
+    "You have {0} messages": "Vous avez {0} messages",
+  }
+};
+
+// 在组件中
+class Greeting extends Component {
+  static template = xml`
+    &lt;div&gt;Hello, {{props.name}}!&lt;/div&gt;
+    &lt;div&gt;You have {{props.msgCount}} messages&lt;/div&gt;
+  `;
+}
+
+// 结果: 如果用户名是"John"且有5条消息
+// "&lt;div&gt;Bonjour, John !&lt;/div&gt;&lt;div&gt;Vous avez 5 messages&lt;/div&gt;"</code></pre>
+    </div>
+    
+    <h2>在Odoo中的使用</h2>
+    <p>在Odoo中，翻译系统与全局的翻译基础设施集成。Odoo已经有一个强大的翻译系统，允许翻译模块中的所有字符串。Owl组件可以利用这个系统：</p>
+    
+    <div class="code-block">
+        <pre><code>// Odoo中的翻译函数通常是全局的_t函数
+// 它会根据用户的语言设置自动选择正确的翻译
+
+const translateFn = (str, ctx) => {
+  // 在Odoo中，上下文通常用于指定模块，这允许相同的字符串
+  // 在不同模块中有不同的翻译
+  return _t(str);
+};
+
+// 在组件模板中
+&lt;div t-translation-context="my_module"&gt;Welcome to our app&lt;/div&gt;</code></pre>
+    </div>
+    
+    <h2>最佳实践</h2>
+    <ul>
+        <li>为所有面向用户的文本使用翻译系统，即使您最初只支持一种语言</li>
+        <li>使用有意义的翻译上下文，以帮助翻译人员理解字符串的使用位置</li>
+        <li>避免在代码中拼接字符串，这使翻译变得困难；而是使用带有占位符的完整句子</li>
+        <li>记住翻译是在编译时进行的，因此动态内容需要特殊处理</li>
+        <li>选择可翻译的属性时要谨慎，只包括包含面向用户文本的属性</li>
+    </ul>
+    
+    <h2>在Odoo 18中的变化</h2>
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>改进的上下文支持</h4>
+            <p>Odoo 18中的翻译系统提供了更好的翻译上下文支持，使翻译更加准确。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>更好的属性处理</h4>
+            <p>可以更灵活地控制哪些属性应该被翻译，提高了翻译的精确性。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>编译优化</h4>
+            <p>翻译在编译时处理，减少了运行时的开销，提高了应用程序性能。</p>
+        </div>
+    </div>
+    
+    <h2>小结</h2>
+    <p>Owl的翻译系统提供了一种强大而灵活的方式来国际化您的应用程序。通过在模板编译时处理翻译，它确保了高性能，同时仍允许细粒度控制哪些内容应该被翻译以及如何翻译。</p>
+    
+    <div class="note">
+        <strong>记住：</strong>翻译是在模板编译时完成的，而不是在渲染时。这意味着动态内容（如来自API的数据）需要单独处理。
+    </div>
+</body>
+</html> 

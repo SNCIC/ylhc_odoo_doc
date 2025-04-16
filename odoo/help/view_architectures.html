@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 视图架构</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 视图架构</h1>
+    
+    <h2>视图架构</h2>
+    <p>视图架构是一种XML格式的描述，定义了不同视图类型的结构和行为。每种视图类型都有其特定的架构规范，包括允许的XML元素和属性。这些架构描述了界面的布局、内容和交互方式。</p>
+    
+    <div class="note">
+        <strong>注意：</strong>Odoo 18中进行了几项重要更改，包括将tree标签重命名为list标签，以及弃用attrs属性而改用有条件的域表达式。
+    </div>
+
+    <h2>常用视图类型</h2>
+    
+    <h3>表单视图 (Form)</h3>
+    <p>表单视图用于创建和编辑单个记录。它是最灵活的视图类型，支持复杂的布局和字段组织。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;form string="表单标题"&gt;
+    &lt;sheet&gt;
+        &lt;field name="name"/&gt;
+        &lt;group&gt;
+            &lt;field name="field1"/&gt;
+            &lt;field name="field2"/&gt;
+        &lt;/group&gt;
+        &lt;notebook&gt;
+            &lt;page string="首页"&gt;
+                &lt;field name="line_ids"&gt;
+                    &lt;list&gt;
+                        &lt;field name="product_id"/&gt;
+                        &lt;field name="quantity"/&gt;
+                    &lt;/list&gt;
+                &lt;/field&gt;
+            &lt;/page&gt;
+        &lt;/notebook&gt;
+    &lt;/sheet&gt;
+&lt;/form&gt;</code></pre>
+    </div>
+    
+    <p>主要组件：</p>
+    <ul>
+        <li><code>&lt;sheet&gt;</code>：主内容区域，通常包含所有可编辑字段</li>
+        <li><code>&lt;header&gt;</code>：放置按钮和状态条的顶部区域</li>
+        <li><code>&lt;group&gt;</code>：将字段分组显示，通常以两列布局</li>
+        <li><code>&lt;notebook&gt;</code>和<code>&lt;page&gt;</code>：创建选项卡式界面</li>
+        <li><code>&lt;footer&gt;</code>：通常在弹出窗口中用于放置操作按钮</li>
+    </ul>
+    
+    <h3>列表视图 (List)</h3>
+    <p>列表视图（在Odoo 18前称为树视图）用于以表格形式显示记录集合。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;list string="列表标题" editable="bottom"&gt;
+    &lt;field name="sequence" widget="handle"/&gt;
+    &lt;field name="name"/&gt;
+    &lt;field name="date"/&gt;
+    &lt;field name="amount" sum="合计"/&gt;
+    &lt;field name="state"/&gt;
+&lt;/list&gt;</code></pre>
+    </div>
+    
+    <p>重要属性：</p>
+    <ul>
+        <li><code>editable</code>：设为"top"或"bottom"使列表可直接编辑</li>
+        <li><code>default_order</code>：设置默认排序字段和方向</li>
+        <li><code>decoration-XXX</code>：根据条件为行添加CSS类</li>
+        <li><code>sum</code>、<code>avg</code>等：在字段上显示聚合函数</li>
+    </ul>
+    
+    <div class="note">
+        <strong>更改说明：</strong>在Odoo 18中，<code>&lt;tree&gt;</code>标签已正式更名为<code>&lt;list&gt;</code>。虽然旧标签仍然可用，但建议使用新标签。
+    </div>
+    
+    <h3>看板视图 (Kanban)</h3>
+    <p>看板视图将记录显示为卡片，支持拖放操作和视觉分组。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;kanban default_group_by="state"&gt;
+    &lt;field name="state"/&gt;
+    &lt;field name="user_id"/&gt;
+    &lt;field name="name"/&gt;
+    &lt;templates&gt;
+        &lt;t t-name="kanban-box"&gt;
+            &lt;div class="oe_kanban_global_click"&gt;
+                &lt;div class="oe_kanban_content"&gt;
+                    &lt;div&gt;&lt;strong&gt;&lt;field name="name"/&gt;&lt;/strong&gt;&lt;/div&gt;
+                    &lt;div class="text-muted"&gt;
+                        &lt;field name="user_id"/&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/t&gt;
+    &lt;/templates&gt;
+&lt;/kanban&gt;</code></pre>
+    </div>
+    
+    <p>特点：</p>
+    <ul>
+        <li>使用QWeb模板定义卡片布局</li>
+        <li>支持自动分组和拖放功能</li>
+        <li><code>oe_kanban_global_click</code>类使整个卡片可点击</li>
+        <li>可以包含图像、徽章和进度条等丰富元素</li>
+    </ul>
+    
+    <h3>搜索视图 (Search)</h3>
+    <p>搜索视图定义搜索、过滤和分组选项。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;search string="搜索标题"&gt;
+    &lt;field name="name"/&gt;
+    &lt;field name="customer_id"/&gt;
+    &lt;filter name="my_records" string="我的记录" domain="[('user_id', '=', uid)]"/&gt;
+    &lt;filter name="state_active" string="有效" domain="[('state', '=', 'active')]"/&gt;
+    &lt;group expand="0" string="分组依据"&gt;
+        &lt;filter name="group_customer" string="客户" context="{'group_by': 'customer_id'}"/&gt;
+        &lt;filter name="group_state" string="状态" context="{'group_by': 'state'}"/&gt;
+    &lt;/group&gt;
+&lt;/search&gt;</code></pre>
+    </div>
+    
+    <p>组件：</p>
+    <ul>
+        <li><code>&lt;field&gt;</code>：创建可搜索字段</li>
+        <li><code>&lt;filter&gt;</code>：预定义筛选条件</li>
+        <li><code>&lt;separator/&gt;</code>：在筛选器之间添加视觉分隔</li>
+        <li><code>&lt;group&gt;</code>：组织分组选项</li>
+    </ul>
+    
+    <h3>日历视图 (Calendar)</h3>
+    <p>日历视图以日历形式显示带有日期/时间字段的记录。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;calendar string="日历标题" date_start="start_date" date_stop="end_date" color="user_id"&gt;
+    &lt;field name="name"/&gt;
+    &lt;field name="user_id"/&gt;
+&lt;/calendar&gt;</code></pre>
+    </div>
+    
+    <p>必要属性：</p>
+    <ul>
+        <li><code>date_start</code>：指定开始日期/时间字段</li>
+        <li><code>date_stop</code>：可选的结束日期/时间字段</li>
+        <li><code>color</code>：用于为事件着色的字段</li>
+        <li><code>mode</code>：默认视图模式（日、周、月）</li>
+    </ul>
+    
+    <h3>数据透视表视图 (Pivot)</h3>
+    <p>数据透视表视图用于分析和汇总数据。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;pivot string="数据透视表" display_quantity="true"&gt;
+    &lt;field name="customer_id" type="row"/&gt;
+    &lt;field name="date" interval="month" type="col"/&gt;
+    &lt;field name="amount" type="measure"/&gt;
+&lt;/pivot&gt;</code></pre>
+    </div>
+    
+    <p>字段类型：</p>
+    <ul>
+        <li><code>type="row"</code>：行维度</li>
+        <li><code>type="col"</code>：列维度</li>
+        <li><code>type="measure"</code>：计算度量</li>
+    </ul>
+    
+    <h3>图表视图 (Graph)</h3>
+    <p>图表视图以条形图、折线图或饼图形式可视化数据。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;graph string="图表标题" type="bar" stacked="True"&gt;
+    &lt;field name="state" type="row"/&gt;
+    &lt;field name="amount" type="measure"/&gt;
+&lt;/graph&gt;</code></pre>
+    </div>
+    
+    <p>重要属性：</p>
+    <ul>
+        <li><code>type</code>：图表类型（bar、line、pie）</li>
+        <li><code>stacked</code>：是否堆叠（条形图）</li>
+    </ul>
+    
+    <h2>通用组件</h2>
+    
+    <h3>按钮 (Button)</h3>
+    <p>按钮用于触发方法或执行操作。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;button name="action_confirm" string="确认" type="object" class="oe_highlight"/&gt;
+&lt;button name="%(action_id)d" string="相关订单" type="action"/&gt;</code></pre>
+    </div>
+    
+    <p>按钮类型：</p>
+    <ul>
+        <li><code>type="object"</code>：调用记录上的方法</li>
+        <li><code>type="action"</code>：执行窗口操作</li>
+        <li><code>special="cancel"</code>：关闭弹出窗口而不保存</li>
+    </ul>
+    
+    <h3>字段小部件 (Field Widgets)</h3>
+    <p>小部件控制字段的显示和交互方式。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done"/&gt;
+&lt;field name="image" widget="image"/&gt;
+&lt;field name="priority" widget="priority"/&gt;
+&lt;field name="html_content" widget="html"/&gt;</code></pre>
+    </div>
+    
+    <p>常用小部件：</p>
+    <ul>
+        <li><code>statusbar</code>：状态栏显示，通常用于状态字段</li>
+        <li><code>image</code>：显示和上传图像</li>
+        <li><code>many2many_tags</code>：以标签形式显示多对多字段</li>
+        <li><code>handle</code>：提供拖放排序功能</li>
+        <li><code>html</code>：HTML富文本编辑器</li>
+    </ul>
+    
+    <h2>动态表达式</h2>
+    <p>在Odoo 18中，动态表达式通过域语法实现，可以基于记录状态动态改变UI元素。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="customer_name" readonly="[('state', 'in', ['confirmed', 'done'])]"/&gt;
+&lt;field name="amount" required="[('is_paid', '=', True)]"/&gt;
+&lt;button name="action_confirm" invisible="[('state', '!=', 'draft')]"/&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>重要变化：</strong>在Odoo 18中，<code>attrs</code>属性已被弃用，而改用直接在各属性上使用域表达式。例如，旧的<code>attrs="{'invisible': [('state', '!=', 'draft')]}"</code>现在写作<code>invisible="[('state', '!=', 'draft')]"</code>。
+    </div>
+    
+    <p>支持动态表达式的属性：</p>
+    <ul>
+        <li><code>invisible</code>：控制元素可见性</li>
+        <li><code>readonly</code>：控制只读状态</li>
+        <li><code>required</code>：控制必填状态</li>
+        <li><code>column_invisible</code>：控制列表视图中列的可见性</li>
+        <li><code>class</code>：基于条件添加CSS类</li>
+    </ul>
+    
+    <h2>QWeb模板</h2>
+    <p>QWeb是Odoo的模板引擎，主要用于看板视图和报表。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;t t-name="my_template"&gt;
+    &lt;div&gt;
+        &lt;t t-if="record.state.raw_value == 'done'"&gt;
+            &lt;span class="badge badge-success"&gt;完成&lt;/span&gt;
+        &lt;/t&gt;
+        &lt;t t-elif="record.state.raw_value == 'cancel'"&gt;
+            &lt;span class="badge badge-danger"&gt;取消&lt;/span&gt;
+        &lt;/t&gt;
+        &lt;p&gt;&lt;t t-esc="record.name.value"/&gt;&lt;/p&gt;
+        &lt;ul&gt;
+            &lt;t t-foreach="record.line_ids.raw_value" t-as="line"&gt;
+                &lt;li&gt;&lt;t t-esc="line.name"/&gt;&lt;/li&gt;
+            &lt;/t&gt;
+        &lt;/ul&gt;
+    &lt;/div&gt;
+&lt;/t&gt;</code></pre>
+    </div>
+    
+    <p>QWeb指令：</p>
+    <ul>
+        <li><code>t-if</code>、<code>t-elif</code>、<code>t-else</code>：条件渲染</li>
+        <li><code>t-foreach</code>、<code>t-as</code>：循环渲染</li>
+        <li><code>t-esc</code>：转义输出内容</li>
+        <li><code>t-raw</code>：不转义输出（小心XSS风险）</li>
+        <li><code>t-att</code>、<code>t-attf</code>：设置属性</li>
+    </ul>
+    
+    <h2>最佳实践</h2>
+    
+    <h3>视图组织</h3>
+    <ul>
+        <li>使用有意义的字段顺序，将相关字段分组</li>
+        <li>利用<code>&lt;group&gt;</code>和<code>&lt;notebook&gt;</code>组织复杂表单</li>
+        <li>使用<code>string</code>属性为组和页面添加描述性标签</li>
+    </ul>
+    
+    <h3>性能优化</h3>
+    <ul>
+        <li>仅在视图中包含必要的字段</li>
+        <li>对于大型<code>one2many</code>列表，考虑使用<code>limit</code>属性</li>
+        <li>复杂看板视图中避免过多字段和表达式</li>
+    </ul>
+    
+    <h3>用户体验</h3>
+    <ul>
+        <li>在表单顶部使用<code>&lt;header&gt;</code>放置常用操作按钮</li>
+        <li>将高级或不常用功能放在单独的选项卡中</li>
+        <li>使用<code>oe_highlight</code>类突出显示主要操作按钮</li>
+        <li>提供清晰的按钮标签和字段描述</li>
+    </ul>
+    
+    <h3>响应式设计</h3>
+    <p>Odoo 18提供了更好的移动支持，可以通过这些技术改善移动体验：</p>
+    <ul>
+        <li>使用<code>classes</code>属性添加响应式布局类</li>
+        <li>避免过于复杂的表格和布局</li>
+        <li>确保按钮和交互元素足够大，适合触摸操作</li>
+    </ul>
+    
+    <h2>排障技巧</h2>
+    
+    <h3>常见问题</h3>
+    <ul>
+        <li>确保XML架构有效，所有标签都正确关闭</li>
+        <li>检查字段名称是否与模型定义匹配</li>
+        <li>验证域表达式的语法是否正确</li>
+        <li>检查<code>inherit_id</code>引用是否存在</li>
+    </ul>
+    
+    <h3>调试工具</h3>
+    <ul>
+        <li>启用开发者模式查看更多技术细节</li>
+        <li>使用"编辑视图"功能直接从UI检查和修改视图</li>
+        <li>服务器日志提供有关视图错误的详细信息</li>
+    </ul>
+</body>
+</html>

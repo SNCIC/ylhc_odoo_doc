@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo 18 JavaScript参考</title>
+    <link rel="stylesheet" href="../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 JavaScript参考</h1>
+    
+    <h2>概述</h2>
+    <p>Odoo的前端使用JavaScript框架，允许开发人员创建交互式的用户界面。这个文档提供了Odoo 18 JavaScript框架的全面参考。</p>
+    
+    <div class="note">
+        <strong>重要提示：</strong>Odoo 18采用了现代的JavaScript架构，使用了Owl（Odoo Web Library）框架，这是一个轻量级的组件框架。
+    </div>
+    
+    <h2>Web客户端</h2>
+    <h3>单页应用</h3>
+    <p>Odoo Web客户端是一个单页应用程序(SPA)，这意味着在初始加载后，页面不会完全重新加载，只有需要的数据会通过API调用获取。</p>
+    
+    <h3>Web客户端JS代码概述</h3>
+    <p>Odoo Web客户端的JavaScript代码主要位于web模块中，这是Odoo基础系统的一部分。代码组织结构设计得尽可能保持简单，同时支持复杂的应用场景。</p>
+    
+    <h3>如果文件未加载/未更新该怎么办</h3>
+    <p>在开发过程中，有时候你可能会遇到JavaScript文件未被正确加载或更新的情况。这可能是由于浏览器缓存引起的。解决方法包括：</p>
+    <ul>
+        <li>使用浏览器的开发者工具清除缓存</li>
+        <li>使用隐私/无痕模式</li>
+        <li>添加URL参数以防止缓存使用（如?debug=assets）</li>
+    </ul>
+    
+    <h2>加载JavaScript代码</h2>
+    <p>在Odoo中，JavaScript代码主要通过两种方式加载：</p>
+    <ol>
+        <li>随网页直接加载</li>
+        <li>按需加载（懒加载）</li>
+    </ol>
+    
+    <div class="code-block">
+        <pre><code>// 在manifest文件中声明JavaScript资源
+'assets': {
+    'web.assets_backend': [
+        'my_module/static/src/js/my_component.js',
+    ],
+}</code></pre>
+    </div>
+    
+    <h3>修补类</h3>
+    <p>Odoo 18提供了一种方式来"修补"已存在的类，这允许你扩展或修改现有的功能，而不需要直接修改原始代码。</p>
+    
+    <div class="code-block">
+        <pre><code>import { patch } from '@web/core/utils/patch';
+import { SomeComponent } from '@module/path/to/component';
+
+patch(SomeComponent.prototype, 'my_module.SomeComponent', {
+    someMethod() {
+        // 在调用原方法前做些事
+        const result = this._super(...arguments);
+        // 在调用原方法后做些事
+        return result;
+    },
+});</code></pre>
+    </div>
+    
+    <h2>注册表</h2>
+    <p>注册表（Registry）是Odoo中用于注册和检索组件、服务或其他对象的系统。这使得代码组织更加灵活，并支持可插拔式架构。</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+// 获取特定类别的注册表
+const actionRegistry = registry.category("actions");
+
+// 向注册表添加一个项
+actionRegistry.add("my_action", MyActionComponent);
+
+// 从注册表获取一个项
+const component = actionRegistry.get("my_action");</code></pre>
+    </div>
+    
+    <h2>服务</h2>
+    <p>服务是在Web客户端中提供特定功能的对象。例如，有处理Ajax请求、管理本地存储或处理用户通知的服务。</p>
+    
+    <h3>使用服务</h3>
+    <p>服务可以通过注册表访问，或者使用useService钩子在组件中使用。</p>
+    
+    <div class="code-block">
+        <pre><code>import { useService } from "@web/core/utils/hooks";
+
+class MyComponent extends Component {
+    setup() {
+        this.notification = useService("notification");
+        this.orm = useService("orm");
+    }
+    
+    async someMethod() {
+        try {
+            const result = await this.orm.call("model.name", "method_name", [args]);
+            this.notification.add("操作成功", { type: "success" });
+        } catch (error) {
+            this.notification.add("出错了", { type: "danger" });
+        }
+    }
+}</code></pre>
+    </div>
+    
+    <h3>与服务器通信</h3>
+    <p>Odoo提供了几种与服务器通信的方式：</p>
+    <ul>
+        <li><strong>ORM服务</strong>：用于调用模型方法</li>
+        <li><strong>RPC服务</strong>：用于低级别的RPC调用</li>
+        <li><strong>HTTP服务</strong>：用于发起HTTP请求</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>// 使用ORM服务
+const orm = useService("orm");
+const result = await orm.call("res.partner", "search_read", [[["is_company", "=", true]], ["name"]]);
+
+// 使用RPC服务
+const rpc = useService("rpc");
+const result = await rpc("/web/dataset/call_kw", {
+    model: "res.partner",
+    method: "search_read",
+    args: [[["is_company", "=", true]], ["name"]],
+    kwargs: {},
+});</code></pre>
+    </div>
+    
+    <h2>通知</h2>
+    <h3>显示通知</h3>
+    <p>通知服务允许你向用户显示临时消息，如成功或错误提示。</p>
+    
+    <div class="code-block">
+        <pre><code>const notification = useService("notification");
+
+// 显示信息通知
+notification.add("这是一条信息通知");
+
+// 显示成功通知
+notification.add("操作成功完成", { type: "success" });
+
+// 显示警告通知
+notification.add("请注意这个问题", { type: "warning" });
+
+// 显示错误通知
+notification.add("发生错误", { type: "danger" });
+
+// 显示粘性通知（不会自动消失）
+notification.add("重要信息", { type: "warning", sticky: true });</code></pre>
+    </div>
+    
+    <h2>系统托盘</h2>
+    <h3>添加新的系统托盘项</h3>
+    <p>系统托盘（Systray）是网页客户端右上角的区域，用于显示各种功能图标，如消息、日历等。</p>
+    
+    <div class="code-block">
+        <pre><code>import { registry } from "@web/core/registry";
+
+class MySystrayItem extends Component {
+    // 组件实现...
+}
+MySystrayItem.template = "my_module.MySystrayItem";
+
+// 注册系统托盘项
+// sequence决定显示顺序（较小的数字显示在前面）
+registry.category("systray").add("my_systray_item", {
+    Component: MySystrayItem,
+    sequence: 100,
+});</code></pre>
+    </div>
+    
+    <h2>翻译管理</h2>
+    <p>Odoo内置了强大的翻译功能，在JavaScript中可以使用特定的API来使用这些翻译。</p>
+    
+    <div class="code-block">
+        <pre><code>import { _t, _lt } from "@web/core/l10n/translation";
+
+// 静态字符串
+const message = _t("你好，世界！");
+
+// 用于延迟翻译的字符串（通常用于类属性）
+class MyClass {
+    static title = _lt("我的标题");
+}
+
+// 在组件模板中使用
+// <t t-esc="constructor.title" />  // 会被翻译</code></pre>
+    </div>
+    
+    <h2>会话</h2>
+    <h3>向会话添加信息</h3>
+    <p>会话对象包含有关当前用户会话的信息，如用户ID、公司等。有时，你可能需要向会话添加自定义信息。</p>
+    
+    <div class="code-block">
+        <pre><code>// 在Python端
+@route('/web/session/set_custom_data', type='json', auth="user")
+def session_set_custom_data(self, custom_data):
+    request.session.custom_data = custom_data
+    return True
+
+// 在JavaScript端
+import { session } from "@web/session";
+console.log(session.custom_data); // 访问自定义数据</code></pre>
+    </div>
+    
+    <h2>视图</h2>
+    <p>视图是Odoo UI的核心部分，它们定义了数据的呈现方式。Odoo支持多种视图类型，如列表、表单、看板等。</p>
+    
+    <div class="code-block">
+        <pre><code>// 注册一个自定义视图
+import { registry } from "@web/core/registry";
+
+class MyCustomView extends Component {
+    // 视图实现...
+}
+MyCustomView.template = "my_module.MyCustomView";
+
+registry.category("views").add("my_custom_view", {
+    component: MyCustomView,
+    multiRecord: true, // 是否显示多条记录
+});</code></pre>
+    </div>
+    
+    <h2>字段</h2>
+    <h3>装饰器</h3>
+    <p>装饰器用于根据记录的状态动态改变字段的外观。</p>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="state" decoration-danger="state == 'cancel'" decoration-warning="state == 'draft'" /&gt;</code></pre>
+    </div>
+    
+    <h3>非关系型字段</h3>
+    <p>Odoo中的非关系型字段包括基本类型如字符串、数字、布尔值等。每种字段类型都有特定的小部件来显示和编辑其值。</p>
+    
+    <h4>常见的非关系型字段小部件</h4>
+    <ul>
+        <li><strong>Char</strong>：文本字段</li>
+        <li><strong>Text</strong>：多行文本</li>
+        <li><strong>Integer</strong>：整数</li>
+        <li><strong>Float</strong>：浮点数</li>
+        <li><strong>Monetary</strong>：货币</li>
+        <li><strong>Date</strong>：日期</li>
+        <li><strong>Datetime</strong>：日期时间</li>
+        <li><strong>Boolean</strong>：布尔值</li>
+        <li><strong>Selection</strong>：选择项</li>
+        <li><strong>Binary</strong>：二进制数据</li>
+    </ul>
+    
+    <h3>关系型字段</h3>
+    <p>关系型字段用于表示模型之间的关系，如多对一、一对多、多对多等。</p>
+    
+    <h4>常见的关系型字段小部件</h4>
+    <ul>
+        <li><strong>Many2one</strong>：多对一关系</li>
+        <li><strong>One2many</strong>：一对多关系</li>
+        <li><strong>Many2many</strong>：多对多关系</li>
+        <li><strong>Reference</strong>：动态引用</li>
+    </ul>
+    
+    <h3>小部件</h3>
+    <p>小部件是用于显示和编辑字段值的UI组件。Odoo提供了许多内置小部件，你也可以创建自定义小部件。</p>
+    
+    <h4>常见小部件</h4>
+    <ul>
+        <li><strong>web_ribbon</strong>：在表单或看板卡片上显示彩带，通常用于标记状态</li>
+        <li><strong>many2many_tags</strong>：将多对多字段显示为标签列表</li>
+        <li><strong>many2many_checkboxes</strong>：将多对多字段显示为复选框列表</li>
+        <li><strong>image</strong>：显示图像</li>
+        <li><strong>week_days</strong>：显示星期选择器</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>&lt;field name="image_1920" widget="image" class="oe_avatar"/&gt;
+&lt;field name="tag_ids" widget="many2many_tags"/&gt;
+&lt;widget name="web_ribbon" title="已归档" bg_color="text-bg-danger"/&gt;</code></pre>
+    </div>
+    
+    <h2>客户端动作</h2>
+    <h3>添加客户端动作</h3>
+    <p>客户端动作是可以在Web客户端中执行的操作，通常显示为网页导航栏下的主要内容区域。</p>
+    
+    <div class="code-block">
+        <pre><code>// 在JavaScript中定义客户端动作组件
+import { registry } from "@web/core/registry";
+
+class MyClientAction extends Component {
+    // 组件实现...
+}
+MyClientAction.template = "my_module.MyClientAction";
+
+registry.category("actions").add("my-custom-action", MyClientAction);
+
+// 在XML中创建客户端动作记录
+&lt;record id="my_client_action" model="ir.actions.client"&gt;
+    &lt;field name="name"&gt;我的客户端动作&lt;/field&gt;
+    &lt;field name="tag"&gt;my-custom-action&lt;/field&gt;
+&lt;/record&gt;</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>注意：</strong>Odoo 18中，客户端动作是Owl组件，与早期版本的实现有所不同。确保理解Owl组件的生命周期和使用方式。
+    </div>
+</body>
+</html> 

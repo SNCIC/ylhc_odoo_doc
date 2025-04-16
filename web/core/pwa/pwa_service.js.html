@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo渐进式Web应用服务解析</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo渐进式Web应用服务解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>pwa_service.js</code>是Odoo框架中的核心服务文件，它提供了渐进式Web应用（Progressive Web App，简称PWA）功能的管理。该服务使Odoo应用能够提供类似原生应用的体验，包括离线访问、添加到主屏幕、推送通知等功能，从而提升用户体验和参与度。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>渐进式Web应用（PWA）是一种利用现代Web技术创建接近原生应用体验的应用程序。它结合了网页和原生应用的优点，提供了更快的加载速度、离线工作能力、添加到主屏幕和推送通知等功能。在Odoo中，PWA服务负责协调这些功能，并提供一致的安装和使用体验。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>应用安装管理</strong>：提供API来检测和触发PWA安装提示</li>
+        <li><strong>平台适配</strong>：自动处理不同浏览器和操作系统的PWA安装差异</li>
+        <li><strong>安装状态跟踪</strong>：维护PWA安装状态，避免重复提示安装</li>
+        <li><strong>清单检索</strong>：提供Web应用清单（manifest）的获取接口</li>
+        <li><strong>安装提示定制</strong>：支持针对不同平台的定制安装提示</li>
+    </ol>
+    
+    <h2>代码解析</h2>
+    <p>pwa_service.js的核心实现包含几个关键部分：</p>
+    
+    <h3>全局事件处理</h3>
+    <div class="code-block">
+        <pre><code>/* 理想情况下，服务应该直接添加事件监听器。遗憾的是，有时浏览器会在webclient（服务、组件等）准备好之前
+ * 触发事件。在这种情况下，我们必须尽早获取这个事件。服务可以验证事件是否已存储在这个变量中，
+ * 或者自己添加事件监听器，以确保_handleBeforeInstallPrompt函数在正确的时刻被调用，并能够向服务提供正确的信息。
+ */
+let BEFOREINSTALLPROMPT_EVENT;
+let REGISTER_BEFOREINSTALLPROMPT_EVENT;
+
+browser.addEventListener("beforeinstallprompt", (ev) => {
+    // 这个事件只有在浏览器可以显示原生安装提示时才会触发
+    // 这排除了隐私浏览标签页，以及在应用已安装时访问网站的情况
+    if (REGISTER_BEFOREINSTALLPROMPT_EVENT) {
+        // 服务在事件触发前已启动，更新服务
+        return REGISTER_BEFOREINSTALLPROMPT_EVENT(ev);
+    } else {
+        // 存储事件供以后使用
+        BEFOREINSTALLPROMPT_EVENT = ev;
+    }
+});</code></pre>
+    </div>
+    <p>这段代码处理"beforeinstallprompt"事件，这是PWA安装提示的核心事件。由于该事件可能在服务初始化前触发，代码使用了全局变量来捕获和存储事件。</p>
+    
+    <h3>服务定义</h3>
+    <div class="code-block">
+        <pre><code>const pwaService = {
+    dependencies: ["dialog"],
+    start(env, { dialog }) {
+        let _manifest;
+        let nativePrompt;
+
+        const state = reactive({
+            canPromptToInstall: false,
+            isAvailable: false,
+            isScopedApp: browser.location.href.includes("/scoped_app"),
+            isSupportedOnBrowser: false,
+            startUrl: "/odoo",
+            decline,
+            getManifest,
+            hasScopeBeenInstalled,
+            show,
+        });
+
+        // ... 其他内部函数和逻辑 ...
+
+        return state;
+    },
+};</code></pre>
+    </div>
+    <p>这是服务的基本结构，它声明了对dialog服务的依赖，并返回一个包含PWA功能接口的reactive状态对象。</p>
+    
+    <h3>安装状态管理</h3>
+    <div class="code-block">
+        <pre><code>function _getInstallationState(scope = state.startUrl) {
+    const installationState = browser.localStorage.getItem("pwaService.installationState");
+    return installationState ? JSON.parse(installationState)[scope] : "";
+}
+
+function _setInstallationState(value) {
+    const ls = JSON.parse(
+        browser.localStorage.getItem("pwaService.installationState") || "{}"
+    );
+    ls[state.startUrl] = value;
+    browser.localStorage.setItem("pwaService.installationState", JSON.stringify(ls));
+}
+
+function _removeInstallationState() {
+    const ls = JSON.parse(browser.localStorage.getItem("pwaService.installationState"));
+    delete ls[state.startUrl];
+    browser.localStorage.setItem("pwaService.installationState", JSON.stringify(ls));
+}</code></pre>
+    </div>
+    <p>这些函数管理PWA的安装状态，使用localStorage持久化存储用户的安装决定，避免对已拒绝安装的用户重复显示提示。</p>
+    
+    <h3>浏览器特性检测</h3>
+    <div class="code-block">
+        <pre><code>// PWA只能在应用未以独立模式启动时安装
+// 对于Apple设备，PWA在任何移动版Safari或桌面版Safari 17+上支持
+// 在Safari设备上，检查也基于display-mode，我们依赖installationState来决定是否显示提示
+state.isSupportedOnBrowser =
+    browser.BeforeInstallPromptEvent !== undefined ||
+    (isBrowserSafari() &&
+        !isDisplayStandalone() &&
+        (isIOS() ||
+            (isMacOS() && browser.navigator.userAgent.match(/Version\/(\d+)/)[1] >= 17)));</code></pre>
+    </div>
+    <p>这段代码检测当前浏览器是否支持PWA功能，考虑了不同平台的特性差异，特别是Safari浏览器的特殊处理。</p>
+    
+    <h3>beforeinstallprompt事件处理</h3>
+    <div class="code-block">
+        <pre><code>function _handleBeforeInstallPrompt(ev, installationState) {
+    nativePrompt = ev;
+    if (installationState === "accepted") {
+        // 如果这个事件在installationState已存储的情况下触发，意味着应用自上次安装后已被删除
+        // 可以显示提示，并重置安装状态
+        if (!isDisplayStandalone()) {
+            // 在作用域应用中，如果有不同作用域的manifest可用，事件可能会触发
+            _removeInstallationState();
+        }
+    }
+    state.canPromptToInstall = installationState !== "dismissed";
+    state.isAvailable = true;
+}</code></pre>
+    </div>
+    <p>这个函数处理beforeinstallprompt事件，更新PWA状态，并决定是否可以向用户显示安装提示。</p>
+    
+    <h3>清单获取</h3>
+    <div class="code-block">
+        <pre><code>async function getManifest() {
+    if (!_manifest) {
+        const manifest = await get(
+            document.querySelector("link[rel=manifest")?.getAttribute("href"),
+            "text"
+        );
+        _manifest = JSON.parse(manifest);
+    }
+    return _manifest;
+}</code></pre>
+    </div>
+    <p>这个函数负责获取和解析Web应用清单（manifest.json），该清单包含PWA的基本信息（如名称、图标、启动URL等）。</p>
+    
+    <h3>安装提示显示</h3>
+    <div class="code-block">
+        <pre><code>async function show({ onDone } = {}) {
+    if (!state.isAvailable) {
+        return;
+    }
+    if (nativePrompt) {
+        const res = await nativePrompt.prompt();
+        _setInstallationState(res.outcome);
+        state.canPromptToInstall = false;
+        if (onDone) {
+            onDone(res);
+        }
+    } else if (isBrowserSafari()) {
+        // 由于这些平台尚不支持原生安装提示，我们显示一个自定义对话框
+        // 解释如何将应用固定到应用程序菜单
+        dialog.add(InstallPrompt, {
+            onClose: () => {
+                if (onDone) {
+                    onDone({});
+                }
+                this.decline();
+            },
+        });
+    }
+}</code></pre>
+    </div>
+    <p>show函数是PWA安装提示的核心功能，它根据平台不同采取不同的安装策略：在支持原生PWA的浏览器上使用系统提示，在Safari等不支持的浏览器上显示自定义安装指导。</p>
+    
+    <h3>作用域检查</h3>
+    <div class="code-block">
+        <pre><code>// 这个函数不保证作用域仍然安装在设备上
+// 判断是否仍安装的唯一方法是依赖链接应用清单的页面上的BeforeInstallPrompt事件
+// 这仅用于指示应用之前是否已安装
+function hasScopeBeenInstalled(scope) {
+    return _getInstallationState(scope) === "accepted";
+}</code></pre>
+    </div>
+    <p>此函数用于检查特定作用域的PWA是否曾被安装，这对于管理多个作用域应用（如Odoo的ScopedApp）特别有用。</p>
+    
+    <h2>工作原理</h2>
+    <p>PWA服务的工作原理可以概括为以下几点：</p>
+    
+    <div class="flow-diagram">
+        <h3>PWA生命周期</h3>
+        <ol>
+            <li>浏览器加载Odoo应用并触发"beforeinstallprompt"事件（如果条件满足）</li>
+            <li>PWA服务初始化并检查浏览器支持</li>
+            <li>服务检查先前的安装状态，决定是否可以显示安装提示</li>
+            <li>用户或应用代码调用show()方法触发安装流程</li>
+            <li>根据平台不同，显示原生安装提示或自定义安装指导</li>
+            <li>用户做出决定（接受或拒绝）</li>
+            <li>服务记录用户的决定，更新状态</li>
+            <li>如果用户安装了PWA，下次启动时会以独立应用模式运行</li>
+        </ol>
+    </div>
+    
+    <h3>平台差异处理</h3>
+    <p>PWA服务针对不同平台采用不同的策略：</p>
+    <ul>
+        <li><strong>Chrome、Edge、Samsung Internet等现代浏览器</strong>：使用原生beforeinstallprompt事件和prompt()方法</li>
+        <li><strong>iOS Safari</strong>：使用自定义对话框指导用户添加到主屏幕</li>
+        <li><strong>macOS Safari 17+</strong>：提供针对桌面Safari的特殊安装指导</li>
+        <li><strong>非支持浏览器</strong>：禁用PWA功能，不显示安装选项</li>
+    </ul>
+    
+    <h2>使用示例</h2>
+    <p>以下是pwaService的几个实际使用场景：</p>
+    
+    <h3>示例1：基本安装按钮</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class InstallButton extends Component {
+    static template = `
+        <button 
+            t-if="state.showButton" 
+            t-on-click="installApp" 
+            class="btn btn-primary">
+            安装应用
+        </button>
+    `;
+    
+    setup() {
+        this.pwa = useService("pwa");
+        this.state = useState({
+            showButton: false
+        });
+        
+        // 根据PWA状态决定是否显示按钮
+        this.state.showButton = this.pwa.isAvailable && this.pwa.canPromptToInstall;
+        
+        // 清单加载后更新按钮文本
+        this.pwa.getManifest().then(manifest => {
+            this.state.appName = manifest.name || "应用";
+        });
+    }
+    
+    installApp() {
+        this.pwa.show({
+            onDone: (result) => {
+                if (result.outcome === "accepted") {
+                    console.log("用户已安装应用");
+                } else {
+                    console.log("用户拒绝安装应用");
+                }
+                // 更新按钮状态
+                this.state.showButton = this.pwa.canPromptToInstall;
+            }
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例2：智能安装提示</h3>
+    <div class="code-block">
+        <pre><code>import { Component, onMounted } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class SmartInstallPrompt extends Component {
+    static template = `
+        <div t-if="state.showBanner" class="o_pwa_install_banner">
+            <div class="o_banner_content">
+                <img t-if="state.appIcon" t-att-src="state.appIcon" class="o_app_icon"/>
+                <div class="o_banner_text">
+                    <h4>{{ state.title }}</h4>
+                    <p>{{ state.description }}</p>
+                </div>
+            </div>
+            <div class="o_banner_actions">
+                <button t-on-click="dismiss" class="btn btn-link">稍后再说</button>
+                <button t-on-click="install" class="btn btn-primary">立即安装</button>
+            </div>
+        </div>
+    `;
+    
+    setup() {
+        this.pwa = useService("pwa");
+        this.state = useState({
+            showBanner: false,
+            title: "安装Odoo应用",
+            description: "安装后可直接从主屏幕访问，无需打开浏览器",
+            appIcon: null
+        });
+        
+        // 在挂载后检查是否应显示提示
+        onMounted(async () => {
+            // 只有满足以下条件才显示提示：
+            // 1. PWA可用
+            // 2. 可以提示安装
+            // 3. 用户已在系统上至少使用了5分钟
+            if (this.pwa.isAvailable && this.pwa.canPromptToInstall) {
+                // 获取清单信息美化提示
+                const manifest = await this.pwa.getManifest();
+                this.state.title = `安装${manifest.name || "Odoo应用"}`;
+                this.state.description = manifest.description || "安装后可获得更好的体验";
+                
+                // 获取应用图标
+                if (manifest.icons && manifest.icons.length) {
+                    // 选择合适大小的图标
+                    const icon = manifest.icons.find(i => i.sizes.includes("192x192")) || 
+                                  manifest.icons[0];
+                    this.state.appIcon = icon.src;
+                }
+                
+                // 显示提示
+                this.state.showBanner = true;
+            }
+        });
+    }
+    
+    dismiss() {
+        // 记录用户拒绝，不再显示提示
+        this.pwa.decline();
+        this.state.showBanner = false;
+    }
+    
+    install() {
+        // 显示安装提示
+        this.pwa.show({
+            onDone: () => {
+                // 无论结果如何，隐藏横幅
+                this.state.showBanner = false;
+            }
+        });
+    }
+}</code></pre>
+    </div>
+    
+    <h3>示例3：作用域应用管理</h3>
+    <div class="code-block">
+        <pre><code>import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+class ScopedAppManager extends Component {
+    static template = `
+        <div class="o_scoped_apps_manager">
+            <h3>已安装的应用</h3>
+            <div class="o_scoped_apps_list">
+                <t t-foreach="state.installedApps" t-as="app" t-key="app.scope">
+                    <div class="o_scoped_app_item">
+                        <img t-att-src="app.icon" class="o_app_icon"/>
+                        <div class="o_app_info">
+                            <div class="o_app_name">{{ app.name }}</div>
+                            <div class="o_app_scope">{{ app.scope }}</div>
+                        </div>
+                        <a t-att-href="app.url" class="btn btn-sm btn-primary">打开</a>
+                    </div>
+                </t>
+            </div>
+            
+            <h3 class="mt-4">可安装的应用</h3>
+            <div class="o_scoped_apps_list">
+                <t t-foreach="state.availableApps" t-as="app" t-key="app.scope">
+                    <div class="o_scoped_app_item">
+                        <img t-att-src="app.icon" class="o_app_icon"/>
+                        <div class="o_app_info">
+                            <div class="o_app_name">{{ app.name }}</div>
+                            <div class="o_app_scope">{{ app.scope }}</div>
+                        </div>
+                        <button t-on-click="() => this.installApp(app)" 
+                                class="btn btn-sm btn-outline-primary">
+                            安装
+                        </button>
+                    </div>
+                </t>
+            </div>
+        </div>
+    `;
+    
+    setup() {
+        this.pwa = useService("pwa");
+        this.state = useState({
+            installedApps: [],
+            availableApps: []
+        });
+        
+        // 加载应用数据
+        this.loadApps();
+    }
+    
+    async loadApps() {
+        // 在实际应用中，这些数据通常来自服务器API
+        const appsData = [
+            { 
+                name: "Odoo讨论", 
+                scope: "/discuss",
+                url: "/discuss", 
+                icon: "/discuss/icon.png" 
+            },
+            { 
+                name: "Odoo CRM", 
+                scope: "/crm",
+                url: "/crm", 
+                icon: "/crm/icon.png" 
+            },
+            // ... 更多应用
+        ];
+        
+        // 分类已安装和可安装的应用
+        this.state.installedApps = appsData.filter(app => 
+            this.pwa.hasScopeBeenInstalled(app.scope)
+        );
+        
+        this.state.availableApps = appsData.filter(app => 
+            !this.pwa.hasScopeBeenInstalled(app.scope)
+        );
+    }
+    
+    installApp(app) {
+        // 导航到作用域应用安装页面
+        window.location.href = `/scoped_app?path=${app.scope.substring(1)}`;
+    }
+}</code></pre>
+    </div>
+    
+    <h2>注意事项与最佳实践</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>PWA安装提示受浏览器策略控制，不能在任意时刻触发，必须响应用户操作</li>
+            <li>Safari浏览器不支持标准的PWA安装API，需要使用自定义对话框引导用户</li>
+            <li>PWA状态存储在localStorage中，在隐私浏览模式下可能不可用</li>
+            <li>已安装的PWA在被卸载后，可能需要一段时间才能再次提示安装</li>
+            <li>不同浏览器的PWA支持程度不同，功能可能有所限制</li>
+            <li>PWA清单（manifest.json）必须正确配置，包括有效的图标、名称和范围</li>
+        </ul>
+    </div>
+    
+    <h3>最佳实践</h3>
+    <ul>
+        <li>提供明确的安装按钮，而不是依赖自动提示，这样用户体验更好</li>
+        <li>安装前先向用户解释PWA的优势，如更快的加载、离线访问等</li>
+        <li>针对不同平台提供不同的安装引导，特别是iOS设备</li>
+        <li>定期检查pwaService.isAvailable状态，以便在合适的时机提供安装选项</li>
+        <li>使用作用域应用（Scoped App）来提供针对特定功能的轻量级PWA</li>
+        <li>确保PWA离线功能正常工作，提供良好的service worker实现</li>
+    </ul>
+    
+    <h2>与其他模块的交互</h2>
+    <p>pwaService与Odoo UI系统中的其他几个模块紧密集成：</p>
+    <ul>
+        <li><strong>browser模块</strong>：提供对浏览器API的访问</li>
+        <li><strong>feature_detection</strong>：检测不同浏览器和平台的特性支持</li>
+        <li><strong>http_service</strong>：用于获取清单文件</li>
+        <li><strong>dialog服务</strong>：显示自定义安装提示</li>
+        <li><strong>InstallPrompt组件</strong>：定制平台特定的安装指导</li>
+    </ul>
+    
+    <div class="note">
+        <strong>提示：</strong>PWA是提升Odoo移动体验的重要工具。通过将Odoo应用安装到主屏幕，用户可以获得更接近原生应用的体验，这对提高用户参与度和满意度非常有效，特别是对于经常使用Odoo的用户。
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>在Odoo 18中，pwaService具有以下特点和改进：</p>
+    <ul>
+        <li>支持macOS Safari 17+，这是Safari首次支持桌面PWA</li>
+        <li>改进的作用域应用（Scoped App）支持，允许为不同模块提供专门的PWA</li>
+        <li>更好的安装状态管理，避免对已拒绝安装的用户显示重复提示</li>
+        <li>针对iOS设备的优化安装体验，提供更清晰的指导</li>
+        <li>与新的UI框架更好的集成，支持响应式设计</li>
+        <li>清单获取能力，允许应用访问PWA元数据</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>pwaService是Odoo PWA功能的核心服务，它提供了：</p>
+    <ul>
+        <li>跨平台的PWA安装管理</li>
+        <li>智能的安装状态跟踪</li>
+        <li>自定义安装体验</li>
+        <li>作用域应用支持</li>
+        <li>清单访问能力</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在开发Odoo模块时，考虑PWA功能可以显著提升移动用户体验。使用pwaService可以简化PWA的集成，让用户能够轻松将Odoo应用安装到他们的设备上，提供更流畅、更集成的体验。
+    </div>
+</body>
+</html> 

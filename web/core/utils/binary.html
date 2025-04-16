@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo二进制处理工具详解</title>
+    <link rel="stylesheet" href="../../../css/docs.css">
+</head>
+<body>
+    <h1>Odoo二进制处理工具详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>binary.js</code>是Odoo框架中处理二进制数据的辅助工具模块。它提供了一组简单但非常实用的函数，用于处理二进制数据大小的表示、验证和转换。在Odoo中，二进制数据主要用于处理文件上传、图像处理、附件管理等场景，而这个模块为这些操作提供了基础支持。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>在Odoo中，二进制数据通常通过Base64编码存储在数据库中，例如图像、文档等附件。binary.js模块提供了处理这些数据的实用工具，如大小限制检查、人类可读的大小转换等。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>二进制大小检测</strong>：识别字符串是否表示二进制大小（如 "1.5 KB"）</li>
+        <li><strong>Base64长度计算</strong>：计算表示特定字节数的Base64字符串所需长度</li>
+        <li><strong>人类可读的大小格式化</strong>：将字节数转换为人类易读的格式（KB, MB, GB等）</li>
+    </ol>
+    
+    <h2>函数详解</h2>
+    
+    <h3>isBinarySize</h3>
+    <div class="code-block">
+        <pre><code>export function isBinarySize(value) {
+    return /^\d+(\.\d*)? [^0-9]+$/.test(value);
+}</code></pre>
+    </div>
+    <p>此函数用于判断一个字符串是否表示二进制大小（例如"1.5 KB"）。</p>
+    <p><strong>工作原理：</strong></p>
+    <p>函数使用正则表达式检查字符串是否符合"数字[.数字] 单位"的格式，其中：</p>
+    <ul>
+        <li><code>^\d+</code> - 字符串以一个或多个数字开始</li>
+        <li><code>(\.\d*)?</code> - 可选的小数部分</li>
+        <li><code>[^0-9]+$</code> - 以一个或多个非数字字符（单位）结束</li>
+    </ul>
+    <p><strong>主要用途：</strong>在处理二进制字段时，区分是存储实际内容还是仅存储大小信息。在Odoo中，有些情况下二进制字段可能只存储大小信息（如"45.3 KB"）而不是实际内容，这个函数可以帮助识别这种情况。</p>
+    <p><strong>使用示例：</strong></p>
+    <div class="code-block">
+        <pre><code>// 示例: 检查文件字段是否只存储了大小信息
+function handleFile(fileData) {
+    if (isBinarySize(fileData)) {
+        console.log("这是文件大小信息:", fileData);
+        // 处理文件大小信息的逻辑
+    } else {
+        console.log("这是实际的文件内容");
+        // 处理实际文件内容的逻辑
+    }
+}
+
+handleFile("45.7 KB");  // 输出: 这是文件大小信息: 45.7 KB
+handleFile("data:image/png;base64,iVBORw0K..."); // 输出: 这是实际的文件内容</code></pre>
+    </div>
+    
+    <h3>toBase64Length</h3>
+    <div class="code-block">
+        <pre><code>export function toBase64Length(maxBytes) {
+    return Math.ceil(maxBytes * 4 / 3);
+}</code></pre>
+    </div>
+    <p>此函数计算表示特定字节数（maxBytes）的原始数据所需的Base64编码字符串长度。</p>
+    <p><strong>工作原理：</strong></p>
+    <p>Base64编码将每3个字节（24位）的二进制数据编码为4个ASCII字符，因此Base64编码后的数据长度约为原始数据的4/3倍。</p>
+    <ul>
+        <li>函数接收原始字节数maxBytes作为输入</li>
+        <li>计算公式：Base64长度 = ⌈(maxBytes * 4 / 3)⌉，向上取整以处理不能被3整除的情况</li>
+    </ul>
+    <p><strong>主要用途：</strong>在处理二进制数据的上传或存储限制时，可以预先计算Base64编码后的长度，帮助验证数据是否超过存储限制。</p>
+    <p><strong>使用示例：</strong></p>
+    <div class="code-block">
+        <pre><code>// 示例: 检查文件是否超过上传限制
+function validateFileSize(fileSize, maxAllowedMB) {
+    // 将MB转换为字节
+    const maxBytes = maxAllowedMB * 1024 * 1024;
+    
+    // 计算Base64编码后的字符串长度
+    const maxBase64Length = toBase64Length(maxBytes);
+    
+    // 假设fileSize是文件的Base64编码字符串的长度
+    if (fileSize > maxBase64Length) {
+        return `文件超过了 ${maxAllowedMB}MB 的大小限制`;
+    }
+    return "文件大小合适";
+}
+
+// 检查一个24MB的文件（Base64编码后约32MB）是否超过20MB的限制
+const fileSize = toBase64Length(24 * 1024 * 1024);
+console.log(validateFileSize(fileSize, 20)); // 输出: 文件超过了20MB的大小限制</code></pre>
+    </div>
+    
+    <h3>humanSize</h3>
+    <div class="code-block">
+        <pre><code>export function humanSize(size) {
+    const units = _t("Bytes|Kb|Mb|Gb|Tb|Pb|Eb|Zb|Yb").split("|");
+    let i = 0;
+    while (size >= 1024) {
+        size /= 1024;
+        ++i;
+    }
+    return `${size.toFixed(2)} ${units[i].trim()}`;
+}</code></pre>
+    </div>
+    <p>此函数将字节数转换为人类易读的格式，如将1048576字节转换为"1.00 Mb"。</p>
+    <p><strong>工作原理：</strong></p>
+    <ol>
+        <li>使用Odoo的翻译函数<code>_t</code>获取并分割单位字符串，支持国际化</li>
+        <li>从字节(Bytes)开始，每当数值大于或等于1024时，将其除以1024并移动到下一个单位(Kb, Mb, 等)</li>
+        <li>重复此过程直到数值小于1024</li>
+        <li>将最终数值格式化为两位小数，并添加相应的单位</li>
+    </ol>
+    <p><strong>主要用途：</strong>用于在用户界面中友好地显示文件大小，使得大数字更易于理解。</p>
+    <p><strong>使用示例：</strong></p>
+    <div class="code-block">
+        <pre><code>// 示例1: 显示各种文件大小
+console.log(humanSize(512));         // 输出: "512.00 Bytes"
+console.log(humanSize(2048));        // 输出: "2.00 Kb"
+console.log(humanSize(1048576));     // 输出: "1.00 Mb"
+console.log(humanSize(3758096384));  // 输出: "3.50 Gb"
+
+// 示例2: 在UI中显示文件大小
+function displayFileInfo(file) {
+    const fileSize = file.size; // 假设file对象有size属性（字节数）
+    return `
+        <div class="file-info">
+            <span class="file-name">${file.name}</span>
+            <span class="file-size">${humanSize(fileSize)}</span>
+        </div>
+    `;
+}</code></pre>
+    </div>
+    
+    <h2>实际应用场景</h2>
+    <p>binary.js模块在Odoo系统中有多种应用场景：</p>
+    
+    <h3>场景一：上传文件验证</h3>
+    <div class="example-block">
+        <p>在Odoo的文件上传组件中，需要验证文件是否超过系统允许的最大大小：</p>
+        <div class="code-block">
+            <pre><code>// 在文件上传组件中
+class FileUploader extends Component {
+    // ...
+    
+    validateFileSize(file) {
+        // 假设系统最大允许20MB的文件
+        const MAX_SIZE_BYTES = 20 * 1024 * 1024;
+        
+        if (file.size > MAX_SIZE_BYTES) {
+            const readableMaxSize = humanSize(MAX_SIZE_BYTES);
+            const actualSize = humanSize(file.size);
+            
+            this.showError(
+                `文件大小超过限制。最大允许: ${readableMaxSize}, 实际大小: ${actualSize}`
+            );
+            return false;
+        }
+        return true;
+    }
+    
+    // ...
+}</code></pre>
+        </div>
+    </div>
+    
+    <h3>场景二：显示附件信息</h3>
+    <div class="example-block">
+        <p>在附件列表中，需要以用户友好的方式显示文件大小：</p>
+        <div class="code-block">
+            <pre><code>// 在附件列表组件中
+class AttachmentList extends Component {
+    // ...
+    
+    get formattedAttachments() {
+        return this.props.attachments.map(attachment => {
+            return {
+                ...attachment,
+                formattedSize: humanSize(attachment.file_size),
+                // 其他处理...
+            };
+        });
+    }
+    
+    // ...
+}
+
+// 模板部分
+AttachmentList.template = xml`
+    <div class="attachment-list">
+        <t t-foreach="formattedAttachments" t-as="attachment" t-key="attachment.id">
+            <div class="attachment-item">
+                <span class="attachment-name" t-esc="attachment.name"/>
+                <span class="attachment-size" t-esc="attachment.formattedSize"/>
+            </div>
+        </t>
+    </div>
+`;</code></pre>
+        </div>
+    </div>
+    
+    <h3>场景三：处理图像预览</h3>
+    <div class="example-block">
+        <p>当处理图像字段时，需要区分是否只有图像大小信息或是完整的图像数据：</p>
+        <div class="code-block">
+            <pre><code>// 在图像预览组件中
+class ImagePreview extends Component {
+    // ...
+    
+    get imageSource() {
+        const imageData = this.props.value;
+        
+        if (!imageData) {
+            return '/web/static/img/placeholder.png';
+        }
+        
+        if (isBinarySize(imageData)) {
+            // 只有大小信息，需要通过ID获取实际图像
+            return `/web/image?model=${this.props.model}&id=${this.props.recordId}&field=${this.props.fieldName}`;
+        }
+        
+        // 直接包含完整图像数据
+        return imageData;
+    }
+    
+    // ...
+}
+
+// 模板部分
+ImagePreview.template = xml`
+    <div class="image-preview">
+        <img t-att-src="imageSource" alt="Image Preview"/>
+    </div>
+`;</code></pre>
+        </div>
+    </div>
+    
+    <h2>技术实现分析</h2>
+    <p>binary.js采用了一些值得注意的技术实现：</p>
+    
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>正则表达式检测</h4>
+            <p>isBinarySize函数使用正则表达式有效地检测二进制大小表示，这是一种高效的模式匹配方式。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>国际化支持</h4>
+            <p>humanSize函数使用Odoo的翻译系统（_t函数），确保单位名称可以根据用户语言进行适当翻译。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>数学公式优化</h4>
+            <p>toBase64Length函数使用简单的数学公式计算Base64编码长度，避免了实际编码过程，提高了性能。</p>
+        </div>
+    </div>
+    
+    <h2>与Odoo框架的集成</h2>
+    <p>binary.js模块与Odoo框架的多个组件紧密集成：</p>
+    <ul>
+        <li><strong>字段组件</strong>：binary和image字段类型使用这些函数处理数据</li>
+        <li><strong>文件上传组件</strong>：利用这些工具验证和显示文件大小</li>
+        <li><strong>附件管理器</strong>：使用humanSize函数格式化文件大小</li>
+        <li><strong>图像处理</strong>：结合ImageMixin使用这些工具处理图像数据</li>
+    </ul>
+    
+    <h2>实际使用注意事项</h2>
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li><strong>单位不一致</strong>：humanSize函数使用1024作为换算基数（Kb而非KB），这与一些标准不同，有时可能导致混淆</li>
+            <li><strong>大小限制</strong>：处理非常大的二进制数据时，需要注意浏览器和服务器的内存限制</li>
+            <li><strong>国际化考虑</strong>：不同语言环境下，大小单位的翻译可能有所不同</li>
+            <li><strong>Base64扩展</strong>：实际Base64编码可能包含填充字符，导致长度略有不同</li>
+        </ul>
+    </div>
+    
+    <h2>与图像处理的关系</h2>
+    <p>binary.js模块与Odoo的图像处理功能有密切关系：</p>
+    <div class="workflow">
+        <h3>图像上传与验证流程</h3>
+        <ol>
+            <li><strong>图像选择</strong>：用户从本地选择图像文件</li>
+            <li><strong>大小验证</strong>：使用humanSize函数显示文件大小，并验证是否超过限制</li>
+            <li><strong>Base64转换</strong>：文件内容被转换为Base64编码格式</li>
+            <li><strong>长度验证</strong>：使用toBase64Length函数检查编码后的长度是否符合存储限制</li>
+            <li><strong>上传保存</strong>：图像数据保存到数据库</li>
+            <li><strong>数据处理</strong>：根据是否为isBinarySize决定如何显示或处理图像</li>
+        </ol>
+    </div>
+    
+    <h2>与ImageMixin的关系</h2>
+    <p>正如前面<a href="../../../base/image_mixin.html">ImageMixin文档</a>中所述，binary.js模块提供的工具与ImageMixin密切配合：</p>
+    <ul>
+        <li><strong>大小显示</strong>：当显示图像信息时，使用humanSize函数格式化图像大小</li>
+        <li><strong>类型检测</strong>：使用isBinarySize函数检测字段是否只包含大小信息</li>
+        <li><strong>限制验证</strong>：在图像上传时，使用toBase64Length函数验证图像是否超过大小限制</li>
+    </ul>
+    
+    <h2>小结</h2>
+    <p>binary.js虽然是一个小型工具模块，但它在Odoo系统中扮演着重要角色：</p>
+    <ul>
+        <li><strong>简单而实用</strong>：提供了一组简单但非常实用的二进制数据处理函数</li>
+        <li><strong>用户友好</strong>：humanSize函数使技术数据更易于用户理解</li>
+        <li><strong>系统集成</strong>：与Odoo的多个组件和功能紧密集成</li>
+        <li><strong>性能考虑</strong>：使用高效算法和正则表达式处理数据</li>
+        <li><strong>国际化支持</strong>：通过翻译系统支持多语言环境</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在处理二进制数据时，应始终使用binary.js提供的工具函数，而不是自己实现类似功能。这样可以确保处理的一致性，并与Odoo其他组件保持良好的兼容性。特别是在开发涉及文件上传、图像处理或附件管理的模块时，binary.js是必不可少的工具集。
+    </div>
+</body>
+</html> 
