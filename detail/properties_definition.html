@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo属性定义功能解析</title>
+    <link rel="stylesheet" href="css/docs.css">
+</head>
+<body>
+    <h1>Odoo 18 属性系统（Properties）解析</h1>
+    
+    <h2>概述</h2>
+    <p>在Odoo 18中，新引入了一套强大的属性系统，由<code>Properties</code>和<code>PropertiesDefinition</code>两个字段类型组成。这套系统允许开发者在不修改数据库结构的情况下，为模型动态添加自定义字段。</p>
+    
+    <div class="note">
+        <strong>核心概念：</strong>属性系统创建了一种"容器-子记录"的关系模型，其中容器定义了属性的结构（类型、默认值等），而子记录则存储这些属性的具体值。这种设计使得系统能够在不更改数据库结构的情况下灵活扩展。
+    </div>
+    
+    <h2>属性系统的两大组件</h2>
+    <ol>
+        <li><strong>Properties</strong>: 用于存储属性值的字段，位于子记录上</li>
+        <li><strong>PropertiesDefinition</strong>: 用于定义属性结构的字段，位于容器记录上</li>
+    </ol>
+    
+    <div class="workflow">
+        <h3>属性系统工作流程</h3>
+        <ol>
+            <li>在容器模型（如项目、公司等）上定义<code>PropertiesDefinition</code>字段，用于设计属性结构</li>
+            <li>在子模型（如任务、产品等）上定义<code>Properties</code>字段，并指向容器的<code>PropertiesDefinition</code></li>
+            <li>当用户设置容器的属性结构时，所有关联的子记录都会自动获得这些属性定义</li>
+            <li>子记录只存储属性的值，而属性的结构信息（类型、标签等）则存储在容器上</li>
+        </ol>
+    </div>
+    
+    <h2>Properties 字段详解</h2>
+    <p><code>Properties</code>类是一个特殊的字段类型，用于在子记录上存储属性值。它负责将容器上定义的属性结构与子记录中的属性值合并，形成完整的属性信息。</p>
+    
+    <h3>关键属性</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>string</td>
+            <td>'properties' - 字段类型标识符</td>
+        </tr>
+        <tr>
+            <td>_column_type</td>
+            <td>tuple</td>
+            <td>('jsonb', 'jsonb') - 在数据库中的存储类型</td>
+        </tr>
+        <tr>
+            <td>definition_record</td>
+            <td>string</td>
+            <td>指向容器记录的字段名</td>
+        </tr>
+        <tr>
+            <td>definition_record_field</td>
+            <td>string</td>
+            <td>容器记录上的PropertiesDefinition字段名</td>
+        </tr>
+        <tr>
+            <td>ALLOWED_TYPES</td>
+            <td>tuple</td>
+            <td>属性允许的数据类型集合</td>
+        </tr>
+    </table>
+    
+    <h3>Properties字段支持的属性类型</h3>
+    <ul>
+        <li><strong>标准类型</strong>: boolean, integer, float, char, date, datetime</li>
+        <li><strong>关系类型</strong>: many2one, many2many, selection, tags</li>
+        <li><strong>UI类型</strong>: separator (视觉分隔符)</li>
+    </ul>
+    
+    <h3>数据存储格式</h3>
+    <div class="code-block">
+        <pre><code>
+# 数据库/缓存格式: 一个值要么是None，要么是一个将属性名映射到对应值的字典
+{
+    '3adf37f3258cfe40': 'red',      # 存储字符串值
+    'aa34746a6851ee4e': 1337,       # 存储整数/ID值
+}
+        </code></pre>
+    </div>
+    
+    <h3>视图读取格式</h3>
+    <div class="code-block">
+        <pre><code>
+# 读取格式: 属性列表，每个元素是包含属性定义和对应值的字典
+[{
+    'name': '3adf37f3258cfe40',     # 属性唯一标识符
+    'string': 'Color Code',         # 属性显示名称
+    'type': 'char',                 # 属性数据类型
+    'default': 'blue',              # 默认值
+    'value': 'red',                 # 当前值
+}, {
+    'name': 'aa34746a6851ee4e',
+    'string': 'Partner',
+    'type': 'many2one',
+    'comodel': 'test_new_api.partner',
+    'value': [1337, 'Bob'],         # 关系型字段包含ID和显示名称
+}]
+        </code></pre>
+    </div>
+    
+    <h3>核心方法解析</h3>
+    
+    <h4>1. 数据转换方法</h4>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>功能描述</th>
+        </tr>
+        <tr>
+            <td>convert_to_column</td>
+            <td>将属性值转换为数据库存储格式（JSON字符串）</td>
+        </tr>
+        <tr>
+            <td>convert_to_cache</td>
+            <td>将任意格式转换为缓存格式（字典或None）</td>
+        </tr>
+        <tr>
+            <td>convert_to_record</td>
+            <td>将缓存格式转换为记录格式（False或字典副本）</td>
+        </tr>
+        <tr>
+            <td>convert_to_read</td>
+            <td>将记录格式转换为前端可读格式（带显示名称的列表）</td>
+        </tr>
+        <tr>
+            <td>convert_to_write</td>
+            <td>处理写入操作，适当时更新容器定义</td>
+        </tr>
+    </table>
+    
+    <h4>2. 工具方法</h4>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>功能描述</th>
+        </tr>
+        <tr>
+            <td>_add_display_name</td>
+            <td>为关系型字段添加显示名称（多对一、多对多）</td>
+        </tr>
+        <tr>
+            <td>_remove_display_name</td>
+            <td>移除关系型字段的显示名称，只保留ID</td>
+        </tr>
+        <tr>
+            <td>_add_missing_names</td>
+            <td>为新属性生成唯一标识符</td>
+        </tr>
+        <tr>
+            <td>_parse_json_types</td>
+            <td>解析和验证存储在JSON中的值</td>
+        </tr>
+        <tr>
+            <td>_list_to_dict</td>
+            <td>将属性定义列表转换为{名称:值}字典</td>
+        </tr>
+        <tr>
+            <td>_dict_to_list</td>
+            <td>将{名称:值}字典转换为属性定义列表</td>
+        </tr>
+        <tr>
+            <td>_compute</td>
+            <td>当容器变更时，计算默认属性值</td>
+        </tr>
+        <tr>
+            <td>_add_default_values</td>
+            <td>从容器的属性定义中添加默认值</td>
+        </tr>
+    </table>
+    
+    <div class="note">
+        <strong>性能优化：</strong><code>Properties</code>字段设计了一套高效的批处理机制。方法<code>_get_res_ids_per_model</code>可以批量获取所有相关记录的ID，减少数据库查询次数，提高性能。
+    </div>
+    
+    <h4>3. 关键操作流程</h4>
+    <div class="code-block">
+        <pre><code>
+def write(self, records, value):
+    """检查属性定义是否已更改。
+    
+    为避免用于检测定义更改的额外SQL查询，我们在属性列表中添加一个标志。
+    仅当此标志存在时才进行父级更新，将检查委托给调用者（通常是Web客户端）。
+    
+    对于删除操作，我们需要在列表中保留已删除的属性定义，以便能够在其中放置删除标志。
+    否则，我们无法知道属性已被删除。
+    """
+    # 实现略...
+        </code></pre>
+    </div>
+    
+    <h2>PropertiesDefinition 字段详解</h2>
+    <p><code>PropertiesDefinition</code>是用于在容器记录上定义属性结构的字段类型。它存储属性的类型、标签、默认值等信息。</p>
+    
+    <h3>关键属性</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>string</td>
+            <td>'properties_definition' - 字段类型标识符</td>
+        </tr>
+        <tr>
+            <td>_column_type</td>
+            <td>tuple</td>
+            <td>('jsonb', 'jsonb') - 在数据库中的存储类型</td>
+        </tr>
+        <tr>
+            <td>REQUIRED_KEYS</td>
+            <td>tuple</td>
+            <td>属性定义中必需的键（'name', 'type'）</td>
+        </tr>
+        <tr>
+            <td>ALLOWED_KEYS</td>
+            <td>tuple</td>
+            <td>属性定义中允许的所有键</td>
+        </tr>
+        <tr>
+            <td>PROPERTY_PARAMETERS_MAP</td>
+            <td>dict</td>
+            <td>映射特定参数到允许使用它们的属性类型</td>
+        </tr>
+    </table>
+    
+    <h3>属性定义格式</h3>
+    <div class="code-block">
+        <pre><code>
+[{
+    'name': '3adf37f3258cfe40',     # 属性唯一标识符（必需）
+    'string': 'Color Code',         # 属性显示名称
+    'type': 'char',                 # 属性数据类型（必需）
+    'default': 'blue',              # 默认值
+}, {
+    'name': 'aa34746a6851ee4e',
+    'string': 'Partner',
+    'type': 'many2one',
+    'comodel': 'test_new_api.partner',  # 关系型字段的目标模型
+    'domain': "[('is_company', '=', True)]",  # 可选的域过滤
+    'default': [1337, 'Bob'],       # 默认值（ID和显示名称）
+}]
+        </code></pre>
+    </div>
+    
+    <h3>属性定义验证</h3>
+    <p>PropertiesDefinition字段会严格验证属性定义的有效性，确保：</p>
+    <ul>
+        <li>属性名称唯一且格式正确</li>
+        <li>属性类型有效</li>
+        <li>关系型字段有有效的目标模型</li>
+        <li>选择类型有格式正确的选项</li>
+        <li>标签类型有格式正确的标签</li>
+        <li>域过滤表达式有效</li>
+    </ul>
+    
+    <div class="code-block">
+        <pre><code>
+@classmethod
+def _validate_properties_definition(cls, properties_definition, env):
+    """如果属性定义无效，引发错误。"""
+    properties_names = set()
+    
+    for property_definition in properties_definition:
+        # 验证代码略...
+        
+        # 检查名称唯一性
+        property_name = property_definition.get('name')
+        if not property_name or property_name in properties_names:
+            raise ValueError(f'The property name {property_name!r} is not set or duplicated.')
+        properties_names.add(property_name)
+        
+        # 检查类型有效性
+        property_type = property_definition.get('type')
+        if property_type and property_type not in Properties.ALLOWED_TYPES:
+            raise ValueError(f'Wrong property type {property_type!r}.')
+        
+        # 其他验证...
+        </code></pre>
+    </div>
+    
+    <h2>使用示例</h2>
+    
+    <h3>1. 定义容器和子模型</h3>
+    <div class="code-block">
+        <pre><code>
+# 容器模型: 项目
+class Project(models.Model):
+    _name = 'my.project'
+    _description = '我的项目'
+    
+    name = fields.Char('项目名称', required=True)
+    # 定义任务可以使用的属性结构
+    task_properties = fields.PropertiesDefinition('任务属性')
+    
+# 子模型: 任务
+class Task(models.Model):
+    _name = 'my.task'
+    _description = '我的任务'
+    
+    name = fields.Char('任务名称', required=True)
+    project_id = fields.Many2one('my.project', string='项目', required=True)
+    # 定义任务属性，指向项目的task_properties字段
+    properties = fields.Properties(
+        '属性', 
+        definition='project_id.task_properties'  # 关键配置：定义属性来源
+    )
+        </code></pre>
+    </div>
+    
+    <h3>2. 在视图中使用属性</h3>
+    <div class="code-block">
+        <pre><code>
+&lt;!-- 项目表单视图 - 配置属性结构 --&gt;
+&lt;record id="view_project_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;my.project.form&lt;/field&gt;
+    &lt;field name="model"&gt;my.project&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="name"/&gt;
+                &lt;/group&gt;
+                &lt;notebook&gt;
+                    &lt;page string="任务属性"&gt;
+                        &lt;field name="task_properties" widget="properties_definition"&gt;
+                            &lt;!-- 可以预定义一些属性 --&gt;
+                            &lt;properties string="优先级" type="selection" name="priority"&gt;
+                                &lt;property string="低" value="low"/&gt;
+                                &lt;property string="中" value="medium"/&gt;
+                                &lt;property string="高" value="high"/&gt;
+                            &lt;/properties&gt;
+                            &lt;properties string="截止日期" type="date" name="deadline"/&gt;
+                        &lt;/field&gt;
+                    &lt;/page&gt;
+                &lt;/notebook&gt;
+            &lt;/sheet&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;
+
+&lt;!-- 任务表单视图 - 使用属性 --&gt;
+&lt;record id="view_task_form" model="ir.ui.view"&gt;
+    &lt;field name="name"&gt;my.task.form&lt;/field&gt;
+    &lt;field name="model"&gt;my.task&lt;/field&gt;
+    &lt;field name="arch" type="xml"&gt;
+        &lt;form&gt;
+            &lt;sheet&gt;
+                &lt;group&gt;
+                    &lt;field name="name"/&gt;
+                    &lt;field name="project_id"/&gt;
+                &lt;/group&gt;
+                &lt;group&gt;
+                    &lt;field name="properties" widget="properties"/&gt;
+                &lt;/group&gt;
+            &lt;/sheet&gt;
+        &lt;/form&gt;
+    &lt;/field&gt;
+&lt;/record&gt;
+        </code></pre>
+    </div>
+    
+    <h3>3. 通过代码操作属性</h3>
+    <div class="code-block">
+        <pre><code>
+# 创建具有属性定义的项目
+project = self.env['my.project'].create({
+    'name': '电子商务网站',
+    'task_properties': [
+        {
+            'name': 'difficulty',
+            'string': '难度',
+            'type': 'selection',
+            'selection': [
+                ['easy', '简单'],
+                ['medium', '中等'],
+                ['hard', '困难']
+            ],
+            'default': 'medium'
+        },
+        {
+            'name': 'requires_design',
+            'string': '需要设计',
+            'type': 'boolean',
+            'default': False
+        },
+        {
+            'name': 'assigned_designer',
+            'string': '指定设计师',
+            'type': 'many2one',
+            'comodel': 'res.users',
+            'domain': "[('share', '=', False)]"
+        }
+    ]
+})
+
+# 创建带有属性值的任务
+task = self.env['my.task'].create({
+    'name': '设计首页',
+    'project_id': project.id,
+    'properties': {
+        'difficulty': 'hard',
+        'requires_design': True,
+        'assigned_designer': self.env.user.id
+    }
+})
+
+# 读取任务属性
+task_data = task.read(['properties'])[0]
+# 将返回完整的属性信息，包括类型、标签和值
+properties = task_data['properties']
+# [
+#     {
+#         'name': 'difficulty',
+#         'string': '难度',
+#         'type': 'selection',
+#         'selection': [['easy', '简单'], ['medium', '中等'], ['hard', '困难']],
+#         'default': 'medium',
+#         'value': 'hard'
+#     },
+#     ...
+# ]
+
+# 修改任务属性
+task.write({
+    'properties': {
+        'difficulty': 'medium',
+        'assigned_designer': False  # 清除指定设计师
+    }
+})
+        </code></pre>
+    </div>
+    
+    <h2>属性系统的优势</h2>
+    <div class="benefits">
+        <div class="benefit-item">
+            <h4>无需修改数据库结构</h4>
+            <p>可以在不添加新字段的情况下扩展模型的数据结构，避免了数据库迁移的需要。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>动态可定制</h4>
+            <p>容器记录可以定义不同的属性集，提供了极高的灵活性。例如，不同类型的项目可以为任务定义不同的属性集。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>统一的数据处理</h4>
+            <p>所有属性值都以JSON格式存储在一个字段中，简化了数据处理和查询逻辑。</p>
+        </div>
+        <div class="benefit-item">
+            <h4>丰富的类型支持</h4>
+            <p>支持基础类型、关系类型和UI元素，满足各种业务需求。</p>
+        </div>
+    </div>
+    
+    <h2>最佳实践与注意事项</h2>
+    <div class="warning">
+        <strong>使用属性系统时的注意事项：</strong>
+        <ul>
+            <li>属性系统不支持直接在搜索视图中使用属性值进行搜索，需要额外的开发工作</li>
+            <li>与常规字段相比，属性在性能上可能有一定开销，尤其是在处理大量记录时</li>
+            <li>当容器记录被删除时，相关子记录的属性结构将变得不可用</li>
+            <li>属性名称一旦创建就不应更改，因为它们作为键存储在子记录中</li>
+            <li>确保属性名称唯一，否则会出现数据覆盖问题</li>
+        </ul>
+    </div>
+    
+    <h3>性能优化建议</h3>
+    <ul>
+        <li>避免在一个容器中定义过多的属性（建议不超过30个）</li>
+        <li>关系型属性（many2one, many2many）会有额外的性能开销，谨慎使用</li>
+        <li>在处理大量记录时，考虑使用批处理操作</li>
+        <li>如果某个属性对所有子记录都是必需的，考虑使用常规字段而非属性系统</li>
+    </ul>
+    
+    <h2>与其他字段的比较</h2>
+    <table>
+        <tr>
+            <th>特性</th>
+            <th>Properties</th>
+            <th>常规字段</th>
+            <th>Many2many_tags</th>
+        </tr>
+        <tr>
+            <td>数据库结构</td>
+            <td>单一JSONB列</td>
+            <td>专用列或关系表</td>
+            <td>关系表</td>
+        </tr>
+        <tr>
+            <td>动态性</td>
+            <td>高（可在运行时定义）</td>
+            <td>低（需要迁移）</td>
+            <td>中（标签可动态添加）</td>
+        </tr>
+        <tr>
+            <td>类型支持</td>
+            <td>多种类型</td>
+            <td>单一类型</td>
+            <td>仅标签</td>
+        </tr>
+        <tr>
+            <td>搜索能力</td>
+            <td>有限</td>
+            <td>完整</td>
+            <td>完整</td>
+        </tr>
+        <tr>
+            <td>性能</td>
+            <td>中等</td>
+            <td>高</td>
+            <td>高</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>Odoo 18的属性系统是一个强大而灵活的功能，它使开发者和最终用户能够在不改变数据库结构的情况下自定义数据模型。这个系统由<code>Properties</code>和<code>PropertiesDefinition</code>两个字段类型组成，前者存储属性值，后者定义属性结构。</p>
+    
+    <p>这套系统特别适合于需要高度定制化的应用场景，例如：</p>
+    <ul>
+        <li>项目管理（不同项目类型需要不同的任务属性）</li>
+        <li>CRM（不同销售漏斗阶段需要不同的商机属性）</li>
+        <li>产品管理（不同产品类别需要不同的规格属性）</li>
+        <li>服务管理（不同服务类型需要不同的服务请求属性）</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在决定是使用常规字段还是属性系统时，请考虑以下因素：如果字段对于所有记录都是固定且必需的，使用常规字段；如果需要基于某种分类或容器来动态定义字段，则考虑使用属性系统。
+    </div>
+</body>
+</html> 
