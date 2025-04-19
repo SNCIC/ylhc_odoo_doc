@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo属性字段解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo18属性字段(PropertiesField)详解</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>properties_field.js</code>是Odoo 18框架中的核心组件之一，它实现了属性字段系统，允许用户在不修改数据库结构的情况下动态添加和管理自定义字段。这个模块是Odoo 18中最强大的特性之一，为系统带来了前所未有的灵活性。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>属性字段是一种特殊的字段类型，允许用户在运行时定义、修改和显示自定义属性，无需开发者干预或数据库修改。它是Odoo中动态表单定制的基础，支持多种属性类型和复杂的嵌套布局。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>动态属性管理</strong>：创建、编辑、删除、重新排序自定义属性</li>
+        <li><strong>属性分组</strong>：通过分隔符将属性组织为逻辑组</li>
+        <li><strong>多列布局</strong>：支持属性在多列中显示</li>
+        <li><strong>权限控制</strong>：基于用户权限控制属性定义的编辑能力</li>
+        <li><strong>拖放排序</strong>：支持属性和属性组的拖放重排序</li>
+        <li><strong>状态持久化</strong>：记住属性组的折叠状态</li>
+        <li><strong>属性值编辑</strong>：为每个属性提供适合其类型的编辑界面</li>
+    </ol>
+    
+    <h2>核心组件结构</h2>
+    <p>PropertiesField是一个复杂的OWL组件，它通过多个子组件和钩子函数实现丰富的功能：</p>
+    
+    <div class="code-block">
+        <pre><code>export class PropertiesField extends Component {
+    static template = "web.PropertiesField";
+    static components = {
+        Dropdown,
+        DropdownItem,
+        PropertyDefinition,
+        PropertyValue,
+    };
+    static props = {
+        ...standardFieldProps,
+        context: { type: Object, optional: true },
+        columns: {
+            type: Number,
+            optional: true,
+            validate: (columns) => [1, 2].includes(columns),
+        },
+        showAddButton: { type: Boolean, optional: true },
+    };</code></pre>
+    </div>
+    
+    <h3>主要组件依赖</h3>
+    <ul>
+        <li><code>Dropdown</code>和<code>DropdownItem</code>：用于属性操作菜单</li>
+        <li><code>PropertyDefinition</code>：负责属性定义的编辑界面</li>
+        <li><code>PropertyValue</code>：负责属性值的显示和编辑</li>
+    </ul>
+    
+    <h2>关键功能解析</h2>
+    
+    <h3>1. 组件初始化与服务注入</h3>
+    <div class="code-block">
+        <pre><code>setup() {
+    this.notification = useService("notification");
+    this.orm = useService("orm");
+    this.dialogService = useService("dialog");
+    this.popover = usePopover(PropertyDefinition, {
+        closeOnClickAway: this.checkPopoverClose,
+        popoverClass: "o_property_field_popover",
+        position: "top",
+        onClose: () => this.onCloseCurrentPopover?.(),
+        fixedPosition: true,
+        arrow: false,
+    });</code></pre>
+    </div>
+    <p>组件使用了多个Odoo服务：</p>
+    <ul>
+        <li><code>notification</code>：显示通知消息</li>
+        <li><code>orm</code>：与服务器交互</li>
+        <li><code>dialogService</code>：显示对话框</li>
+        <li><code>popover</code>：创建属性定义弹出框</li>
+    </ul>
+    
+    <h3>2. 初始值保存与记录监听</h3>
+    <div class="code-block">
+        <pre><code>let currentResId;
+useRecordObserver((record) => {
+    if (currentResId !== record.resId) {
+        currentResId = record.resId;
+        this._saveInitialPropertiesValues();
+    }
+});</code></pre>
+    </div>
+    <p>此段代码监视记录ID的变化，当切换到新记录时保存初始属性值，用于后续比较和还原。</p>
+    
+    <h3>3. 属性分组和多列布局</h3>
+    <div class="code-block">
+        <pre><code>get groupedPropertiesList() {
+    const propertiesList = this.propertiesList;
+    // 默认隐藏组
+    const groupedProperties =
+        propertiesList[0]?.type !== "separator"
+            ? [{ title: null, name: null, elements: [], invisibleLabel: true }]
+            : [];
+
+    propertiesList.forEach((property) => {
+        if (property.type === "separator") {
+            groupedProperties.push({
+                title: property.string,
+                name: property.name,
+                elements: [],
+            });
+        } else {
+            groupedProperties.at(-1).elements.push(property);
+        }
+    });
+
+    if (groupedProperties.length === 1) {
+        // 只有一个组，将该组拆分为多列以占据整个宽度
+        const invisibleLabel = propertiesList[0]?.type !== "separator";
+        groupedProperties[0].elements = [];
+        groupedProperties[0].invisibleLabel = invisibleLabel;
+        for (let col = 1; col < this.renderedColumnsCount; ++col) {
+            groupedProperties.push({
+                title: null,
+                name: groupedProperties[0].name,
+                columnSeparator: true,
+                elements: [],
+                invisibleLabel,
+            });
+        }
+        const properties = propertiesList.filter((property) => property.type !== "separator");
+        properties.forEach((property, index) => {
+            const columnIndex = Math.floor(
+                (index * this.renderedColumnsCount) / properties.length
+            );
+            groupedProperties[columnIndex].elements.push(property);
+        });
+    }
+
+    return groupedProperties;
+}</code></pre>
+    </div>
+    <p>此方法实现了属性的分组和多列布局:</p>
+    <ul>
+        <li>使用separator类型属性作为分组依据</li>
+        <li>支持无分组时自动平均分配属性到多列</li>
+        <li>根据属性总数和列数计算每列的属性数量</li>
+    </ul>
+    
+    <h3>4. 拖放排序实现</h3>
+    <p>组件使用useSortable钩子实现了两种拖放排序功能：</p>
+    
+    <h4>属性排序</h4>
+    <div class="code-block">
+        <pre><code>// 排序属性
+useSortable({
+    enable: () => !this.props.readonly && this.state.canChangeDefinition,
+    ref: this.propertiesRef,
+    handle: ".o_field_property_label .oi-draggable",
+    // 在单列布局中，允许在分隔符之前移动，使使用更流畅
+    elements:
+        this.renderedColumnsCount === 1
+            ? "*:is(.o_property_field, .o_field_property_group_label)"
+            : ".o_property_field",
+    groups: ".o_property_group",
+    connectGroups: true,
+    cursor: "grabbing",
+    // ... 拖动事件处理
+});</code></pre>
+    </div>
+    
+    <h4>属性组排序</h4>
+    <div class="code-block">
+        <pre><code>// 排序属性组
+useSortable({
+    enable: () => !this.props.readonly && this.state.canChangeDefinition,
+    ref: this.propertiesRef,
+    handle: ".o_field_property_group_label .oi-draggable",
+    elements: ".o_property_group:not([property-name=''])",
+    cursor: "grabbing",
+    // ... 拖动事件处理
+});</code></pre>
+    </div>
+    
+    <h3>5. 属性操作方法</h3>
+    <p>组件提供了一系列方法来操作属性：</p>
+    
+    <table>
+        <tr>
+            <th>方法</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>onPropertyMove(propertyName, direction)</td>
+            <td>向上或向下移动指定属性</td>
+        </tr>
+        <tr>
+            <td>onPropertyMoveTo(propertyName, toPropertyName, moveBefore)</td>
+            <td>将属性移动到指定位置</td>
+        </tr>
+        <tr>
+            <td>onGroupMoveTo(propertyName, toPropertyName)</td>
+            <td>移动整个属性组到指定位置</td>
+        </tr>
+        <tr>
+            <td>onPropertyValueChange(propertyName, propertyValue)</td>
+            <td>更新属性值</td>
+        </tr>
+        <tr>
+            <td>onPropertyEdit(event, propertyName)</td>
+            <td>打开属性定义编辑</td>
+        </tr>
+        <tr>
+            <td>onPropertyDefinitionChange(propertyDefinition)</td>
+            <td>更新属性定义</td>
+        </tr>
+        <tr>
+            <td>onPropertyDelete(propertyName)</td>
+            <td>删除属性</td>
+        </tr>
+        <tr>
+            <td>onPropertyCreate()</td>
+            <td>创建新属性</td>
+        </tr>
+        <tr>
+            <td>onSeparatorClick(propertyName)</td>
+            <td>展开/折叠属性组</td>
+        </tr>
+    </table>
+    
+    <h3>6. 属性定义编辑</h3>
+    <p>属性定义编辑是通过popover实现的：</p>
+    <div class="code-block">
+        <pre><code>_openPropertyDefinition(target, propertyName, isNewlyCreated = false) {
+    const propertiesList = this.propertiesList;
+    const propertyIndex = propertiesList.findIndex(
+        (property) => property.name === propertyName
+    );
+
+    // 处理因类型/模型更改而可能重命名的属性
+    const currentName = (propertyName) => {
+        // ... 查找当前名称的逻辑
+    };
+
+    this.onCloseCurrentPopover = () => {
+        this.onCloseCurrentPopover = null;
+        this.state.movedPropertyName = null;
+        target.classList.remove("disabled");
+        if (isNewlyCreated) {
+            this._setDefaultPropertyValue(currentName(propertyName));
+        }
+    };
+
+    this.popover.open(target, {
+        readonly: this.props.readonly || !this.state.canChangeDefinition,
+        canChangeDefinition: this.state.canChangeDefinition,
+        checkDefinitionWriteAccess: () => this.checkDefinitionWriteAccess(),
+        propertyDefinition: this.propertiesList.find(
+            (property) => property.name === currentName(propertyName)
+        ),
+        context: this.props.context,
+        onChange: this.onPropertyDefinitionChange.bind(this),
+        onDelete: () => this.onPropertyDelete(currentName(propertyName)),
+        onPropertyMove: (direction) =>
+            this.onPropertyMove(currentName(propertyName), direction),
+        isNewlyCreated: isNewlyCreated,
+        propertyIndex: propertyIndex,
+        propertiesSize: propertiesList.length,
+    });
+}</code></pre>
+    </div>
+    
+    <h3>7. 属性分组折叠状态管理</h3>
+    <div class="code-block">
+        <pre><code>_getSeparatorFoldKey() {
+    const definitionRecordId = this.props.record.data[this.definitionRecordField][0];
+    const definitionRecordModel = this.props.record.fields[this.definitionRecordField].relation;
+    // 按定义记录存储折叠/展开信息
+    return `properties.fold,${definitionRecordModel},${definitionRecordId}`;
+}
+
+_getUnfoldedSeparators() {
+    const key = this._getSeparatorFoldKey();
+    const unfoldedSeparators = JSON.parse(window.localStorage.getItem(key)) || [];
+    const allPropertiesNames = this.propertiesList.map((property) => property.name);
+    // 删除不再存在的元素（例如，如果我们删除了分隔符）
+    return unfoldedSeparators.filter((name) => allPropertiesNames.includes(name));
+}
+
+_unfoldSeparators(separatorNames, forceUnfold) {
+    let unfoldedSeparators = this._getUnfoldedSeparators();
+    for (const separatorName of separatorNames) {
+        if (unfoldedSeparators.includes(separatorName)) {
+            if (!forceUnfold) {
+                unfoldedSeparators = unfoldedSeparators.filter(
+                    (name) => name !== separatorName
+                );
+            }
+        } else {
+            unfoldedSeparators.push(separatorName);
+        }
+    }
+    const key = this._getSeparatorFoldKey();
+    window.localStorage.setItem(key, JSON.stringify(unfoldedSeparators));
+    this.state.unfoldedSeparators = unfoldedSeparators;
+}</code></pre>
+    </div>
+    <p>这些方法实现了属性组折叠状态的持久化存储：</p>
+    <ul>
+        <li>使用localStorage存储每个定义记录的折叠状态</li>
+        <li>支持点击分隔符切换折叠状态</li>
+        <li>自动清理不再存在的分隔符的状态</li>
+    </ul>
+    
+    <h3>8. 权限控制</h3>
+    <div class="code-block">
+        <pre><code>async _checkDefinitionAccess() {
+    this.parentName = this.props.record.data[this.definitionRecordField][1];
+    this.parentString = this.props.record.fields[this.definitionRecordField].string;
+
+    if (!this.definitionRecordModel) {
+        this.state.canChangeDefinition = false;
+        return;
+    }
+
+    // 检查我们是否可以写入定义记录
+    this.state.canChangeDefinition = await user.checkAccessRight(
+        this.definitionRecordModel,
+        "write"
+    );
+}
+
+async checkDefinitionWriteAccess() {
+    if (!this.definitionRecordId || !this.definitionRecordModel) {
+        return false;
+    }
+
+    return await user.checkAccessRight(
+        this.definitionRecordModel,
+        "write",
+        this.definitionRecordId
+    );
+}</code></pre>
+    </div>
+    <p>这些方法实现了基于权限的控制：</p>
+    <ul>
+        <li>检查用户是否有权修改父记录以更新属性定义</li>
+        <li>根据权限控制UI中可用的操作</li>
+        <li>提供友好的错误消息指导用户</li>
+    </ul>
+    
+    <h2>关键设计特性</h2>
+    
+    <h3>1. 属性名称管理</h3>
+    <p>当属性类型或模型发生变化时，组件需要重新生成属性名称以重置子属性值：</p>
+    <div class="code-block">
+        <pre><code>_regeneratePropertyName(propertyDefinition) {
+    const initialValues = this.initialValues[propertyDefinition.name];
+    if (
+        initialValues &&
+        propertyDefinition.type === initialValues.type &&
+        propertyDefinition.comodel === initialValues.comodel
+    ) {
+        // 还原原始名称
+        propertyDefinition.name = initialValues.name;
+    } else if (initialValues && initialValues.name === propertyDefinition.name) {
+        // 生成新名称以重置其他记录上的所有值
+        const newName = this.generatePropertyName();
+        this.initialValues[newName] = initialValues;
+        propertyDefinition.name = newName;
+    }
+}</code></pre>
+    </div>
+    
+    <h3>2. 响应式布局</h3>
+    <p>组件根据屏幕大小自动调整列数：</p>
+    <div class="code-block">
+        <pre><code>get renderedColumnsCount() {
+    return this.env.isSmall ? 1 : this.props.columns;
+}</code></pre>
+    </div>
+    
+    <h3>3. 性能优化</h3>
+    <p>组件采用了多种优化手段：</p>
+    <ul>
+        <li>使用useState进行响应式状态管理</li>
+        <li>使用useEffect处理UI更新后的操作</li>
+        <li>深拷贝属性值以避免意外修改</li>
+        <li>使用useRef实现对DOM元素的稳定引用</li>
+    </ul>
+    
+    <h2>组件注册和扩展点</h2>
+    <div class="code-block">
+        <pre><code>export const propertiesField = {
+    component: PropertiesField,
+    displayName: _t("Properties"),
+    supportedTypes: ["properties"],
+    extractProps({ attrs }, dynamicInfo) {
+        return {
+            context: dynamicInfo.context,
+            columns: parseInt(attrs.columns || "1"),
+            showAddButton: exprToBoolean(attrs.showAddButton),
+        };
+    },
+};
+
+registry.category("fields").add("properties", propertiesField);</code></pre>
+    </div>
+    <p>组件向字段注册表注册了自己，支持以下配置：</p>
+    <ul>
+        <li><code>columns</code>：属性布局的列数（1或2）</li>
+        <li><code>showAddButton</code>：是否显示添加属性按钮</li>
+        <li><code>context</code>：上下文，自动从动态信息中提取</li>
+    </ul>
+    
+    <h2>使用场景</h2>
+    
+    <h3>1. 基本属性字段</h3>
+    <div class="code-block">
+        <pre><code>&lt;field name="custom_properties" widget="properties"/&gt;</code></pre>
+    </div>
+    
+    <h3>2. 双列布局</h3>
+    <div class="code-block">
+        <pre><code>&lt;field name="custom_properties" widget="properties" columns="2"/&gt;</code></pre>
+    </div>
+    
+    <h3>3. 隐藏添加按钮</h3>
+    <div class="code-block">
+        <pre><code>&lt;field name="custom_properties" widget="properties" showAddButton="false"/&gt;</code></pre>
+    </div>
+    
+    <h2>功能流程示例</h2>
+    
+    <div class="flow-diagram">
+        <h3>创建新属性流程</h3>
+        <ol>
+            <li>用户点击"添加属性"按钮</li>
+            <li>系统调用onPropertyCreate()，添加新的属性定义</li>
+            <li>自动打开属性定义弹窗</li>
+            <li>用户配置属性类型、标签等</li>
+            <li>用户关闭弹窗，系统调用_setDefaultPropertyValue设置默认值</li>
+            <li>新属性显示在界面上，用户可以编辑属性值</li>
+        </ol>
+    </div>
+    
+    <div class="flow-diagram">
+        <h3>组和属性排序流程</h3>
+        <ol>
+            <li>用户拖动组或属性</li>
+            <li>系统记录拖动起点和终点</li>
+            <li>根据终点计算新的位置</li>
+            <li>更新属性列表顺序</li>
+            <li>如果在多列视图中需要，系统会自动创建分隔符</li>
+            <li>界面实时更新显示新的排序</li>
+        </ol>
+    </div>
+    
+    <h2>Odoo 18中的特性</h2>
+    <p>Odoo 18中的PropertiesField组件具有以下特点：</p>
+    <ul>
+        <li>完全基于OWL框架实现，性能更好</li>
+        <li>更灵活的布局选项，支持多列和响应式</li>
+        <li>增强的拖放体验，支持属性组和属性的排序</li>
+        <li>更完善的权限控制</li>
+        <li>更好的状态持久化</li>
+        <li>改进的弹窗交互和用户体验</li>
+    </ul>
+    
+    <h2>核心API一览</h2>
+    <table>
+        <tr>
+            <th>类别</th>
+            <th>API</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td rowspan="3">数据访问</td>
+            <td>get propertiesList()</td>
+            <td>获取当前属性值列表</td>
+        </tr>
+        <tr>
+            <td>get groupedPropertiesList()</td>
+            <td>获取分组和列化后的属性</td>
+        </tr>
+        <tr>
+            <td>get renderedColumnsCount()</td>
+            <td>获取当前渲染的列数</td>
+        </tr>
+        <tr>
+            <td rowspan="3">属性操作</td>
+            <td>onPropertyCreate()</td>
+            <td>创建新属性</td>
+        </tr>
+        <tr>
+            <td>onPropertyDelete(propertyName)</td>
+            <td>删除属性</td>
+        </tr>
+        <tr>
+            <td>onPropertyDefinitionChange(propertyDefinition)</td>
+            <td>更新属性定义</td>
+        </tr>
+        <tr>
+            <td rowspan="3">排序管理</td>
+            <td>onPropertyMove(propertyName, direction)</td>
+            <td>上下移动属性</td>
+        </tr>
+        <tr>
+            <td>onPropertyMoveTo(propertyName, toPropertyName, moveBefore)</td>
+            <td>移动属性到指定位置</td>
+        </tr>
+        <tr>
+            <td>onGroupMoveTo(propertyName, toPropertyName)</td>
+            <td>移动属性组到指定位置</td>
+        </tr>
+        <tr>
+            <td rowspan="2">值管理</td>
+            <td>onPropertyValueChange(propertyName, propertyValue)</td>
+            <td>更新属性值</td>
+        </tr>
+        <tr>
+            <td>_setDefaultPropertyValue(propertyName)</td>
+            <td>设置默认属性值</td>
+        </tr>
+        <tr>
+            <td rowspan="2">UI状态</td>
+            <td>onSeparatorClick(propertyName)</td>
+            <td>切换属性组折叠状态</td>
+        </tr>
+        <tr>
+            <td>_unfoldSeparators(separatorNames, forceUnfold)</td>
+            <td>管理属性组的折叠状态</td>
+        </tr>
+    </table>
+    
+    <h2>小结</h2>
+    <p>PropertiesField是Odoo 18中一个功能强大的组件，它提供了：</p>
+    <ul>
+        <li>灵活的动态属性定义和管理</li>
+        <li>直观的用户界面</li>
+        <li>精心设计的布局和排序系统</li>
+        <li>完善的权限控制</li>
+        <li>高性能的实现</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在设计需要用户自定义字段的模型时，应优先考虑使用Properties字段而不是传统的自定义字段方法。Properties字段不仅提供了更好的用户体验，还避免了数据库结构的频繁变更，减少了升级和维护的复杂性。
+    </div>
+</body>
+</html> 

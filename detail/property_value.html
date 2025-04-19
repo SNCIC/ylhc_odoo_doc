@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo属性值组件解析</title>
+    <link rel="stylesheet" href="../css/docs.css">
+</head>
+<body>
+    <h1>Odoo属性值组件(PropertyValue)解析</h1>
+    
+    <h2>文件概述</h2>
+    <p><code>property_value.js</code>是Odoo 18中属性系统的核心组件之一，它负责处理和显示不同类型属性的值。这个组件能够根据属性类型自动实例化适当的编辑器和显示组件，支持多种数据类型，并提供统一的交互界面。</p>
+    
+    <div class="note">
+        <strong>概念简介：</strong>PropertyValue组件是连接属性定义和用户界面的桥梁，它将属性值转换为用户可以查看和编辑的表单元素，同时处理值的转换、验证和格式化。
+    </div>
+    
+    <h2>主要功能</h2>
+    <ol>
+        <li><strong>多类型值支持</strong>：支持文本、整数、小数、布尔值、日期、时间、选择项、标签以及多种关联字段类型</li>
+        <li><strong>值的格式化</strong>：根据类型将内部值格式化为人类可读的显示格式</li>
+        <li><strong>值的解析</strong>：将用户输入的值转换为系统可处理的内部格式</li>
+        <li><strong>关联记录交互</strong>：支持点击关联字段打开相关记录</li>
+        <li><strong>智能头像显示</strong>：对特定模型(如用户和合作伙伴)显示头像</li>
+        <li><strong>权限感知</strong>：根据用户权限和配置调整界面行为</li>
+    </ol>
+    
+    <h2>组件结构</h2>
+    <p>PropertyValue是一个功能丰富的组件，它根据属性类型渲染不同的编辑界面：</p>
+    
+    <div class="code-block">
+        <pre><code>export class PropertyValue extends Component {
+    static template = "web.PropertyValue";
+    static components = {
+        Dropdown,
+        DropdownItem,
+        CheckBox,
+        DateTimeInput,
+        Many2XAutocomplete,
+        TagsList,
+        AutoComplete,
+        PropertyTags,
+    };
+
+    static props = {
+        id: { type: String, optional: true },
+        type: { type: String, optional: true },
+        comodel: { type: String, optional: true },
+        domain: { type: String, optional: true },
+        string: { type: String, optional: true },
+        value: { optional: true },
+        context: { type: Object },
+        readonly: { type: Boolean, optional: true },
+        canChangeDefinition: { type: Boolean, optional: true },
+        checkDefinitionWriteAccess: { type: Function, optional: true },
+        selection: { type: Array, optional: true },
+        tags: { type: Array, optional: true },
+        onChange: { type: Function, optional: true },
+        onTagsChange: { type: Function, optional: true },
+    };
+    
+    setup() {
+        // ... 组件初始化代码
+    }
+    
+    // ... 其他方法
+}</code></pre>
+    </div>
+    
+    <h3>组件属性(Props)</h3>
+    <table>
+        <tr>
+            <th>属性名</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>是否可选</th>
+        </tr>
+        <tr>
+            <td>id</td>
+            <td>String</td>
+            <td>属性的唯一标识符</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>type</td>
+            <td>String</td>
+            <td>属性的类型(char, integer, float, boolean, date, datetime, selection, tags, many2one, many2many等)</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>comodel</td>
+            <td>String</td>
+            <td>关联字段的目标模型名称</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>domain</td>
+            <td>String</td>
+            <td>关联字段的过滤域表达式</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>string</td>
+            <td>String</td>
+            <td>属性的显示名称</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>value</td>
+            <td>Any</td>
+            <td>属性的当前值</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>context</td>
+            <td>Object</td>
+            <td>Odoo环境上下文</td>
+            <td>必选</td>
+        </tr>
+        <tr>
+            <td>readonly</td>
+            <td>Boolean</td>
+            <td>是否为只读模式</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>canChangeDefinition</td>
+            <td>Boolean</td>
+            <td>是否允许更改属性定义</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>checkDefinitionWriteAccess</td>
+            <td>Function</td>
+            <td>检查用户是否有权更改属性定义的函数</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>selection</td>
+            <td>Array</td>
+            <td>选择类型属性的选项列表</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>tags</td>
+            <td>Array</td>
+            <td>标签类型属性的标签列表</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>onChange</td>
+            <td>Function</td>
+            <td>值变更时的回调函数</td>
+            <td>可选</td>
+        </tr>
+        <tr>
+            <td>onTagsChange</td>
+            <td>Function</td>
+            <td>标签定义变更时的回调函数</td>
+            <td>可选</td>
+        </tr>
+    </table>
+    
+    <h2>核心方法和特性</h2>
+    
+    <h3>Getter方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>propertyValue</td>
+            <td>根据属性类型处理并返回属性值，进行类型转换和格式化</td>
+        </tr>
+        <tr>
+            <td>propertyDomain</td>
+            <td>返回处理后的关联字段过滤域，对于many2many类型会排除已选择的记录</td>
+        </tr>
+        <tr>
+            <td>displayValue</td>
+            <td>返回只读模式下显示的格式化值</td>
+        </tr>
+        <tr>
+            <td>clickableRelational</td>
+            <td>判断关联字段是否可点击（在看板视图中不可点击）</td>
+        </tr>
+        <tr>
+            <td>showAvatar</td>
+            <td>判断是否显示头像（用于res.users和res.partner模型）</td>
+        </tr>
+    </table>
+    
+    <h3>事件处理方法</h3>
+    <table>
+        <tr>
+            <th>方法名</th>
+            <th>描述</th>
+        </tr>
+        <tr>
+            <td>onValueChange</td>
+            <td>处理值变更事件，进行适当的类型转换和格式化</td>
+        </tr>
+        <tr>
+            <td>onMany2oneClick</td>
+            <td>处理点击many2one字段的事件，打开关联记录</td>
+        </tr>
+        <tr>
+            <td>onExternalLinkClick</td>
+            <td>处理点击外部链接图标的事件，在模态框中打开关联记录</td>
+        </tr>
+        <tr>
+            <td>onMany2manyDelete</td>
+            <td>处理从many2many列表中删除记录的事件</td>
+        </tr>
+        <tr>
+            <td>onQuickCreate</td>
+            <td>处理快速创建关联记录的事件</td>
+        </tr>
+    </table>
+    
+    <h3>私有方法</h3>
+    <ul>
+        <li><code>_openRecord</code>：打开指定模型和ID的记录表单视图</li>
+        <li><code>_nameGet</code>：获取记录的显示名称</li>
+    </ul>
+    
+    <h2>属性值处理流程</h2>
+    <p>PropertyValue组件处理属性值的流程非常精细，针对不同类型有专门的处理逻辑：</p>
+    
+    <div class="code-block">
+        <pre><code>get propertyValue() {
+    const value = this.props.value;
+
+    if (this.props.type === "float") {
+        // 强制至少显示1位小数，即使是整数
+        return value;
+    } else if (this.props.type === "datetime") {
+        const datetimeValue = typeof value === "string" ? deserializeDateTime(value) : value;
+        return datetimeValue && !datetimeValue.invalid ? datetimeValue : false;
+    } else if (this.props.type === "date") {
+        const dateValue = typeof value === "string" ? deserializeDate(value) : value;
+        return dateValue && !dateValue.invalid ? dateValue : false;
+    } else if (this.props.type === "boolean") {
+        return !!value;
+    } else if (this.props.type === "selection") {
+        const options = this.props.selection || [];
+        const option = options.find((option) => option[0] === value);
+        return option && option.length === 2 && option[0] ? option[0] : "";
+    } else if (this.props.type === "many2one") {
+        return !value || value.length !== 2 || !value[0] ? false : value;
+    } else if (this.props.type === "many2many") {
+        // ... 处理many2many值的逻辑
+    } else if (this.props.type === "tags") {
+        return value || [];
+    }
+
+    return value;
+}</code></pre>
+    </div>
+    
+    <h3>值格式化</h3>
+    <p>在只读模式下，PropertyValue组件会将属性值格式化为人类可读的形式：</p>
+    
+    <div class="code-block">
+        <pre><code>get displayValue() {
+    const value = this.propertyValue;
+
+    if (this.props.type === "many2one" && value && value.length === 2) {
+        return formatMany2one(value);
+    } else if (this.props.type === "integer") {
+        return formatInteger(value || 0);
+    } else if (this.props.type === "float") {
+        return formatFloat(value || 0);
+    } else if (!value) {
+        return false;
+    } else if (this.props.type === "datetime" && value) {
+        return formatDateTime(value);
+    } else if (this.props.type === "date" && value) {
+        return formatDate(value);
+    } else if (this.props.type === "selection") {
+        return this.props.selection.find((option) => option[0] === value)[1];
+    }
+    return value.toString();
+}</code></pre>
+    </div>
+    
+    <h3>值变更处理</h3>
+    <p>当用户修改属性值时，组件会进行适当的类型转换和处理：</p>
+    
+    <div class="code-block">
+        <pre><code>async onValueChange(newValue) {
+    if (this.props.type === "datetime") {
+        newValue = newValue && serializeDateTime(newValue);
+    } else if (this.props.type === "date") {
+        newValue = newValue && serializeDate(newValue);
+    } else if (this.props.type === "integer") {
+        try {
+            newValue = parseInteger(newValue) || 0;
+        } catch {
+            newValue = 0;
+        }
+    } else if (this.props.type === "float") {
+        try {
+            newValue = parseFloat(newValue) || 0;
+        } catch {
+            newValue = 0;
+        }
+    } else if (["many2one", "many2many"].includes(this.props.type)) {
+        // {id: 5, name: 'Demo'} => [5, 'Demo']
+        newValue =
+            newValue && newValue.length && newValue[0].id
+                ? [newValue[0].id, newValue[0].name]
+                : false;
+
+        if (newValue && newValue[0] && newValue[1] === undefined) {
+            // 只返回记录ID的情况，需要查询名称
+            newValue = await this._nameGet(newValue[0]);
+        }
+
+        if (this.props.type === "many2many" && newValue) {
+            // 将记录添加到当前many2many列表中
+            const currentValue = this.props.value || [];
+            const recordId = newValue[0];
+            const exists = currentValue.find((rec) => rec[0] === recordId);
+            if (exists) {
+                return;
+            }
+            newValue = [...currentValue, newValue];
+        }
+    }
+
+    // 触发onChange事件通知父组件
+    this.props.onChange(newValue);
+}</code></pre>
+    </div>
+    
+    <h2>关联字段功能</h2>
+    <p>PropertyValue组件对关联字段(many2one/many2many)提供了丰富的功能支持：</p>
+    
+    <h3>域过滤</h3>
+    <p>组件会处理域表达式，限制可选的记录范围：</p>
+    <div class="code-block">
+        <pre><code>get propertyDomain() {
+    if (!this.props.domain || !this.props.domain.length) {
+        return [];
+    }
+    let domain = new Domain(this.props.domain);
+    if (this.props.type === "many2many" && this.props.value) {
+        domain = Domain.and([
+            domain,
+            [["id", "not in", this.props.value.map((rec) => rec[0])]],
+        ]);
+    }
+    return domain.toList();
+}</code></pre>
+    </div>
+    
+    <h3>记录交互</h3>
+    <p>支持点击关联记录打开表单视图：</p>
+    <div class="code-block">
+        <pre><code>async onMany2oneClick(event) {
+    if (this.props.readonly) {
+        event.stopPropagation();
+        await this._openRecord(this.props.comodel, this.propertyValue[0]);
+    }
+}
+
+async _openRecord(recordModel, recordId) {
+    const action = await this.orm.call(recordModel, "get_formview_action", [[recordId]], {
+        context: this.props.context,
+    });
+
+    this.action.doAction(action);
+}</code></pre>
+    </div>
+    
+    <h3>快速创建</h3>
+    <p>对于关联字段，支持直接创建新记录：</p>
+    <div class="code-block">
+        <pre><code>async onQuickCreate(name, params = {}) {
+    const result = await this.orm.call(this.props.comodel, "name_create", [name], {
+        context: this.props.context,
+    });
+    this.onValueChange([{ id: result[0], name: result[1] }]);
+}</code></pre>
+    </div>
+    
+    <h2>多种属性类型支持</h2>
+    <p>PropertyValue组件支持多种属性类型，针对每种类型提供专门的编辑界面和处理逻辑：</p>
+    
+    <table>
+        <tr>
+            <th>属性类型</th>
+            <th>编辑界面</th>
+            <th>特殊处理</th>
+        </tr>
+        <tr>
+            <td>char (文本)</td>
+            <td>文本输入框</td>
+            <td>基本文本处理</td>
+        </tr>
+        <tr>
+            <td>integer (整数)</td>
+            <td>数字输入框</td>
+            <td>整数解析和格式化</td>
+        </tr>
+        <tr>
+            <td>float (小数)</td>
+            <td>数字输入框</td>
+            <td>小数解析和格式化，至少显示一位小数</td>
+        </tr>
+        <tr>
+            <td>boolean (布尔值)</td>
+            <td>复选框</td>
+            <td>转换为布尔值</td>
+        </tr>
+        <tr>
+            <td>date (日期)</td>
+            <td>日期选择器</td>
+            <td>日期序列化和反序列化</td>
+        </tr>
+        <tr>
+            <td>datetime (日期时间)</td>
+            <td>日期时间选择器</td>
+            <td>日期时间序列化和反序列化</td>
+        </tr>
+        <tr>
+            <td>selection (选择)</td>
+            <td>下拉选择框</td>
+            <td>基于选项列表显示和选择</td>
+        </tr>
+        <tr>
+            <td>tags (标签)</td>
+            <td>PropertyTags组件</td>
+            <td>标签的选择和管理</td>
+        </tr>
+        <tr>
+            <td>many2one (单一关联)</td>
+            <td>Many2XAutocomplete组件</td>
+            <td>支持搜索、选择和创建关联记录</td>
+        </tr>
+        <tr>
+            <td>many2many (多关联)</td>
+            <td>Many2XAutocomplete + TagsList</td>
+            <td>支持添加、删除多个关联记录</td>
+        </tr>
+    </table>
+    
+    <h2>头像和显示优化</h2>
+    <p>对于特定的关联模型(res.users和res.partner)，PropertyValue组件会自动显示头像：</p>
+    
+    <div class="code-block">
+        <pre><code>get showAvatar() {
+    return (
+        ["many2one", "many2many"].includes(this.props.type) &&
+        ["res.users", "res.partner"].includes(this.props.comodel)
+    );
+}
+
+// 在处理many2many值时使用
+img:
+    this.showAvatar && hasAccess
+        ? imageUrl(this.props.comodel, many2manyValue[0], "avatar_128")
+        : null,</code></pre>
+    </div>
+    
+    <div class="note">
+        <strong>视图适配：</strong>PropertyValue组件会根据当前视图类型调整行为，例如在看板视图中关联字段不可点击，这有助于提供一致的用户体验。
+    </div>
+    
+    <h2>使用实例</h2>
+    
+    <h3>基本文本属性</h3>
+    <div class="code-block">
+        <pre><code>// 在组件中使用PropertyValue显示和编辑文本属性
+&lt;PropertyValue
+    type="char"
+    string="客户备注"
+    value="这是一个客户备注"
+    onChange={(newValue) => this.updateProperty('customer_note', newValue)}
+/&gt;</code></pre>
+    </div>
+    
+    <h3>数字属性</h3>
+    <div class="code-block">
+        <pre><code>// 整数属性
+&lt;PropertyValue
+    type="integer"
+    string="数量"
+    value={10}
+    onChange={(newValue) => this.updateProperty('quantity', newValue)}
+/&gt;
+
+// 小数属性
+&lt;PropertyValue
+    type="float"
+    string="单价"
+    value={99.99}
+    onChange={(newValue) => this.updateProperty('price', newValue)}
+/&gt;</code></pre>
+    </div>
+    
+    <h3>日期和时间属性</h3>
+    <div class="code-block">
+        <pre><code>// 日期属性
+&lt;PropertyValue
+    type="date"
+    string="交付日期"
+    value="2023-12-31"
+    onChange={(newValue) => this.updateProperty('delivery_date', newValue)}
+/&gt;
+
+// 日期时间属性
+&lt;PropertyValue
+    type="datetime"
+    string="创建时间"
+    value="2023-12-31 14:30:00"
+    onChange={(newValue) => this.updateProperty('created_at', newValue)}
+/&gt;</code></pre>
+    </div>
+    
+    <h3>选择属性</h3>
+    <div class="code-block">
+        <pre><code>// 选择属性
+&lt;PropertyValue
+    type="selection"
+    string="优先级"
+    selection={[
+        ["low", "低"],
+        ["medium", "中"],
+        ["high", "高"],
+    ]}
+    value="medium"
+    onChange={(newValue) => this.updateProperty('priority', newValue)}
+/&gt;</code></pre>
+    </div>
+    
+    <h3>关联字段属性</h3>
+    <div class="code-block">
+        <pre><code>// many2one属性
+&lt;PropertyValue
+    type="many2one"
+    string="负责人"
+    comodel="res.users"
+    domain="[('active', '=', true)]"
+    value={[5, "张三"]}
+    context={this.env.context}
+    onChange={(newValue) => this.updateProperty('responsible_id', newValue)}
+/&gt;
+
+// many2many属性
+&lt;PropertyValue
+    type="many2many"
+    string="参与者"
+    comodel="res.partner"
+    value={[
+        [1, "李四"],
+        [2, "王五"],
+    ]}
+    context={this.env.context}
+    onChange={(newValue) => this.updateProperty('participants', newValue)}
+/&gt;</code></pre>
+    </div>
+    
+    <h2>数据转换流程</h2>
+    <p>PropertyValue组件在处理属性值时，实现了一套完整的数据转换流程：</p>
+    
+    <div class="workflow">
+        <h3>输入值处理流程</h3>
+        <ol>
+            <li>用户在界面输入或选择值</li>
+            <li>组件根据属性类型处理输入值：
+                <ul>
+                    <li>文本类型：保持原样</li>
+                    <li>数字类型：转换为数字并验证</li>
+                    <li>日期类型：序列化为标准格式</li>
+                    <li>关联类型：转换为[id, name]格式</li>
+                </ul>
+            </li>
+            <li>调用onChange回调将处理后的值传递给父组件</li>
+            <li>父组件更新状态或存储值</li>
+        </ol>
+    </div>
+    
+    <div class="workflow">
+        <h3>显示值处理流程</h3>
+        <ol>
+            <li>组件接收来自父组件的原始值</li>
+            <li>propertyValue getter方法处理原始值，转换为适合编辑的格式</li>
+            <li>displayValue getter方法处理值，转换为适合只读显示的格式</li>
+            <li>组件根据readonly属性选择显示编辑界面或只读界面</li>
+            <li>用户界面呈现格式化后的值</li>
+        </ol>
+    </div>
+    
+    <h2>特性和优点</h2>
+    <ul>
+        <li><strong>类型多样性</strong>：支持多种数据类型，满足不同业务需求</li>
+        <li><strong>自动格式化</strong>：根据类型自动格式化值，提高可读性</li>
+        <li><strong>智能界面</strong>：为不同类型提供专门的编辑界面</li>
+        <li><strong>数据验证</strong>：确保输入值符合预期类型和格式</li>
+        <li><strong>交互增强</strong>：支持关联记录的查看和编辑</li>
+        <li><strong>视图适配</strong>：根据视图类型调整组件行为</li>
+    </ul>
+    
+    <h2>Odoo 18中的新特性</h2>
+    <ul>
+        <li><strong>增强的类型支持</strong>：改进对各种数据类型的处理</li>
+        <li><strong>视图优化</strong>：针对不同视图类型的显示优化</li>
+        <li><strong>关联记录交互</strong>：更好的关联记录浏览和创建体验</li>
+        <li><strong>性能优化</strong>：提高大量属性时的渲染性能</li>
+        <li><strong>用户体验改进</strong>：更直观的界面和交互方式</li>
+    </ul>
+    
+    <h2>实际应用场景</h2>
+    <ol>
+        <li><strong>客户管理</strong>：显示和编辑客户的自定义属性，如行业、规模、联系偏好等</li>
+        <li><strong>产品配置</strong>：管理产品的技术参数、规格和选项</li>
+        <li><strong>资产管理</strong>：记录资产的属性，如购买日期、价值、责任人等</li>
+        <li><strong>项目跟踪</strong>：管理项目的自定义字段，如优先级、截止日期、进度等</li>
+        <li><strong>员工档案</strong>：维护员工的附加信息，如技能、证书、培训记录等</li>
+    </ol>
+    
+    <div class="warning">
+        <strong>注意事项：</strong>
+        <ul>
+            <li>对于性能要求高的场景，应避免大量使用关联字段属性</li>
+            <li>复杂的域表达式可能会影响关联字段的加载性能</li>
+            <li>更改属性类型后，需要注意处理已有数据的兼容性</li>
+            <li>关联字段需要确保用户对目标模型有足够的访问权限</li>
+        </ul>
+    </div>
+    
+    <h2>小结</h2>
+    <p>PropertyValue组件是Odoo 18中属性系统的核心组件之一，它提供了：</p>
+    <ul>
+        <li>多种数据类型的统一处理机制</li>
+        <li>专业的数据格式化和解析能力</li>
+        <li>丰富的用户界面和交互体验</li>
+        <li>强大的关联字段处理功能</li>
+        <li>与Odoo其他组件的无缝集成</li>
+    </ul>
+    
+    <div class="note">
+        <strong>最佳实践：</strong>在使用PropertyValue组件时，应选择最适合数据类型的属性类型，避免类型转换带来的复杂性。对于经常需要查询或过滤的字段，考虑使用常规模型字段而非属性字段，以获得更好的性能。
+    </div>
+</body>
+</html> 
